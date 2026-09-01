@@ -11,10 +11,12 @@ from uuid import uuid4
 from langgraph.graph import END, START, StateGraph
 
 from app.contracts import Escalation, EscalationReason
+from app.graph.knowledge import answer as knowledge_answer
 from app.graph.router import route
 from app.graph.state import GraphState
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider
+from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 
 _ESCALATION_MESSAGE = "escalation"
@@ -35,9 +37,20 @@ def pick_specialist(
     return state.route.target_agent.value
 
 
-async def knowledge_stub(state: GraphState) -> dict[str, Any]:
-    """Placeholder until T-09. It escalates rather than inventing an ungrounded answer."""
-    return {"handoff_reason": EscalationReason.AGENT_NOT_IMPLEMENTED.value}
+async def knowledge(
+    state: GraphState,
+    provider: LLMProvider,
+    retriever: HybridRetriever,
+    threshold: float,
+) -> dict[str, Any]:
+    """Retrieve on the router's Portuguese query, then answer from what came back."""
+    query = state.route.query_pt if state.route else state.message
+    return await knowledge_answer(state, provider, retriever.search(query), threshold)
+
+
+def after_knowledge(state: GraphState) -> Literal["escalate", "done"]:
+    """A refusal is a handoff; a grounded answer ends the request."""
+    return "escalate" if state.refusal_reason else "done"
 
 
 async def support_stub(state: GraphState) -> dict[str, Any]:
@@ -47,13 +60,10 @@ async def support_stub(state: GraphState) -> dict[str, Any]:
 
 async def escalate(state: GraphState) -> dict[str, Any]:
     """Terminal handoff. Deterministic, with no model call."""
-    reason = (
-        EscalationReason(state.handoff_reason)
-        if state.handoff_reason
-        else EscalationReason.LOW_ROUTER_CONFIDENCE
-    )
+    raw_reason = state.refusal_reason or state.handoff_reason
+    reason = EscalationReason(raw_reason) if raw_reason else EscalationReason.LOW_ROUTER_CONFIDENCE
     protocol = _protocol()
-    body = load_prompt(_STUB_MESSAGE).text if state.handoff_reason else ""
+    body = state.answer or (load_prompt(_STUB_MESSAGE).text if state.handoff_reason else "")
     handoff = load_prompt(_ESCALATION_MESSAGE).text.format(protocol=protocol)
     summary = state.masked_message or state.message
     return {
@@ -62,11 +72,19 @@ async def escalate(state: GraphState) -> dict[str, Any]:
     }
 
 
-def build_graph(provider: LLMProvider, settings: Settings):
+def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetriever):
     """Compile the orchestration graph."""
     graph = StateGraph(GraphState)
     graph.add_node("router", partial(route, provider=provider))
-    graph.add_node("knowledge", knowledge_stub)
+    graph.add_node(
+        "knowledge",
+        partial(
+            knowledge,
+            provider=provider,
+            retriever=retriever,
+            threshold=settings.retrieval_confidence_threshold,
+        ),
+    )
     graph.add_node("support", support_stub)
     graph.add_node("escalate", escalate)
 
@@ -76,7 +94,7 @@ def build_graph(provider: LLMProvider, settings: Settings):
         partial(pick_specialist, threshold=settings.router_confidence_threshold),
         {"knowledge": "knowledge", "support": "support", "escalate": "escalate"},
     )
-    graph.add_edge("knowledge", "escalate")
+    graph.add_conditional_edges("knowledge", after_knowledge, {"escalate": "escalate", "done": END})
     graph.add_edge("support", "escalate")
     graph.add_edge("escalate", END)
     return graph.compile()

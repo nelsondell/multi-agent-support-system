@@ -9,14 +9,19 @@ from app.contracts import ChatRequest, ChatResponse, Intent
 from app.graph.build import build_graph
 from app.graph.state import GraphState
 from app.providers.llm import build_provider
+from app.rag.retrieve import HybridRetriever
 from app.settings import get_settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Build the provider and compile the graph once, failing fast on bad configuration."""
+    """Build the provider and compile the graph once, failing fast on bad configuration.
+
+    The index is never built here: a missing one raises with the command that creates it.
+    """
     settings = get_settings()
-    app.state.graph = build_graph(build_provider(settings), settings)
+    retriever = HybridRetriever.from_settings(settings)
+    app.state.graph = build_graph(build_provider(settings), settings, retriever)
     yield
 
 

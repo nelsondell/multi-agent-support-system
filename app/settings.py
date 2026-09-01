@@ -18,6 +18,11 @@ class Settings(BaseSettings):
 
     router_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     retrieval_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
+    """Not yet calibrated. Measured on the local fallback embedder, in-domain queries score
+    0.59-0.70 and out-of-domain ones 0.50-0.55, so this signal cannot carry out-of-domain
+    rejection: that is the guardrail's job. This threshold only catches in-domain questions
+    the corpus does not cover, and it must be re-measured against whichever embedder is
+    configured."""
     max_hops: int = Field(default=2, ge=1)
 
     index_path: str = "data/processed/chroma"

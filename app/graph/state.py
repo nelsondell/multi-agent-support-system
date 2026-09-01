@@ -29,6 +29,9 @@ class GraphState(BaseModel):
     handoff_reason: str | None = None
     """Set by a specialist that declines the request, read by the router on the second pass."""
 
+    refusal_reason: str | None = None
+    """Set by a specialist that could answer but must not: terminal, unlike a hand-off."""
+
     answer: str | None = None
     sources: list[Source] = Field(default_factory=list)
     escalation: Escalation | None = None
