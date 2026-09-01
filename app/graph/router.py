@@ -47,9 +47,16 @@ def _failed_decision(message: str, error: str) -> RouterDecision:
 async def route(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     """Classify the message and record the decision on the state."""
     prompt = load_prompt("router")
+    question = state.message
+    if state.handoff_reason:
+        question = (
+            f"{state.message}\n\n"
+            "O especialista anterior devolveu esta mensagem: ela não era da área dele. "
+            "Escolha o outro especialista."
+        )
     try:
         decision = await provider.structured(
-            system=prompt.text, user=state.message, schema=RouterDecision
+            system=prompt.text, user=question, schema=RouterDecision
         )
     except LLMProviderError as exc:
         logger.warning("router call failed, falling back to zero confidence: %s", exc)
@@ -57,4 +64,4 @@ async def route(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
 
     if not decision.query_pt:
         decision = decision.model_copy(update={"query_pt": state.message})
-    return {"route": decision, "hops": state.hops + 1}
+    return {"route": decision, "hops": state.hops + 1, "handoff_reason": None}

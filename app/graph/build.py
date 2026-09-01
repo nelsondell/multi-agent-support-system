@@ -6,26 +6,17 @@ conditional edge out of the router, and the specialists are separate destination
 
 from functools import partial
 from typing import Any, Literal
-from uuid import uuid4
 
 from langgraph.graph import END, START, StateGraph
 
-from app.contracts import Escalation, EscalationReason
+from app.graph.escalation import escalate
 from app.graph.knowledge import answer as knowledge_answer
 from app.graph.router import route
 from app.graph.state import GraphState
-from app.prompts import load_prompt
+from app.graph.support import answer as support_answer
 from app.providers.llm import LLMProvider
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
-
-_ESCALATION_MESSAGE = "escalation"
-_STUB_MESSAGE = "not_implemented"
-
-
-def _protocol() -> str:
-    """Mint a handoff protocol the merchant can quote."""
-    return f"ESC-{uuid4().hex[:10].upper()}"
 
 
 def pick_specialist(
@@ -48,28 +39,23 @@ async def knowledge(
     return await knowledge_answer(state, provider, retriever.search(query), threshold)
 
 
-def after_knowledge(state: GraphState) -> Literal["escalate", "done"]:
-    """A refusal is a handoff; a grounded answer ends the request."""
-    return "escalate" if state.refusal_reason else "done"
+def after_specialist(state: GraphState, max_hops: int) -> Literal["router", "escalate", "done"]:
+    """Where a specialist's outcome goes next.
+
+    A refusal is terminal and escalates. A hand-off means the specialist believes the request
+    belongs to the other one: the router gets a second look, but only while the hop budget lasts,
+    so two agents cannot pass the same message back and forth.
+    """
+    if state.refusal_reason:
+        return "escalate"
+    if state.handoff_reason:
+        return "router" if state.hops < max_hops else "escalate"
+    return "done"
 
 
-async def support_stub(state: GraphState) -> dict[str, Any]:
-    """Placeholder until T-11. It escalates rather than guessing about the merchant's money."""
-    return {"handoff_reason": EscalationReason.AGENT_NOT_IMPLEMENTED.value}
-
-
-async def escalate(state: GraphState) -> dict[str, Any]:
-    """Terminal handoff. Deterministic, with no model call."""
-    raw_reason = state.refusal_reason or state.handoff_reason
-    reason = EscalationReason(raw_reason) if raw_reason else EscalationReason.LOW_ROUTER_CONFIDENCE
-    protocol = _protocol()
-    body = state.answer or (load_prompt(_STUB_MESSAGE).text if state.handoff_reason else "")
-    handoff = load_prompt(_ESCALATION_MESSAGE).text.format(protocol=protocol)
-    summary = state.masked_message or state.message
-    return {
-        "answer": f"{body}\n\n{handoff}".strip(),
-        "escalation": Escalation(protocol=protocol, reason=reason, summary=summary),
-    }
+async def support(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
+    """Read the caller's own account and answer from it."""
+    return await support_answer(state, provider)
 
 
 def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetriever):
@@ -85,7 +71,7 @@ def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetr
             threshold=settings.retrieval_confidence_threshold,
         ),
     )
-    graph.add_node("support", support_stub)
+    graph.add_node("support", partial(support, provider=provider))
     graph.add_node("escalate", escalate)
 
     graph.add_edge(START, "router")
@@ -94,7 +80,9 @@ def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetr
         partial(pick_specialist, threshold=settings.router_confidence_threshold),
         {"knowledge": "knowledge", "support": "support", "escalate": "escalate"},
     )
-    graph.add_conditional_edges("knowledge", after_knowledge, {"escalate": "escalate", "done": END})
-    graph.add_edge("support", "escalate")
+    outcome = partial(after_specialist, max_hops=settings.max_hops)
+    destinations = {"router": "router", "escalate": "escalate", "done": END}
+    graph.add_conditional_edges("knowledge", outcome, destinations)
+    graph.add_conditional_edges("support", outcome, destinations)
     graph.add_edge("escalate", END)
     return graph.compile()

@@ -6,7 +6,7 @@ or write, which is what keeps authorization out of prompt space.
 
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class Intent(StrEnum):
@@ -76,3 +76,20 @@ class ChatResponse(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     escalated: bool = False
     escalation: Escalation | None = None
+
+    @model_validator(mode="after")
+    def check_consistency(self) -> "ChatResponse":
+        """Reject responses that say two different things about what happened."""
+        if self.escalated != (self.escalation is not None):
+            raise ValueError("escalated must match the presence of an escalation payload")
+        if self.escalated and self.sources:
+            raise ValueError("an escalated response cites no sources: it answered nothing")
+        if not self.escalated and not self.answer.strip():
+            raise ValueError("a non-escalated response must carry an answer")
+        if (
+            self.escalation is not None
+            and self.escalation.reason is EscalationReason.LOW_ROUTER_CONFIDENCE
+            and self.target_agent is not None
+        ):
+            raise ValueError("routing never reached a specialist, so none may be reported")
+        return self

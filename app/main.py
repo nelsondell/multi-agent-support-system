@@ -5,7 +5,7 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from app.contracts import ChatRequest, ChatResponse, Intent
+from app.contracts import ChatRequest, ChatResponse, EscalationReason, Intent
 from app.graph.build import build_graph
 from app.graph.state import GraphState
 from app.providers.llm import build_provider
@@ -32,10 +32,13 @@ def to_response(final: dict[str, Any]) -> ChatResponse:
     """Project the terminal graph state onto the public contract."""
     state = GraphState.model_validate(final)
     decision = state.route
+    reached_specialist = state.escalation is None or (
+        state.escalation.reason is not EscalationReason.LOW_ROUTER_CONFIDENCE
+    )
     return ChatResponse(
         answer=state.answer or "",
         intent=decision.intent if decision else Intent.OTHER,
-        target_agent=decision.target_agent if decision else None,
+        target_agent=decision.target_agent if decision and reached_specialist else None,
         confidence=decision.confidence if decision else 0.0,
         sources=state.sources,
         escalated=state.escalation is not None,
