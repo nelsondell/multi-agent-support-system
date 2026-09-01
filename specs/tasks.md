@@ -73,10 +73,11 @@ Support agent replaces its stub; hand-back to the router while `hops < 2`.
 **Done when:** out-of-domain is answered without routing, PII is masked before logging, and an
 identity-swap attempt is refused and logged.
 
-### T-13 — `test(T-13): add the routing golden set and its runner`
-`evals/routing.py` and the labelled set.
-**Done when:** the runner reports per-intent accuracy and a confusion matrix, and never runs
-inside `pytest`.
+### T-13 — `test(T-13): add the routing golden set and complete the test suite`
+`evals/run_routing_eval.py` and the labelled set; plus one test module per graph node, the two
+tools, masking, three adversarial cases and an HTTP integration module.
+**Done when:** the runner reports overall and per-class accuracy and never runs inside `pytest`;
+every node, both tools and each adversarial path is covered by the offline suite.
 
 ### T-14 — `build(T-14): package the service and document it`
 Dockerfile, compose with the index volume, README.

@@ -56,3 +56,38 @@ def fake_collection(sample_chunks):
         return FakeCollection(sample_chunks, similarities)
 
     return build
+
+
+class ScriptedProvider:
+    """A fake LLM: answers each schema with a preset object, or raises."""
+
+    def __init__(self, responses: dict | None = None, error: str | None = None) -> None:
+        self._responses = responses or {}
+        self._error = error
+        self.calls: list[tuple[str, str]] = []
+
+    async def structured(self, *, system: str, user: str, schema: type):
+        self.calls.append((schema.__name__, user))
+        if self._error is not None:
+            from app.providers.llm import LLMProviderError
+
+            raise LLMProviderError(self._error)
+        if schema not in self._responses:
+            raise AssertionError(f"no scripted response for {schema.__name__}")
+        return self._responses[schema]
+
+
+@pytest.fixture
+def build_test_graph(sample_chunks, fake_collection):
+    """Compile the real graph over the sampled corpus and a scripted model."""
+
+    def build(responses: dict | None = None, similarities: dict | None = None, **overrides):
+        from app.graph.build import build_graph
+        from app.rag.retrieve import HybridRetriever
+        from app.settings import Settings
+
+        settings = Settings(**overrides)
+        retriever = HybridRetriever(sample_chunks, fake_collection(similarities), top_k=5)
+        return build_graph(ScriptedProvider(responses), settings, retriever)
+
+    return build
