@@ -1,0 +1,68 @@
+{
+  "cliente1988": {
+    "merchant_name": "Padaria Pao Quente Ltda",
+    "plan": "Get Smart",
+    "terminal": {
+      "model": "Get Smart",
+      "serial": "GS-4471-0093",
+      "status": "ativo",
+      "last_seen": "2026-09-01T08:12:00-03:00"
+    },
+    "transactions": [
+      {"id": "TX-20260831-0001", "date": "2026-08-31", "amount": 149.90, "brand": "Visa",
+       "card": "**** **** **** 4321", "installments": 1, "status": "aprovada"},
+      {"id": "TX-20260831-0002", "date": "2026-08-31", "amount": 89.50, "brand": "Mastercard",
+       "card": "**** **** **** 7788", "installments": 1, "status": "aprovada"},
+      {"id": "TX-20260831-0003", "date": "2026-08-31", "amount": 1240.00, "brand": "Visa",
+       "card": "**** **** **** 1102", "installments": 6, "status": "negada"},
+      {"id": "TX-20260830-0007", "date": "2026-08-30", "amount": 62.30, "brand": "Elo",
+       "card": "**** **** **** 5540", "installments": 1, "status": "aprovada"}
+    ],
+    "settlement": [
+      {"date": "2026-09-01", "gross": 239.40, "fees": 8.14, "net": 231.26, "status": "previsto",
+       "reference_date": "2026-08-31"},
+      {"date": "2026-09-02", "gross": 62.30, "fees": 2.12, "net": 60.18, "status": "previsto",
+       "reference_date": "2026-08-30"},
+      {"date": "2026-08-31", "gross": 410.00, "fees": 13.94, "net": 396.06, "status": "liquidado",
+       "reference_date": "2026-08-28"}
+    ]
+  },
+  "cliente2042": {
+    "merchant_name": "Oficina Roda Livre ME",
+    "plan": "Get Classica",
+    "terminal": {
+      "model": "Get Classica",
+      "serial": "GC-1180-7742",
+      "status": "sem_comunicacao",
+      "last_seen": "2026-08-28T19:40:00-03:00"
+    },
+    "transactions": [
+      {"id": "TX-20260828-0011", "date": "2026-08-28", "amount": 780.00, "brand": "Mastercard",
+       "card": "**** **** **** 9031", "installments": 3, "status": "aprovada"}
+    ],
+    "settlement": [
+      {"date": "2026-09-03", "gross": 780.00, "fees": 34.32, "net": 745.68, "status": "previsto",
+       "reference_date": "2026-08-28"}
+    ]
+  },
+  "cliente7771": {
+    "merchant_name": "Studio Bem Estar Servicos",
+    "plan": "Get Mini",
+    "terminal": {
+      "model": "Get Mini",
+      "serial": "GM-9920-3315",
+      "status": "ativo",
+      "last_seen": "2026-09-01T07:55:00-03:00"
+    },
+    "transactions": [
+      {"id": "TX-20260901-0002", "date": "2026-09-01", "amount": 210.00, "brand": "Visa",
+       "card": "**** **** **** 6677", "installments": 2, "status": "aprovada"},
+      {"id": "TX-20260829-0004", "date": "2026-08-29", "amount": 95.00, "brand": "Elo",
+       "card": "**** **** **** 2214", "installments": 1, "status": "estornada"}
+    ],
+    "settlement": [
+      {"date": "2026-09-04", "gross": 210.00, "fees": 7.14, "net": 202.86, "status": "previsto",
+       "reference_date": "2026-09-01"}
+    ]
+  }
+}
