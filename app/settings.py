@@ -1,6 +1,7 @@
 """Application configuration, read once from the environment."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -15,6 +16,11 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.0
     embedding_model: str = "text-embedding-3-small"
+    embedding_backend: Literal["auto", "local", "openai"] = "auto"
+    """Which embedder the index is built and queried with.
+
+    Pinned separately from the chat key on purpose: the embedder is part of the index's
+    identity, so adding an API key must not silently change it under a built index."""
 
     router_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     retrieval_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)

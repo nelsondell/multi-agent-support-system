@@ -94,10 +94,19 @@ class HybridRetriever:
 
         chunks = load_chunks(Path(settings.index_path).parent / "chunks.jsonl")
         client = chromadb.PersistentClient(path=settings.index_path)
-        collection = client.get_collection(
-            name=settings.collection_name,
-            embedding_function=build_embedding_function(settings),
-        )
+        try:
+            collection = client.get_collection(
+                name=settings.collection_name,
+                embedding_function=build_embedding_function(settings),
+            )
+        except ValueError as exc:
+            # The stored vectors belong to whichever embedder built them; querying with another
+            # would compare incomparable spaces. Chroma refuses, and so do we, with the fix.
+            raise ValueError(
+                f"index at {settings.index_path} was built with a different embedder "
+                f"({exc}); rebuild it with `uv run python -m app.rag.ingest` or set "
+                "EMBEDDING_BACKEND to the one it was built with"
+            ) from exc
         return cls(chunks, collection, settings.retrieval_top_k)
 
     def _bm25_order(self, query: str) -> list[str]:

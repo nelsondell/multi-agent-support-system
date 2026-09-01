@@ -2,12 +2,15 @@
 
 from contextlib import asynccontextmanager
 from typing import Any
+from uuid import uuid4
 
+import structlog
 from fastapi import FastAPI
 
 from app.contracts import ChatRequest, ChatResponse, EscalationReason, Intent
 from app.graph.build import build_graph
 from app.graph.state import GraphState
+from app.observability import configure_logging
 from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
 from app.settings import get_settings
@@ -19,6 +22,7 @@ async def lifespan(app: FastAPI):
 
     The index is never built here: a missing one raises with the command that creates it.
     """
+    configure_logging()
     settings = get_settings()
     retriever = HybridRetriever.from_settings(settings)
     app.state.graph = build_graph(build_provider(settings), settings, retriever)
@@ -49,9 +53,13 @@ def to_response(final: dict[str, Any]) -> ChatResponse:
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     """Answer a merchant message, or hand the case to a human."""
-    initial = GraphState(message=request.message, user_id=request.user_id)
-    final = await app.state.graph.ainvoke(initial)
-    return to_response(final)
+    trace_id = uuid4().hex
+    structlog.contextvars.bind_contextvars(trace_id=trace_id)
+    try:
+        initial = GraphState(message=request.message, user_id=request.user_id, trace_id=trace_id)
+        return to_response(await app.state.graph.ainvoke(initial))
+    finally:
+        structlog.contextvars.clear_contextvars()
 
 
 @app.get("/health")

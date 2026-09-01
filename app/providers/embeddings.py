@@ -12,10 +12,19 @@ from app.settings import Settings
 
 
 def build_embedding_function(settings: Settings) -> EmbeddingFunction:
-    """Return the embedding function matching the configured backend."""
+    """Return the embedding function matching the configured backend.
+
+    `auto` follows the API key, which is convenient but means the index's embedder depends on
+    the environment. Pin `local` or `openai` in anything that outlives one machine.
+    """
     from chromadb.utils import embedding_functions
 
-    if settings.openai_api_key:
+    backend = settings.embedding_backend
+    if backend == "auto":
+        backend = "openai" if settings.openai_api_key else "local"
+    if backend == "openai":
+        if not settings.openai_api_key:
+            raise ValueError("embedding_backend is openai but OPENAI_API_KEY is not set")
         return embedding_functions.OpenAIEmbeddingFunction(
             api_key=settings.openai_api_key, model_name=settings.embedding_model
         )

@@ -17,6 +17,9 @@ class GraphState(BaseModel):
     user_id: str
     """Comes from the authenticated request and is never exposed to a model schema."""
 
+    trace_id: str = ""
+    """Correlates every log line of one request."""
+
     masked_message: str = ""
     """Filled by the guardrail; this is the only form that reaches a log."""
 

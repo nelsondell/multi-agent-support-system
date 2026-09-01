@@ -10,10 +10,13 @@ from typing import Any, Literal
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.escalation import escalate
+from app.graph.guardrail import after_guardrail
+from app.graph.guardrail import inspect as guardrail_inspect
 from app.graph.knowledge import answer as knowledge_answer
 from app.graph.router import route
 from app.graph.state import GraphState
 from app.graph.support import answer as support_answer
+from app.observability import instrument_node
 from app.providers.llm import LLMProvider
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
@@ -61,20 +64,23 @@ async def support(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
 def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetriever):
     """Compile the orchestration graph."""
     graph = StateGraph(GraphState)
-    graph.add_node("router", partial(route, provider=provider))
-    graph.add_node(
-        "knowledge",
-        partial(
+    nodes = {
+        "guardrail": guardrail_inspect,
+        "router": partial(route, provider=provider),
+        "knowledge": partial(
             knowledge,
             provider=provider,
             retriever=retriever,
             threshold=settings.retrieval_confidence_threshold,
         ),
-    )
-    graph.add_node("support", partial(support, provider=provider))
-    graph.add_node("escalate", escalate)
+        "support": partial(support, provider=provider),
+        "escalate": escalate,
+    }
+    for name, node in nodes.items():
+        graph.add_node(name, instrument_node(name, node))
 
-    graph.add_edge(START, "router")
+    graph.add_edge(START, "guardrail")
+    graph.add_conditional_edges("guardrail", after_guardrail, {"router": "router", "done": END})
     graph.add_conditional_edges(
         "router",
         partial(pick_specialist, threshold=settings.router_confidence_threshold),
