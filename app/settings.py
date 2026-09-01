@@ -14,12 +14,15 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.0
+    embedding_model: str = "text-embedding-3-small"
 
     router_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     retrieval_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
     max_hops: int = Field(default=2, ge=1)
 
-    index_path: str = "data/index"
+    index_path: str = "data/processed/chroma"
+    collection_name: str = "getnet_kb"
+    retrieval_top_k: int = 5
 
 
 @lru_cache(maxsize=1)
