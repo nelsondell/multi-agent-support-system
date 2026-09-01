@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      # The embedder is part of the index identity: pin it to whatever built the mounted index,
+      # so adding a chat key later cannot silently invalidate it.
+      EMBEDDING_BACKEND: "${EMBEDDING_BACKEND:-local}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:?set OPENAI_API_KEY in .env or the environment}"
+      INDEX_PATH: "/app/data/processed/chroma"
+    volumes:
+      # Built on the host with `uv run python -m app.rag.ingest`. Mounted read-write because
+      # Chroma opens its SQLite store read-write even to serve queries.
+      - ./data/processed:/app/data/processed
+    restart: unless-stopped
