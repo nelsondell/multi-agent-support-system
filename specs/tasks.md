@@ -20,16 +20,17 @@ implementation over `ChatOpenAI.with_structured_output` and a builder that reads
 **Done when:** no module outside this file imports a vendor SDK, so moving to Azure AI Foundry
 touches one file.
 
-### T-03 — `feat(T-03): add api contracts and graph state`
-`app/contracts.py` with the typed enums, `ChatRequest`, `ChatResponse`, `Source`, `Escalation`;
-`app/graph/state.py` with `GraphState` including `hops`.
+### T-03 — `feat(T-03): add api contracts`
+`app/contracts.py` with the typed enums, `ChatRequest`, `ChatResponse`, `Source`, `Escalation`.
 **Done when:** models validate the spec §3 payloads and no model-facing schema carries an
 identity field.
 
-### T-04 — `feat(T-04): add router node with structured output`
+### T-04 — `feat(T-04): add router node with structured output and graph state`
 `app/prompts/router.md` (pt-BR, versioned) and the prompt loader; `app/graph/router.py` with
 `RouterDecision` (`intent`, `target_agent`, `confidence`, `rationale`, `lang`, `query_pt`) and
-the node. Provider failure returns `confidence = 0.0` rather than raising or branching.
+the node; `app/graph/state.py` with `GraphState` including `hops`. State and router ship together
+because the state carries the decision the router produces. Provider failure returns
+`confidence = 0.0` rather than raising or branching.
 **Done when:** `tests/test_router.py` covers a knowledge case, a support case and a provider
 failure, all with a mocked provider.
 
