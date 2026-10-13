@@ -1,140 +1,288 @@
-# Spec — multi-agent support system
+# Spec — multi-agent support system (v2)
+
+## 0. What changed since v1
+
+v1 was evaluated at 8.7/10. v2 closes every gap in that feedback and keeps what scored high:
+hybrid RAG with abstention, the `user_id` security boundary, a small graph, an offline test
+suite and written trade-offs.
+
+| Criterion (v1 score) | v2 change | Section | Tasks |
+| --- | --- | --- | --- |
+| Memory / multi-turn (1.5) | Persistent conversations keyed by user and conversation; follow-ups rewritten into standalone queries | §6 | T-19, T-20 |
+| Human-in-the-loop (5.8) | A fourth agent pauses the graph for an operator and continues from the operator's answer | §11 | T-21 |
+| Infra / Docker (6.8) | A fresh clone runs with one command; CI builds the image and smoke-tests the container | §13 | T-16, T-17, T-18 |
+| Product / completeness (7.5) | All ten challenge scenarios answered, including weather and exchange rate via web search | §7 | T-23, T-27 |
+| Multi-agent / orchestration (8.8) | The router becomes a supervisor that plans up to two specialists and composes their results | §5 | T-22 |
+| Observability / evals (9.1) | LLM-as-judge report, metrics, optional masked tracing | §13 | T-25, T-26 |
+| Tests / quality (9.2) | Multi-turn, human review, isolation, restart and compound cases; CI green | §13 | T-24 |
+| Security / isolation (9.5) | Thread bound to `user_id`, masked web query, masked history, operator token | §6, §7, §11 | T-19, T-21, T-23 |
+| RAG / knowledge (9.8) | Hybrid retrieval and abstention unchanged; web only for general questions, always cited | §7 | T-23 |
+| Architecture / code (9.5) | No new framework, no function over 40 lines | — | all |
+| Trade-offs (10.0) | README design notes on the five interview topics | — | T-27 |
+
+v1 is frozen at the git tag `v1` for comparison.
 
 ## 1. Purpose
 
-A support system for a payments acquirer. One HTTP entry point receives a merchant message and
-returns a grounded answer in Brazilian Portuguese, or hands the case to a human. Three agent
-roles cooperate: a router that decides, a knowledge agent that answers from the indexed website
-corpus, and a support agent that reads the caller's own account data.
+A support system for a payments acquirer. One HTTP entry point receives a merchant message inside
+a conversation and returns a grounded answer in Brazilian Portuguese, or hands the case to a human
+operator and continues from the operator's answer. Four agent roles cooperate:
+
+- **router** (supervisor): decides which specialists handle the turn, in what order, and rewrites
+  the turn into a standalone query;
+- **knowledge**: answers from the indexed website corpus, or from cited web results for
+  general-purpose questions;
+- **support**: reads the caller's own account data through two tools;
+- **human_review**: pauses the graph, hands an operator a structured case, and turns the
+  operator's answer into the reply.
 
 ## 2. Scope
 
-In scope: router, knowledge agent with RAG, support agent with exactly two tools, escalation,
-input guardrail, PII masking, tests, routing golden set, Docker.
+In scope: the four agents, persistent multi-turn memory, supervisor plans of up to two
+specialists, RAG plus web search, support tools, escalation and human review, input guardrail,
+PII masking, offline tests, routing golden set, LLM-as-judge evals, metrics, Docker, CI.
 
-Out of scope, and not to be added: web search, OpenTelemetry, MCP.
+Out of scope, and not to be added: OpenTelemetry, MCP, pushing operator replies to a messaging
+channel, merchant authentication (the gateway's job), several API replicas over one SQLite file,
+parallel plan steps, plans longer than two steps.
 
 ## 3. API contract
 
-`POST /chat`
+### `POST /chat`
 
 ```json
-{ "message": "string", "user_id": "string" }
+{ "message": "string", "user_id": "string", "conversation_id": "string (optional)" }
 ```
 
 ```json
 {
+  "conversation_id": "string",
+  "status": "answered | pending_human",
   "answer": "string (pt-BR)",
-  "intent": "product_info | troubleshooting | account_data | individual_case | other",
-  "target_agent": "knowledge | support",
+  "intent": "product_info | troubleshooting | account_data | individual_case | general_info | other",
+  "agents": ["support", "knowledge"],
   "confidence": 0.0,
-  "sources": [{ "url": "string", "title": "string" }],
+  "sources": [{ "source_type": "kb | web | operator", "url": "string | null", "title": "string" }],
   "escalated": false,
   "escalation": { "protocol": "ESC-...", "reason": "string", "summary": "string" }
 }
 ```
 
-`escalation` is present only when `escalated` is true. `GET /health` returns `{"status": "ok"}`.
+- `conversation_id` is optional on input (1–64 characters of `[A-Za-z0-9_-]`). When absent the
+  server mints one. Every response returns it.
+- `agents` lists the specialists that ran, in order; it is empty when routing never reached one.
+- `escalation` is present exactly when `escalated` is true.
+- `status = pending_human` means a human has the case: the answer is a handoff notice with the
+  protocol, and it cites no sources.
+- `status = answered` with `escalated = true` is a reply resolved by an operator; it cites one
+  `operator` source whose `url` is null and whose `title` is the protocol.
+- `kb` and `web` sources always carry a `url`.
 
 `user_id` comes from the request envelope and is treated as authenticated. It is never a field
 the model can read or write, and never appears in a tool schema.
 
+### Operator endpoints
+
+Both require `Authorization: Bearer <OPERATOR_TOKEN>`.
+
+- `GET /handoffs` lists open cases:
+  `[{ "protocol", "reason", "summary", "attempts": ["string"], "proposed_draft": "string | null", "user_id", "opened_at" }]`.
+- `POST /handoffs/{protocol}/resume` with `{ "answer": "string" }` resumes the paused
+  conversation and returns the merchant-facing `ChatResponse` for that conversation.
+
+| Condition | Status |
+| --- | --- |
+| Missing or wrong token | 401 |
+| `OPERATOR_TOKEN` not configured | 503, with a message saying operator endpoints are disabled |
+| Unknown protocol | 404 |
+| Protocol already resolved | 409 |
+
+### Probes
+
+`GET /health` returns `{"status": "ok"}`. `GET /metrics` returns Prometheus text (§13).
+
 ## 4. Agent boundary
 
-The dividing question is: **does answering require reading this `user_id`'s account data?**
+The dividing question is unchanged: **does answering require reading this `user_id`'s account
+data?** A second question now precedes it: **is this about the acquirer at all?**
 
-| Message | Agent | Why |
+| Message | Plan | Why |
 | --- | --- | --- |
-| "What's the difference between Get Clássica and Get Smart?" | knowledge | product facts |
-| "My card machine won't connect" | knowledge | generic procedure from the KB |
-| "How does antecipação work?" | knowledge | product facts |
+| "What's the difference between Get Clássica and Get Smart?" | knowledge | product facts, corpus |
+| "My card machine won't connect" | knowledge | generic procedure from the corpus |
+| "How does antecipação work?" | knowledge | product facts, corpus |
 | "When will yesterday's sales be deposited?" | support | reads the account |
-| "Is my terminal active?" | support | reads the account |
+| "What's the weather in Porto Alegre tomorrow?" | knowledge | general question, web |
+| "What's the euro exchange rate today?" | knowledge | general question, web |
+| "My machine won't connect and yesterday's money didn't land" | support, knowledge | two intents |
 
 Possessive phrasing does not decide anything. Only the data dependency does.
 
-## 5. Routing and control flow
+## 5. Routing, plans and control flow
 
 1. The guardrail inspects the message before routing.
-2. The router emits a validated `RouterDecision`; it never returns free text.
+2. The router emits a validated `RouterDecision`; it never returns free text. The decision carries
+   a plan of one or two steps, each naming a specialist and that step's standalone Portuguese
+   query. The two-step cap lives in the schema, so the model cannot return a third.
 3. Below the confidence threshold the request goes straight to escalation. The threshold is a
    conditional edge of the graph, not a branch inside a node.
-4. A specialist that concludes the request is not its own may hand back to the router **once**,
-   with a typed reason. `hops` counts these passes. A second miss escalates with
-   `repeated_misroute`.
-5. LLM failure in the router is not a separate error path: it produces a `RouterDecision` with
-   `confidence = 0.0`, which the existing threshold edge already sends to escalation.
+4. Steps run sequentially in plan order. A single-step plan keeps v1's path and cost: no extra
+   model call. A two-step plan ends in a compose step that merges both answers into one reply,
+   keeps every source from both steps and adds no fact of its own.
+5. If any step refuses, the whole turn escalates with that step's reason. In this domain half an
+   answer about money is worse than a handoff.
+6. A specialist that concludes a step is not its own may hand back to the router **once**, with a
+   typed reason; the router then replans the whole turn. `hops` counts router passes. A second
+   miss escalates with `repeated_misroute`.
+7. LLM failure in the router produces a `RouterDecision` with `confidence = 0.0`, which the
+   threshold edge already sends to escalation.
 
-## 6. Retrieval and abstention
+## 6. Conversation memory
 
-The corpus is 16 pt-BR pages plus 2 English pages from the acquirer's website. Queries arrive in
-either language, so the router carries `lang` and `query_pt`, and retrieval runs on `query_pt`.
+- A conversation is a LangGraph thread persisted by a checkpointer (SQLite by default, path from
+  settings) on a volume, so conversations survive an API or container restart.
+- The thread key is derived from the authenticated `user_id` **and** the `conversation_id`. The
+  same `conversation_id` sent with another `user_id` is a different, empty thread. No endpoint
+  loads a conversation by `conversation_id` alone.
+- Across turns only two things persist: `messages`, the completed exchanges (merchant turn and
+  reply), and `summary`, a rolling summary of exchanges that left the window. Every other state
+  field belongs to one turn and is reset when the next one starts.
+- Only turns that passed the guardrail enter the history, so a refused injection never becomes
+  context for a later turn.
+- History stores the masked merchant text. The checkpoint is a persistent store and gets the same
+  treatment as a log.
+- The router reads the summary plus a bounded window of recent messages, and resolves references
+  ("and tomorrow's?") into a standalone query. Specialists never read history: they receive the
+  standalone query, so they stay stateless.
+- When the history outgrows its limit, the oldest exchanges are folded into the summary by one
+  model call. If that call fails nothing is removed; the window still bounds what the router
+  reads, and the fold is retried on the next turn.
+- No node imports the checkpointer. It is attached when the graph is compiled.
+
+## 7. Retrieval, web search and abstention
+
+The corpus is 16 pt-BR pages plus 2 English pages from the acquirer's website, extracted to a
+committed snapshot so the index builds without the raw HTML. Retrieval runs on the step's
+Portuguese query.
 
 Retrieval is hybrid: dense (Chroma) crosses an English question into the Portuguese corpus, BM25
 pins exact product names such as "Get Smart" versus "Get Mini". Results are fused with
 Reciprocal Rank Fusion.
 
 If the fused top score is below the retrieval threshold, the knowledge agent **generates
-nothing**. It states in pt-BR that the answer is not in its base and offers the human channel.
-There is no web fallback in scope; abstaining is the correct behaviour, not a degradation.
+nothing**. It states in pt-BR that the answer is not in its base and the case goes to a human.
 
-## 7. Support tools and authorization
+Web search answers **general-purpose questions only**: those the router labels `general_info`,
+such as weather and exchange rates. It is never a fallback for a product question the corpus
+cannot answer, because a third-party page about acquirer rates is exactly the unsourced number
+hard rule 1 forbids, and it is never used for account data.
+
+- The query is PII-masked before it leaves the process.
+- Web answers cite the pages they used, with `source_type = web`, and receive today's date so
+  "today" and "tomorrow" mean something.
+- Without an API key, on timeout or on a provider error, the agent says in pt-BR that it cannot
+  look that up right now. This is a degraded answer, not an escalation.
+
+## 8. Support tools and authorization
 
 Exactly two, both read-only:
 
-- `get_settlement_schedule` — recent sales and settlement forecast for the caller.
-- `get_account_status` — plan, account situation, linked terminal and its status.
+- `get_settlement_schedule` — settlement entries for the caller between two dates.
+- `get_transactions` — the caller's most recent transactions, optionally filtered by status.
 
 Both take `user_id` from injected graph state. There is no identity parameter in either schema,
 so a message naming another merchant's id cannot change what is queried. An unknown id yields an
 empty result, which is answered as "não localizei seu cadastro" — not as an error.
 
-## 8. Financial hard rules
+## 9. Financial hard rules
 
 These are testable statements, not prompt suggestions.
 
 1. **No number without a literal source.** A rate, term, limit or amount may appear only if it is
-   present verbatim in a retrieved chunk or in an account record. Deriving, rounding, averaging
-   or completing from model memory is forbidden. Without such a source, the answer points to the
-   official channel.
+   present verbatim in a retrieved chunk, a web snippet, an account record or an operator's
+   answer. Deriving, rounding, averaging or completing from model memory is forbidden.
 2. **No promise of a future date.** The system never states when money will be credited,
    released or advanced. An account forecast may be echoed, labelled as a forecast, with the
-   reference date of the data.
+   reference date of the data. An operator may state a date; the system relays it as the
+   operator's.
 3. **No verdict on an individual case.** Declined transactions, chargebacks, blocks, fraud and
-   pending registration are escalated even when account data exists, because the cost of being
-   wrong is financial and irreversible.
+   pending registration go to a human even when account data exists.
+4. **Rephrasing adds nothing.** A composed answer or an operator reply that contains a number
+   absent from the text it was built from is discarded in favour of that text, delivered
+   verbatim through a template. Numbers are compared by value, not by spelling: currency symbols
+   and spaces are dropped and both pt-BR (`1.234,56`) and en (`1,234.56`) separators are read,
+   so "R$ 1.234,56" and "1234.56" are the same value. A token whose separator is ambiguous
+   ("1.234") matches under either reading.
 
 Feature-by-feature product comparison remains allowed: it is what the corpus documents.
 
-## 9. Guardrail
+## 10. Guardrail
 
-Runs before routing, three outcomes plus pass-through:
+Runs before routing, deterministic, no model call.
 
 | Outcome | Behaviour |
 | --- | --- |
-| `out_of_domain` | Short pt-BR scope reply. The graph does not route. Covers weather and exchange-rate style questions, which have no answer without web search. |
-| `pii_detected` | CPF, CNPJ, card number and phone are masked before anything is logged. The message still proceeds. |
-| `identity_swap` | Request to read another merchant or to override instructions gets a short refusal and a log event. Defence in depth: injected state already neutralises it. |
+| `identity_swap` | A request to read another merchant or to override instructions gets a short refusal and a log event. Defence in depth: injected state already neutralises it. |
 | `allow` | Proceeds to the router. |
 
-## 10. Escalation
+CPF, CNPJ, card number and phone are masked on every message before anything is logged or
+stored; the message still proceeds. v1's `out_of_domain` outcome is removed: weather and
+exchange-rate questions now have an answer (§7).
 
-A deterministic terminal node, with no LLM call. It emits a protocol, a typed reason and a masked
-summary, returns them with a pt-BR handoff message, and writes one structured log line. The typed
-reason doubles as the operational metric.
+## 11. Escalation and human review
+
+**Escalate** stays deterministic and model-free: it emits a protocol, a typed reason and a masked
+summary, and writes one structured log line. The typed reason doubles as the operational metric.
 
 Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`,
 `individual_case`, `agent_not_implemented`.
 
-## 11. Language
+**human_review** takes every escalated turn:
+
+1. It builds a case for the operator: the masked summary, what was tried (plan, reasons, tools
+   called, retrieval confidence) and a proposed draft reply. If the draft cannot be generated the
+   case opens without one.
+2. It pauses the graph with `interrupt()`. The merchant receives a pt-BR notice with the protocol
+   and `status = pending_human`.
+3. While a case is open, `/chat` on that conversation returns `pending_human` with the protocol
+   and runs nothing.
+4. The operator lists open cases and resumes one with an answer (§3). The operator's answer is
+   the only new fact the agent may use: it may rephrase it, never add to it (hard rule 4). If the
+   rephrasing call fails, the answer is delivered verbatim through a template.
+5. The reply cites the operator as its source, is saved to the conversation history, and the
+   next turn can build on it.
+
+The resume response is what a channel adapter would push to the merchant; the adapter itself is
+out of scope.
+
+## 12. Language
 
 Code, docstrings, logs, commits, README and specs are English. System prompts under
 `app/prompts/` and every end-user answer are Brazilian Portuguese. No file mixes the two, which
 is why user-facing message templates live under `app/prompts/` rather than inline in modules.
 
-## 12. Non-functional
+## 13. Operations
 
-- No answer reaches the user without a retrieved source or a tool result.
-- Sensitive data is masked before any log.
+**Run from a clean clone.** `cp .env.example .env && docker compose up` serves the API. The image
+needs no API key at build time. On first boot the container builds the index from the committed
+snapshot into a named volume and skips that step when the index exists. Conversation state lives
+in a second named volume. A `Makefile` wraps up, test, eval and demo.
+
+**CI.** A GitHub Actions workflow runs ruff, pytest, a docker build, then starts the container
+with a fake LLM backend and smoke-tests `/health` and one `/chat`.
+
+**Observability.** JSON logs, masked by a processor. `/metrics` exposes escalations by reason
+and node latency. LangSmith tracing is optional, off by default, and when on it sends only masked
+inputs and outputs.
+
+**Evals.** The routing golden set gains multi-turn, human-review and compound cases. An
+LLM-as-judge run scores groundedness and answer relevance over the ten challenge scenarios and
+its report is committed. Neither runs inside pytest.
+
+## 14. Non-functional
+
+- No answer reaches the user without a retrieved source, a tool result or an operator's answer.
+  Handoff notices, refusals and degraded-dependency messages are templates, not answers.
+- Sensitive data is masked before any log, trace, stored history or outbound web query.
 - Tool errors become an answer or an escalation, never a stack trace.
 - Every external dependency degrades with a message rather than an exception.
