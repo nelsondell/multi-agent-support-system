@@ -1,7 +1,8 @@
 """The single seam to the LLM vendor.
 
 Every agent talks to the model through `LLMProvider.structured`. No other module imports a
-vendor SDK, so moving to Azure AI Foundry means rewriting this file and nothing else.
+vendor SDK, so moving to Azure AI Foundry means rewriting this file and nothing else. The second
+implementation, `app/providers/fake.py`, exists only for the CI smoke test.
 """
 
 from typing import Protocol, TypeVar
@@ -52,6 +53,10 @@ class OpenAIProvider:
 
 def build_provider(settings: Settings) -> LLMProvider:
     """Build the configured provider, failing fast when a required secret is missing."""
+    if settings.llm_backend == "fake":
+        from app.providers.fake import FakeProvider
+
+        return FakeProvider()
     if not settings.openai_api_key:
         raise LLMProviderError("OPENAI_API_KEY is not set; export it or add it to .env")
     return OpenAIProvider(

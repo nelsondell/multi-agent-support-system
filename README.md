@@ -1,5 +1,7 @@
 # Multi-agent support system
 
+[![CI](https://github.com/nelsondell/multi-agent-support-system/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nelsondell/multi-agent-support-system/actions/workflows/ci.yml)
+
 A support service for a payments acquirer. One HTTP endpoint takes a merchant message and returns
 an answer in Brazilian Portuguese that is grounded in a retrieved source or in the merchant's own
 account data — or it hands the case to a human. Three agent roles cooperate behind a LangGraph
@@ -31,7 +33,8 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | unset | Chat model credential. The API fails fast at start-up without it. |
+| `LLM_BACKEND` | `openai` | `fake` answers every structured call deterministically with no key. CI only. |
+| `OPENAI_API_KEY` | unset | Chat model credential. With the `openai` backend the API fails fast at start-up without it. |
 | `LLM_MODEL` | `gpt-4o-mini` | Chat model. |
 | `LLM_TEMPERATURE` | `0.0` | Sampling temperature. |
 | `EMBEDDING_BACKEND` | `auto` | `auto` follows the key, `local` uses Chroma's bundled model, `openai` requires the key. |
@@ -280,7 +283,7 @@ Two levels, deliberately separate.
 
 ```
 $ uv run pytest -q
-78 passed in 0.76s
+99 passed in 1.31s
 ```
 
 One module per graph node (`test_router`, `test_knowledge`, `test_support`, `test_guardrail`,
@@ -288,6 +291,14 @@ One module per graph node (`test_router`, `test_knowledge`, `test_support`, `tes
 (`test_observability`), retrieval and fusion (`test_retrieve`), three adversarial paths
 (`test_adversarial`: prompt injection, another customer's data, out of scope) and HTTP integration
 (`test_api`, which injects a scripted graph instead of running the lifespan).
+
+**CI** — `.github/workflows/ci.yml` runs on every push and pull request: ruff and the offline
+suite, then `docker compose build`, the container started from `.env.example` with
+`LLM_BACKEND=fake`, and a smoke test of `/health` and one `/chat` that must come back answered,
+with sources and without escalation. The fake backend (`app/providers/fake.py`) derives a valid
+instance of any schema from its declaration, so the smoke test proves the image, the index built
+on first boot and the graph work together without a vendor account. It asserts the response
+contract, never the content.
 
 **Routing golden set** — 15 labelled rows (the 10 challenge scenarios, 3 ambiguous, 2 out of
 scope). It is a measurement, not a test: a score that dips one row in fifteen is a signal to read,

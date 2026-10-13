@@ -12,6 +12,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    llm_backend: Literal["openai", "fake"] = "openai"
+    """`fake` answers every structured call deterministically with no vendor account. It exists
+    for the CI smoke test and is never meant to serve a merchant."""
     openai_api_key: str | None = None
     llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.0
