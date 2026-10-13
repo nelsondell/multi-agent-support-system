@@ -22,9 +22,12 @@ uv run pytest -q                          # offline test suite, no vendor calls,
 uv run ruff check . && uv run ruff format --check .
 ```
 
+The `Makefile` wraps the usual commands: `make up`, `make test`, `make eval`, `make demo`.
+
 ### Configuration
 
-Settings are read from the environment or `.env` (`app/settings.py`).
+Settings are read from the environment or `.env` (`app/settings.py`). `.env.example` documents
+every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole setup.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -45,17 +48,26 @@ identity, and adding a key must not silently change it under an index built with
 
 ### Docker
 
+From a fresh clone, nothing has to be built on the host:
+
 ```bash
-uv run python -m app.rag.ingest           # build the index on the host first
-docker compose up --build
+cp .env.example .env                      # then set OPENAI_API_KEY
+docker compose up --build                 # or `make up`: detached, returns once healthy
+curl -s localhost:8000/health             # {"status":"ok"}
 ```
 
-The image never builds the index: no API key is needed at build time, and the container mounts
-the prepared index as a volume. A missing index is a start-up error naming the command that
-creates it. The image runs as a non-root user and ships a healthcheck against `/health`.
+The image needs no API key to build. On first boot the container builds the knowledge index from
+the committed snapshot into the named volume `index`, then starts the API; every later boot finds
+the index and goes straight to the API. The chunker's tokenizer and the local embedding model are
+fetched at build time, so that first build downloads nothing. The compose healthcheck polls
+`/health` with a start period that covers the first build. The image runs as a non-root user.
 
-> **Not verified.** Docker was unavailable on the development machine, so the image was never
-> built or run. Build status: [preencher]. Container start-up and healthcheck: [preencher].
+`API_PORT` in `.env` changes the host port when 8000 is taken. Changing `EMBEDDING_BACKEND`
+changes the index's embedder, so it needs a rebuild: `docker compose down -v` drops the volume.
+
+Verified on Docker 29.5 (Colima, linux/arm64): the image builds with no key; from a clean state
+the first boot indexes 148 chunks from the snapshot and turns healthy in about 10 seconds; a
+second boot logs `index already present at data/processed/chroma; build skipped`.
 
 ### Demo
 
@@ -208,9 +220,10 @@ never from URLs the model claims to have used.
 
 The fixture is selected by BM25 against the ten challenge scenarios, four chunks each, including
 the out-of-scope ones on purpose so a test can prove the abstain path on a corpus that genuinely
-does not answer them. Tests never load the full corpus.
+does not answer them. Tests never load the full corpus. Ingestion rewrites it only when asked,
+with `--refresh-fixture`, so building an index never changes the test data by accident.
 
-Ingestion counters from the last run:
+Ingestion counters from the last run (`uv run python -m app.rag.ingest --refresh-fixture`):
 
 ```
 documents extracted from data/raw, snapshot refreshed at data/corpus/documents.jsonl
@@ -400,10 +413,9 @@ that circularity.
 about itself, which is a weak signal. The golden set exists to calibrate or discredit it and has
 not yet been run against a real model.
 
-**Not exercised:** the Docker image was never built, the router half of the golden set never ran,
-and no request has ever been served by a real model. Everything reported here that involves the
+**Not exercised:** the router half of the golden set never ran, and no request has ever been served by a real model. Everything reported here that involves the
 model came from scripted providers.
 
 **Next, in order:** run the golden set against a real model and calibrate both thresholds; switch
-the article route to structural chunking; build and run the container; expose terminal status,
+the article route to structural chunking; expose terminal status,
 which exists in `data/customers.json` but no tool reads; then revisit the scope check.

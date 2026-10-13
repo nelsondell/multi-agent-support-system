@@ -7,11 +7,13 @@ HTML. Everything after that is the same for both sources.
 
 Runs on the host, never at API start-up: the service reads a prepared index and fails fast if it
 is missing. Re-running is idempotent — chunk ids are content hashes and Chroma upserts them, so a
-second run rewrites the same rows instead of duplicating them.
+second run rewrites the same rows instead of duplicating them. The container runs it with
+`--if-missing` before starting the API, so only the first boot pays for the build.
 
-    uv run python -m app.rag.ingest
+    uv run python -m app.rag.ingest [--if-missing] [--refresh-fixture]
 """
 
+import argparse
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -120,6 +122,26 @@ def load_documents(
     return read_snapshot(snapshot), f"read from snapshot {snapshot}", []
 
 
+def chunks_path(settings: Settings) -> Path:
+    """Where the BM25 corpus lives: next to the Chroma directory, on the same volume."""
+    return Path(settings.index_path).parent / "chunks.jsonl"
+
+
+def index_exists(settings: Settings) -> bool:
+    """Whether a previous build left both halves of the index: the BM25 corpus and a non-empty
+    Chroma collection."""
+    if not chunks_path(settings).is_file() or not Path(settings.index_path).is_dir():
+        return False
+    import chromadb
+    from chromadb.errors import NotFoundError
+
+    client = chromadb.PersistentClient(path=settings.index_path)
+    try:
+        return client.get_collection(settings.collection_name).count() > 0
+    except NotFoundError:
+        return False
+
+
 def write_chunks(chunks: list[Chunk], path: Path) -> None:
     """Persist the chunk corpus that BM25 is rebuilt from at query time."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -168,9 +190,26 @@ def build_fixture(chunks: list[Chunk], path: Path = FIXTURE) -> int:
     return len(selected)
 
 
-def main() -> None:
-    """Load the documents, chunk, index and refresh the test fixture."""
+def parse_arguments(argv: list[str] | None = None) -> argparse.Namespace:
+    """Command-line flags: the container skips an existing index, the host may refresh the
+    fixture."""
+    parser = argparse.ArgumentParser(description="Build the knowledge index from the corpus.")
+    parser.add_argument(
+        "--if-missing", action="store_true", help="do nothing when an index already exists"
+    )
+    parser.add_argument(
+        "--refresh-fixture", action="store_true", help=f"also rewrite {FIXTURE} from the chunks"
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    """Load the documents, chunk and index them, and refresh the test fixture when asked."""
+    arguments = parse_arguments(argv)
     settings = get_settings()
+    if arguments.if_missing and index_exists(settings):
+        print(f"index already present at {settings.index_path}; build skipped")
+        return
     documents, source, skipped = load_documents()
     chunks, stats = chunk_documents(documents)
 
@@ -180,10 +219,11 @@ def main() -> None:
         print(f"  skipped: {entry}")
     print(stats.summary())
 
-    write_chunks(chunks, Path(settings.index_path).parent / "chunks.jsonl")
+    write_chunks(chunks, chunks_path(settings))
     index_chunks(chunks, settings)
     print(f"indexed into {settings.index_path} (collection {settings.collection_name})")
-    print(f"fixture chunks written to {FIXTURE}: {build_fixture(chunks)}")
+    if arguments.refresh_fixture:
+        print(f"fixture chunks written to {FIXTURE}: {build_fixture(chunks)}")
 
 
 if __name__ == "__main__":

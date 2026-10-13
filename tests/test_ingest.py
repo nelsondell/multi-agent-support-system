@@ -1,12 +1,15 @@
-"""Ingestion's two document sources: the raw corpus and the committed snapshot."""
+"""Ingestion: its two document sources, and the flags the container and the host use."""
 
 import shutil
 from pathlib import Path
 
 import pytest
 
-from app.rag.ingest import load_documents, read_snapshot, write_snapshot
+from app.rag import ingest
+from app.rag.chunk import ChunkStats
+from app.rag.ingest import index_exists, load_documents, read_snapshot, write_snapshot
 from app.rag.parse import Document, Route
+from app.settings import Settings
 
 URL = "https://example.test/card-machines/"
 BODY = "The card machine accepts debit and credit cards and settles sales in one business day. " * 6
@@ -96,3 +99,48 @@ def test_an_empty_extraction_leaves_the_snapshot_untouched(tmp_path):
 def test_fails_with_the_fix_when_there_is_nothing_to_index(tmp_path):
     with pytest.raises(FileNotFoundError, match="no snapshot"):
         load_documents(tmp_path / "raw", tmp_path / "manifest.tsv", tmp_path / "documents.jsonl")
+
+
+@pytest.fixture
+def build_steps(monkeypatch, tmp_path):
+    """Replace the expensive build steps with recorders, so main() runs offline."""
+    calls: list[str] = []
+    monkeypatch.setattr(ingest, "get_settings", lambda: Settings(index_path=str(tmp_path / "db")))
+    monkeypatch.setattr(ingest, "load_documents", lambda: (STALE, "from a test", []))
+    monkeypatch.setattr(
+        ingest, "chunk_documents", lambda documents: ([], ChunkStats(generated=0, discarded=0))
+    )
+    monkeypatch.setattr(ingest, "write_chunks", lambda chunks, path: calls.append("write_chunks"))
+    monkeypatch.setattr(ingest, "index_chunks", lambda chunks, settings: calls.append("index"))
+    monkeypatch.setattr(ingest, "build_fixture", lambda chunks: calls.append("fixture") or 0)
+    return calls
+
+
+def test_if_missing_skips_the_build_when_an_index_exists(monkeypatch, build_steps):
+    monkeypatch.setattr(ingest, "index_exists", lambda settings: True)
+
+    ingest.main(["--if-missing"])
+
+    assert build_steps == []
+
+
+def test_if_missing_builds_when_there_is_no_index(monkeypatch, build_steps):
+    monkeypatch.setattr(ingest, "index_exists", lambda settings: False)
+
+    ingest.main(["--if-missing"])
+
+    assert build_steps == ["write_chunks", "index"]
+
+
+def test_the_fixture_is_only_rewritten_on_request(build_steps):
+    ingest.main([])
+    ingest.main(["--refresh-fixture"])
+
+    assert build_steps == ["write_chunks", "index", "write_chunks", "index", "fixture"]
+
+
+def test_an_index_without_its_bm25_corpus_does_not_count(tmp_path):
+    settings = Settings(index_path=str(tmp_path / "db"))
+
+    assert index_exists(settings) is False
+    assert not (tmp_path / "db").exists()
