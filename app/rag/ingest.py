@@ -1,4 +1,9 @@
-"""Build the knowledge index from the raw corpus.
+"""Build the knowledge index from the corpus.
+
+Documents come from one of two places. When `data/raw/` and its fetch manifest are both present,
+the pages are re-extracted and the committed snapshot in `data/corpus/` is refreshed from them.
+Otherwise the snapshot is read as is, which is how a fresh clone builds the index without the raw
+HTML. Everything after that is the same for both sources.
 
 Runs on the host, never at API start-up: the service reads a prepared index and fails fast if it
 is missing. Re-running is idempotent — chunk ids are content hashes and Chroma upserts them, so a
@@ -8,16 +13,18 @@ second run rewrites the same rows instead of duplicating them.
 """
 
 import json
+from dataclasses import asdict
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
 from app.rag.chunk import Chunk, chunk_documents, tokenize
-from app.rag.parse import Document, parse_page
+from app.rag.parse import Document, Route, parse_page
 from app.settings import Settings, get_settings
 
 RAW_DIR = Path("data/raw")
 MANIFEST = Path("docs/_local/corpus-manifest.tsv")
+SNAPSHOT = Path("data/corpus/documents.jsonl")
 FIXTURE = Path("tests/fixtures/kb_sample.jsonl")
 
 FIXTURE_SCENARIOS = [
@@ -50,9 +57,11 @@ def read_manifest(path: Path = MANIFEST) -> dict[str, str]:
     return mapping
 
 
-def extract_corpus(raw_dir: Path = RAW_DIR) -> tuple[list[Document], list[str]]:
+def extract_corpus(
+    raw_dir: Path = RAW_DIR, manifest: Path = MANIFEST
+) -> tuple[list[Document], list[str]]:
     """Parse every fetched page, reporting the ones neither route can read."""
-    urls = read_manifest()
+    urls = read_manifest(manifest)
     documents: list[Document] = []
     skipped: list[str] = []
     for path in sorted(raw_dir.glob("*.html")):
@@ -66,6 +75,49 @@ def extract_corpus(raw_dir: Path = RAW_DIR) -> tuple[list[Document], list[str]]:
             continue
         documents.extend(page_documents)
     return documents, skipped
+
+
+def write_snapshot(documents: list[Document], path: Path = SNAPSHOT) -> None:
+    """Persist extracted documents as JSONL, in extraction order, so the bytes only change when
+    the extraction does."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        for document in documents:
+            handle.write(json.dumps(asdict(document), ensure_ascii=False) + "\n")
+
+
+def read_snapshot(path: Path = SNAPSHOT) -> list[Document]:
+    """Load the documents a previous extraction committed."""
+    with path.open(encoding="utf-8") as handle:
+        rows = [json.loads(line) for line in handle if line.strip()]
+    return [Document(**{**row, "route": Route(row["route"])}) for row in rows]
+
+
+def has_raw_corpus(raw_dir: Path = RAW_DIR, manifest: Path = MANIFEST) -> bool:
+    """Whether the fetched pages and the record of where they came from are both present."""
+    return manifest.is_file() and raw_dir.is_dir() and any(raw_dir.glob("*.html"))
+
+
+def load_documents(
+    raw_dir: Path = RAW_DIR, manifest: Path = MANIFEST, snapshot: Path = SNAPSHOT
+) -> tuple[list[Document], str, list[str]]:
+    """Return the documents to index, where they came from, and the pages that were skipped.
+
+    An extraction that yields nothing raises instead of overwriting a good snapshot with an empty
+    one.
+    """
+    if has_raw_corpus(raw_dir, manifest):
+        documents, skipped = extract_corpus(raw_dir, manifest)
+        if not documents:
+            raise ValueError(f"no documents extracted from {raw_dir}; {snapshot} left untouched")
+        write_snapshot(documents, snapshot)
+        return documents, f"extracted from {raw_dir}, snapshot refreshed at {snapshot}", skipped
+    if not snapshot.is_file():
+        raise FileNotFoundError(
+            f"nothing to index: {raw_dir} or {manifest} is missing and there is no snapshot at "
+            f"{snapshot}; restore the snapshot from git or re-fetch the corpus"
+        )
+    return read_snapshot(snapshot), f"read from snapshot {snapshot}", []
 
 
 def write_chunks(chunks: list[Chunk], path: Path) -> None:
@@ -117,12 +169,13 @@ def build_fixture(chunks: list[Chunk], path: Path = FIXTURE) -> int:
 
 
 def main() -> None:
-    """Extract, chunk, index and refresh the test fixture."""
+    """Load the documents, chunk, index and refresh the test fixture."""
     settings = get_settings()
-    documents, skipped = extract_corpus()
+    documents, source, skipped = load_documents()
     chunks, stats = chunk_documents(documents)
 
-    print(f"pages parsed into documents: {len(documents)}")
+    print(f"documents {source}")
+    print(f"documents loaded: {len(documents)}")
     for entry in skipped:
         print(f"  skipped: {entry}")
     print(stats.summary())

@@ -16,7 +16,7 @@ Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). Docker is option
 
 ```bash
 uv sync                                   # install dependencies
-uv run python -m app.rag.ingest           # build the knowledge index (needs data/raw/)
+uv run python -m app.rag.ingest           # build the knowledge index (data/raw/ or the snapshot)
 uv run uvicorn app.main:app --reload      # serve on http://localhost:8000
 uv run pytest -q                          # offline test suite, no vendor calls, no cost
 uv run ruff check . && uv run ruff format --check .
@@ -154,6 +154,12 @@ Response shape:
 
 Ingestion runs on the host (`uv run python -m app.rag.ingest`); the service only reads.
 
+**Source** — when `data/raw/` and its fetch manifest are both present, ingestion re-extracts the
+pages and refreshes the committed snapshot `data/corpus/documents.jsonl`: extracted text, one
+document per line, never raw HTML. Otherwise it reads the snapshot, so a fresh clone builds the
+same index, with the same chunk ids, without the 16 MB of fetched pages. An extraction that
+yields nothing raises instead of overwriting the snapshot.
+
 **Parse** (`app/rag/parse.py`) — two routes, each confirmed against a real file in `data/raw/`
 before the parser was written:
 
@@ -196,7 +202,7 @@ never from URLs the model claims to have used.
 
 | | Corpus | Fixture |
 | --- | --- | --- |
-| Path | `data/raw/`, `data/processed/` (gitignored) | `tests/fixtures/kb_sample.jsonl` (committed) |
+| Path | `data/raw/`, `data/processed/` (gitignored); `data/corpus/documents.jsonl` (committed) | `tests/fixtures/kb_sample.jsonl` (committed) |
 | Size | 18 pages fetched, 133 documents, 148 chunks | 32 chunks |
 | Used by | the running service | the offline test suite |
 
@@ -207,7 +213,8 @@ does not answer them. Tests never load the full corpus.
 Ingestion counters from the last run:
 
 ```
-pages parsed into documents: 133
+documents extracted from data/raw, snapshot refreshed at data/corpus/documents.jsonl
+documents loaded: 133
   skipped: site-getnet-com-br-get-ajuda-get-conta.html (no route matched)
   skipped: site-getnet-com-br-get-ajuda.html (no route matched)
   skipped: www-getnet-net-en-our-solutions-agentic-commerce.html (no route matched)
