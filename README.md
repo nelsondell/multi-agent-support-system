@@ -146,8 +146,10 @@ specs/                      spec, plan and task list (spec-driven development)
    a number or id absent from the conversation is discarded.
 4. **Specialists** run step by step, each seeing only its own standalone query, never the history.
 5. **Compose** copies a single answer as is, or merges two with one model call that may not add a
-   number. If one step needs a person, the answered part goes out now and the rest escalates under
-   one protocol. A sentence promising a person is dropped unless a protocol was opened.
+   number. A step that needs a person pauses the turn there, under one protocol, and any part
+   already answered goes out now; once the operator answers, the remaining steps run and compose
+   joins their answers with the operator's. A sentence promising a person is dropped unless a
+   protocol was opened.
 6. **Escalate → human review** when a step needs a person (§8).
 7. **Remember** stores the masked turn and the reply; the response is validated against its own
    contract before it leaves.
@@ -238,7 +240,9 @@ Every escalation goes to a fourth agent that pauses the graph with LangGraph's `
 continues the same conversation when an operator answers. It is two nodes because `interrupt()`
 re-runs its node on resume: `prepare_handoff` does every side effect once (the case, with what the
 agents tried and why they stopped, the pages retrieved and a draft reply, recorded in a SQLite
-queue), and `await_operator` only pauses and, on resume, turns the operator's input into the reply.
+queue), and `await_operator` only pauses and, on resume, turns the operator's input into the answer
+of the step that paused. The graph then goes back into the plan: its remaining steps run with the
+operator's text as evidence, within the hop budget, and compose joins everything into the reply.
 
 ```bash
 # 1. an individual case pauses: status pending_human, with a protocol

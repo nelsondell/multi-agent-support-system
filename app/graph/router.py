@@ -121,7 +121,8 @@ def _grounded(decision: RouterDecision, state: GraphState, window: int) -> Route
 async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[str, Any]:
     """Plan the turn, rewrite each step into a standalone query, and record both on the state.
 
-    A new plan starts the turn over: earlier step results, from before a hand-back, are dropped.
+    A new plan starts the turn over: earlier step results, from before a hand-back, are dropped,
+    except an answer an operator already gave, which no replan may lose.
     """
     try:
         decision = await provider.structured(
@@ -145,5 +146,5 @@ async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[s
         "hops": state.hops + 1,
         "handoff_reason": None,
         "step_index": 0,
-        "step_results": [],
+        "step_results": [result for result in state.step_results if result.by_operator],
     }

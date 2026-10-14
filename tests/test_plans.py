@@ -208,14 +208,86 @@ async def test_one_step_answers_now_and_the_other_goes_to_a_human_under_one_prot
 
 
 async def test_the_hop_budget_holds_across_the_plan(graph_for):
+    """Support hands the step back twice: the budget is spent, the step goes to a person, and the
+    turn pauses there, before the knowledge step."""
     handing_back = model(SupportPlan=SupportPlan(action=SupportAction.HANDOFF_TO_KNOWLEDGE))
 
     final = to_response(await send(graph_for(handing_back)), "c1")
 
     assert handing_back.schemas().count("RouterDecision") == 2
+    assert final.status == "pending_human"
     assert final.escalation.reason.value == "repeated_misroute"
-    assert final.answer.startswith(ADVANCE_A)
-    assert final.agents == [TargetAgent.SUPPORT, TargetAgent.KNOWLEDGE]
+    assert "KnowledgeAnswer" not in handing_back.schemas()
+
+
+REFUND_Q = "por que meu estorno ainda não apareceu"
+OPERATOR_TEXT = "O estorno foi aprovado hoje e aparece em até 2 dias úteis."
+
+
+def joins_its_parts(user: str) -> ComposedAnswer:
+    """A merge that only joins the parts it was given, so tests can read what it received."""
+    return ComposedAnswer(answer=" ".join(part["answer"] for part in json.loads(user)["parts"]))
+
+
+def refund_then_advance() -> Model:
+    return model(
+        RouterDecision=plan((TargetAgent.SUPPORT, REFUND_Q), (TargetAgent.KNOWLEDGE, ADVANCE_Q)),
+        SupportPlan=SupportPlan(action=SupportAction.ESCALATE_INDIVIDUAL_CASE),
+        ComposedAnswer=joins_its_parts,
+    )
+
+
+async def test_a_step_that_needs_a_person_pauses_and_the_plan_finishes_after_the_reply(graph_for):
+    """The refund needs a person, so the turn pauses before the advance step. Once the operator
+    answers, the advance step runs and compose joins both, citing the operator and the page."""
+    stand_in = refund_then_advance()
+    graph = graph_for(stand_in)
+
+    paused = to_response(await send(graph), "c1")
+    ran_before_resume = stand_in.schemas()
+    decision = {"action": "reply", "answer": OPERATOR_TEXT}
+    resumed = to_response(await graph.ainvoke(Command(resume=decision), CONFIG), "c1")
+    remembered = (await graph.aget_state(CONFIG)).values["messages"][-1].content
+
+    assert paused.status == "pending_human" and "KnowledgeAnswer" not in ran_before_resume
+    assert resumed.status == "answered" and resumed.escalated
+    assert resumed.escalation.protocol == paused.escalation.protocol
+    assert resumed.answer == f"{OPERATOR_TEXT} {ADVANCE_A}"
+    assert resumed.agents == [TargetAgent.SUPPORT, TargetAgent.KNOWLEDGE]
+    kinds = [source.source_type for source in resumed.sources]
+    assert kinds[0] is SourceType.OPERATOR and SourceType.KB in kinds
+    merged = json.loads(stand_in.inputs("ComposedAnswer")[0])["parts"]
+    assert [part["question"] for part in merged] == [REFUND_Q, ADVANCE_Q]
+    assert remembered == resumed.answer
+
+
+async def test_a_replan_after_the_reply_keeps_the_operators_answer(graph_for):
+    """After the reply, the next step hands back; the router replans within the budget, and the
+    operator's answer survives the new plan."""
+
+    def routed(user: str) -> RouterDecision:
+        if json.loads(user).get("handed_back_by_specialist"):
+            return plan((TargetAgent.KNOWLEDGE, ADVANCE_Q))
+        return plan((TargetAgent.SUPPORT, REFUND_Q), (TargetAgent.SUPPORT, ADVANCE_Q))
+
+    def planned(user: str) -> SupportPlan:
+        refund = json.loads(user)["question"] == REFUND_Q
+        action = (
+            SupportAction.ESCALATE_INDIVIDUAL_CASE if refund else SupportAction.HANDOFF_TO_KNOWLEDGE
+        )
+        return SupportPlan(action=action)
+
+    stand_in = model(RouterDecision=routed, SupportPlan=planned, ComposedAnswer=joins_its_parts)
+    graph = graph_for(stand_in)
+
+    paused = to_response(await send(graph), "c1")
+    decision = {"action": "reply", "answer": OPERATOR_TEXT}
+    resumed = to_response(await graph.ainvoke(Command(resume=decision), CONFIG), "c1")
+
+    assert stand_in.schemas().count("RouterDecision") == 2
+    assert resumed.status == "answered"
+    assert resumed.escalation.protocol == paused.escalation.protocol
+    assert resumed.answer == f"{OPERATOR_TEXT} {ADVANCE_A}"
 
 
 def test_only_the_sentences_promising_a_person_are_dropped():

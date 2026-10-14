@@ -144,9 +144,11 @@ Possessive phrasing does not decide anything. Only the data dependency does.
 4. Steps run sequentially in plan order. A single-step plan keeps v1's path and cost: no extra
    model call. A two-step plan ends in a compose step that merges both answers into one reply,
    keeps every source from both steps and adds no fact of its own.
-5. If one step answers and the other needs a human, the merchant gets the answered part now and
-   the rest goes to `human_review` in the same turn, under one protocol, with the refusing step's
-   reason. If no step answers, the turn escalates as before.
+5. A step that needs a human pauses the turn right there, under one protocol, with that step's
+   reason; whatever earlier steps answered goes out now. When the operator answers, their text
+   becomes that step's result and evidence, the plan's remaining steps run, and compose joins
+   the operator's answer with them, without repeating the part already sent. A replan within
+   the hop budget keeps the operator's answer.
 6. A specialist that concludes a step is not its own may hand back to the router **once**, with a
    typed reason; the router then replans the whole turn. `hops` counts router passes across the
    whole plan. A second miss is recorded as that step's refusal, `repeated_misroute`.

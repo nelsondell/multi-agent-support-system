@@ -3,9 +3,11 @@
 It is two nodes because `interrupt()` re-runs its whole node on resume. `prepare_handoff` does
 every side effect, once: it drafts a reply with one model call and records the case in the
 queue, using the protocol `escalate` already minted. `await_operator` reads the state and pauses,
-nothing else. When the operator answers, the same node turns their input into the merchant's
-reply and the graph goes on to `remember`, so the next turn can build on what the human said. A
-case closed without an answer, by the operator or because it expired, ends with a notice.
+nothing else. When the operator answers, the same node turns their input into the answer of the
+step that paused, and the graph goes back into the plan: its remaining steps run, with the
+operator's text as evidence, and `compose` joins them. A turn that paused before any step ran
+takes the operator's answer as its reply. A case closed without an answer, by the operator or
+because it expired, ends with a notice.
 """
 
 from __future__ import annotations
@@ -162,4 +164,22 @@ async def await_operator(state: GraphState, provider: LLMProvider) -> dict[str, 
     else:
         reply = await _rephrase(decision.answer, case, provider)
     operator = Source(source_type=SourceType.OPERATOR, title=case.protocol)
-    return {"answer": reply, "sources": [operator]}
+    if not any(result.refusal_reason for result in state.step_results):
+        return {"answer": reply, "sources": [operator]}
+    return {
+        "step_results": answered_by(state, reply, operator),
+        "evidence": [*state.evidence, reply],
+        "answer": None,  # the handoff notice; the plan's join writes the reply
+        "sources": [],
+        "refusal_reason": None,  # the pause's reason must not stick to the steps that follow
+    }
+
+
+def answered_by(state: GraphState, reply: str, operator: Source) -> list:
+    """The plan's results with the step that paused now answered by the operator."""
+    results = list(state.step_results)
+    paused = max(number for number, result in enumerate(results) if result.refusal_reason)
+    results[paused] = results[paused].model_copy(
+        update={"answer": reply, "sources": [operator], "refusal_reason": None}
+    )
+    return results

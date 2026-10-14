@@ -2,8 +2,9 @@
 
 Routing policy is readable here rather than hidden inside nodes: the confidence threshold is the
 conditional edge out of the router, the plan is walked one step at a time by `collect`, and
-`compose` joins the steps. Persistence is attached here too, and only here: the checkpointer
-arrives from the caller and no node sees it.
+`compose` joins the steps. A step that needs a person pauses the turn right there; once the
+operator answers, the plan picks up where it stopped. Persistence is attached here too, and only
+here: the checkpointer arrives from the caller and no node sees it.
 """
 
 from collections.abc import Callable
@@ -93,7 +94,22 @@ async def collect(state: GraphState) -> dict[str, Any]:
 
 
 def after_collect(state: GraphState) -> Literal["knowledge", "support", "compose"]:
-    """The next step's specialist, or the join once the plan is done."""
+    """The next step's specialist, or the join once the plan is done. A step that needs a person
+    goes to the join at once, so the turn pauses there and the rest of the plan runs after the
+    operator answers, with that answer in hand."""
+    last = state.step_results[-1] if state.step_results else None
+    if last is not None and last.refusal_reason:
+        return "compose"
+    step = state.current_step()
+    return step.agent.value if step else "compose"
+
+
+def after_operator(state: GraphState) -> Literal["knowledge", "support", "compose", "remember"]:
+    """Back into the plan once the operator answered: its remaining steps, then the join. A turn
+    the operator closed outright (a cancelled case, or one that never reached a specialist) has
+    its answer already and is remembered."""
+    if state.answer:
+        return "remember"
     step = state.current_step()
     return step.agent.value if step else "compose"
 
@@ -167,7 +183,11 @@ def _wire(graph: StateGraph, settings: Settings) -> None:
     # An escalation is remembered too, but only once the operator has answered it.
     graph.add_edge("escalate", "prepare_handoff")
     graph.add_edge("prepare_handoff", "await_operator")
-    graph.add_edge("await_operator", "remember")
+    graph.add_conditional_edges(
+        "await_operator",
+        after_operator,
+        {**specialists, "compose": "compose", "remember": "remember"},
+    )
     graph.add_edge("remember", END)
 
 

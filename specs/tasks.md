@@ -389,6 +389,17 @@ queue gains `outcome`, `notes`, `reply` and `delivered_at`, added in place to an
 the history is readable by its merchant only; notes reach the operator masked; a cancelled or
 expired case closes with a notice and the conversation goes on; an older queue database opens.
 
+### T-43 — `feat(T-43): finish the plan after the operator answers`
+A step that needs a human sends the turn to compose at once, so it pauses before the plan's
+remaining steps. On resume, `await_operator` writes the operator's answer into that step's result
+(with an `operator` source) and the evidence, and `after_operator` routes back into the plan: the
+next specialist, or compose. Compose joins only results not yet delivered, so a part sent at the
+pause is not repeated. A replan within the hop budget keeps results an operator answered. A turn
+that paused before any step ran, or a cancelled case, still ends with its reply directly.
+**Done when:** a compound request whose first step needs a human pauses before the second, and
+after the reply the second runs and compose joins both, citing the operator and the page; a
+hand-back after the reply replans within the budget and keeps the operator's answer.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -397,7 +408,7 @@ expired case closes with a notice and the conversation goes on; an older queue d
 | Human-in-the-loop (5.8) | T-21, T-24, T-42 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32 |
-| Multi-agent / orchestration (8.8) | T-22 |
+| Multi-agent / orchestration (8.8) | T-22, T-43 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |

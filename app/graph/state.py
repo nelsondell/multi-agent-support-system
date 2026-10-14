@@ -11,7 +11,14 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from app.contracts import Escalation, GuardrailOutcome, HandoffCase, Source, TargetAgent
+from app.contracts import (
+    Escalation,
+    GuardrailOutcome,
+    HandoffCase,
+    Source,
+    SourceType,
+    TargetAgent,
+)
 from app.graph.router import PlanStep, RouterDecision
 
 
@@ -23,6 +30,13 @@ class StepResult(BaseModel):
     answer: str | None = None
     sources: list[Source] = Field(default_factory=list)
     refusal_reason: str | None = None
+    delivered: bool = False
+    """Already sent, as the answered part of a turn that then paused for a human."""
+
+    @property
+    def by_operator(self) -> bool:
+        """Answered by a human after the step paused, rather than by its specialist."""
+        return any(source.source_type is SourceType.OPERATOR for source in self.sources)
 
 
 class GraphState(BaseModel):

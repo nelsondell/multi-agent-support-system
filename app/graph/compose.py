@@ -6,12 +6,14 @@ may not carry a number the step answers lack (hard rule 4); if it does, or the c
 step answers are joined as written. Sources are the union of every answered step's, never
 something the merge chose.
 
-When a step needs a human, the answered part goes out now and the turn escalates with the
-refused step's reason, so the rest reaches `human_review` in the same turn under one protocol.
+When a step needs a human, the turn comes here at once: the answered part goes out now, marked
+as delivered, and the turn escalates with that step's reason under one protocol. Once the operator
+answers, the plan's remaining steps run and compose joins the operator's answer with them.
 
 Only an escalation may promise a person, because only an escalation opens a protocol. Any sentence
-in the answered part that mentions an agent, a team or a human is dropped here, whatever a prompt
-said; an answer that was nothing but such a promise escalates instead, so the promise comes true.
+of a turn with no protocol that mentions an agent, a team or a human is dropped here, whatever a
+prompt said; an answer that was nothing but such a promise escalates instead, so the promise
+comes true.
 """
 
 from __future__ import annotations
@@ -96,14 +98,19 @@ def without_promised_people(text: str) -> str:
 
 
 async def compose(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
-    """Turn the step results into the turn's answer, or into an answered part and a handoff."""
-    answered = [result for result in state.step_results if not result.refusal_reason]
-    refused = [result for result in state.step_results if result.refusal_reason]
+    """Turn the step results into the turn's answer, or into an answered part and a handoff.
+
+    Only what the merchant has not received yet is joined: after a pause, the part already sent
+    is not sent again, and the reply is the operator's answer with the steps that ran after it.
+    """
+    pending = [result for result in state.step_results if not result.delivered]
+    answered = [result for result in pending if not result.refusal_reason]
+    refused = [result for result in pending if result.refusal_reason]
     if len(answered) > 1:
         text = await _merge(state, answered, provider)
     else:
         text = answered[0].answer if answered else None
-    if text:
+    if text and state.escalation is None:
         kept = without_promised_people(text)
         if kept != text:
             logger.warning("answer mentioned a person without a protocol; sentence dropped")
@@ -112,9 +119,17 @@ async def compose(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
         # Nothing but a promise of a person was left: open the protocol that keeps it.
         unkept = {"refusal_reason": _UNKEPT_PROMISE, "answer": None}
         answered, refused = [], [answered[0].model_copy(update=unkept)]
-    update: dict[str, Any] = {"sources": every_source(answered), "answer": text}
+    update: dict[str, Any] = {
+        "sources": every_source(answered),
+        "answer": text,
+        "refusal_reason": None,  # a resumed turn must not escalate again on the pause's reason
+    }
     if refused:
         update["refusal_reason"] = refused[0].refusal_reason
         update["partial_answer"] = text
         update["answer"] = text or joined(refused) or None
+        update["step_results"] = [
+            result.model_copy(update={"delivered": True}) if result in answered else result
+            for result in state.step_results
+        ]
     return update
