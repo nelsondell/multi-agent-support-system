@@ -5,8 +5,9 @@ reused and two tasks are never grouped in one commit.
 
 T-01 to T-06 are the core slice: a running graph with a real router and honest stubs. T-07 to
 T-14 replace the stubs with retrieval, tools and packaging. Together they are v1, frozen at the
-tag `v1`. T-15 to T-27 are v2: they close the gaps in the v1 evaluation, in an order that keeps
-the suite green after every commit.
+tag `v1`. T-15 to T-31 are v2: they close the gaps in the v1 evaluation, in an order that keeps
+the suite green after every commit. T-28 to T-31 are a fix pass from the first real run and land
+before T-24.
 
 ## Core
 
@@ -212,6 +213,22 @@ pipeline (ingestion, storage, retrieval, generation), memory, the human-review c
 outputs for all ten scenarios, a "What changed since v1" table mapped to the evaluation, and a
 "Design notes" section answering the five interview topics; no placeholder is left.
 
+## Fix pass from the first real run
+
+The first run against the real model and web search, in Docker (the ten scenarios, a follow-up, a
+compound request and the human-review loop), found the gaps below. T-28 to T-31 close them before
+T-24, so the end-to-end tests, the judge and the README describe the fixed behaviour.
+
+### T-28 — `feat(T-28): add a reasoning effort setting and default to gpt-6-luna`
+`LLM_TEMPERATURE` becomes optional and `LLM_REASONING_EFFORT` is added; the provider sends each
+only when set, because reasoning models reject a temperature other than their default and models
+without reasoning reject an effort. The effort defaults to `low` unless a temperature is set.
+`evals/run_model_benchmark.py` routes the golden set through each candidate model and writes
+`evals/router_benchmark.md`, which the README cites.
+**Done when:** the default is `gpt-6-luna` at low effort with no temperature sent; `gpt-4o-mini`
+with `LLM_TEMPERATURE=0` sends a temperature and no effort; setting both fails at start-up; an
+empty value in `.env` counts as unset; the benchmark table is committed.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -226,7 +243,7 @@ outputs for all ten scenarios, a "What changed since v1" table mapped to the eva
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
 | Security / isolation (9.5) | T-19, T-21, T-23 |
 | RAG / knowledge (9.8) | T-16, T-23 |
-| Trade-offs / engineering (10.0) | T-27 |
+| Trade-offs / engineering (10.0) | T-27, T-28 |
 
 Outside the task list: the pull request that merges v2 into `main` after T-27 (plan §15), and,
 by hand, pushing the `v1` tag, the walkthrough video (at most 15 minutes) and the submission

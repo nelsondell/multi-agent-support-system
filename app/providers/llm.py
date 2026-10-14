@@ -31,10 +31,21 @@ class LLMProvider(Protocol):
 class OpenAIProvider:
     """Current implementation, backed by OpenAI chat completions."""
 
-    def __init__(self, *, api_key: str, model: str, temperature: float) -> None:
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        model: str,
+        temperature: float | None = None,
+        reasoning_effort: str | None = None,
+    ) -> None:
         from langchain_openai import ChatOpenAI
 
-        self._client = ChatOpenAI(api_key=api_key, model=model, temperature=temperature)
+        # Each control is sent only when set: a reasoning model rejects a temperature, and a model
+        # without reasoning rejects an effort.
+        controls = {"temperature": temperature, "reasoning_effort": reasoning_effort}
+        options = {name: value for name, value in controls.items() if value is not None}
+        self._client = ChatOpenAI(api_key=api_key, model=model, **options)
 
     async def structured(self, *, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
         """Call the model and validate its answer against `schema`."""
@@ -63,4 +74,5 @@ def build_provider(settings: Settings) -> LLMProvider:
         api_key=settings.openai_api_key,
         model=settings.llm_model,
         temperature=settings.llm_temperature,
+        reasoning_effort=settings.llm_reasoning_effort,
     )

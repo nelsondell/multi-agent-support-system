@@ -6,18 +6,26 @@ from typing import Literal
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+ReasoningEffort = Literal["none", "low", "medium", "high", "xhigh"]
+
 
 class Settings(BaseSettings):
     """Runtime configuration. Absent secrets are tolerated until a provider is built."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
 
     llm_backend: Literal["openai", "fake"] = "openai"
     """`fake` answers every structured call deterministically with no vendor account. It exists
     for the CI smoke test and is never meant to serve a merchant."""
     openai_api_key: str | None = None
-    llm_model: str = "gpt-4o-mini"
-    llm_temperature: float = 0.0
+    llm_model: str = "gpt-6-luna"
+    """Chosen by measurement: `evals/router_benchmark.md`."""
+    llm_temperature: float | None = None
+    """Sent only when set, and only to models without reasoning (gpt-4o-mini takes 0). Reasoning
+    models such as gpt-6-luna reject any value but their own default."""
+    llm_reasoning_effort: ReasoningEffort | None = None
+    """Sent only to reasoning models. Resolves to `low` unless a temperature is set, because a
+    temperature means a model without reasoning, which rejects this parameter."""
     embedding_model: str = "text-embedding-3-small"
     embedding_backend: Literal["auto", "local", "openai"] = "auto"
     """Which embedder the index is built and queried with.
@@ -54,6 +62,15 @@ class Settings(BaseSettings):
 
     operator_token: str | None = None
     """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
+
+    @model_validator(mode="after")
+    def pick_sampling_control(self) -> "Settings":
+        """A temperature and a reasoning effort belong to different kinds of model."""
+        if self.llm_temperature is not None and self.llm_reasoning_effort is not None:
+            raise ValueError("set LLM_TEMPERATURE or LLM_REASONING_EFFORT, not both")
+        if self.llm_temperature is None and self.llm_reasoning_effort is None:
+            self.llm_reasoning_effort = "low"
+        return self
 
     @model_validator(mode="after")
     def check_history_bounds(self) -> "Settings":

@@ -35,8 +35,9 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | --- | --- | --- |
 | `LLM_BACKEND` | `openai` | `fake` answers every structured call deterministically with no key. CI only. |
 | `OPENAI_API_KEY` | unset | Chat model credential. With the `openai` backend the API fails fast at start-up without it. |
-| `LLM_MODEL` | `gpt-4o-mini` | Chat model. |
-| `LLM_TEMPERATURE` | `0.0` | Sampling temperature. |
+| `LLM_MODEL` | `gpt-6-luna` | Chat model, chosen in [`evals/router_benchmark.md`](evals/router_benchmark.md). |
+| `LLM_REASONING_EFFORT` | `low` | For reasoning models. Left unset when a temperature is set. |
+| `LLM_TEMPERATURE` | unset | For models without reasoning only, e.g. `gpt-4o-mini` with `0`. Setting both fails at start-up. |
 | `EMBEDDING_BACKEND` | `auto` | `auto` follows the key, `local` uses Chroma's bundled model, `openai` requires the key. |
 | `EMBEDDING_MODEL` | `text-embedding-3-small` | Used when the backend is `openai`. |
 | `ROUTER_CONFIDENCE_THRESHOLD` | `0.6` | Below this, the request escalates without reaching a specialist. |
@@ -422,9 +423,15 @@ weather or exchange-rate question goes to the web is the router's call, measured
 stage on rows S02, S07, O01 and O02. With `LLM_BACKEND=fake` the router stage also runs, offline:
 that proves the runner end to end and measures nothing about routing quality.
 
-**Router accuracy against a real model: [preencher].** The stage requires an API key and was never
-run. Per-class accuracy, confusion between `knowledge` and `support`, and behaviour on the three
-ambiguous rows are all unmeasured.
+**Router accuracy against a real model** is in
+[`evals/router_benchmark.md`](evals/router_benchmark.md), written by
+`uv run python -m evals.run_model_benchmark`: the golden set routed twice through five candidate
+models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort matches
+`gpt-6-sol` (26/30) at about an eighteenth of the cost, and beats `gpt-4o-mini` (24/30) while
+costing less, for about half a second more per call; medium effort adds latency and no accuracy.
+That is the default. Every candidate splits A03 into two steps, because the row is a compound
+request labelled as a single one. Thirty calls per candidate is a small sample, and one or two rows
+apart is within noise, so the choice rests as much on the twentyfold cost gap as on accuracy.
 
 ## 7. Observability and guardrails
 

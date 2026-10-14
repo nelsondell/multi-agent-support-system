@@ -25,7 +25,7 @@ app/
   prompts/             versioned pt-BR markdown, loaded by id
   observability/       structlog setup, PII masking, metrics, tracing
 data/corpus/documents.jsonl   committed extraction snapshot
-evals/                 routing golden set + runner, LLM-as-judge runner, committed report
+evals/                 routing golden set + runner, model benchmark, LLM-as-judge runner, reports
 .github/workflows/ci.yml, Makefile, .env.example
 tests/                 offline suite, mocked provider
 ```
@@ -244,7 +244,7 @@ used it.
 
 | Group | Settings |
 | --- | --- |
-| Model | `LLM_BACKEND` (`openai` or `fake`), `OPENAI_API_KEY`, `LLM_MODEL`, `LLM_TEMPERATURE`, `JUDGE_MODEL` |
+| Model | `LLM_BACKEND` (`openai` or `fake`), `OPENAI_API_KEY`, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_TEMPERATURE`, `JUDGE_MODEL` |
 | Retrieval | `EMBEDDING_BACKEND`, `EMBEDDING_MODEL`, `INDEX_PATH`, `COLLECTION_NAME`, `RETRIEVAL_TOP_K`, `RETRIEVAL_CONFIDENCE_THRESHOLD` |
 | Routing | `ROUTER_CONFIDENCE_THRESHOLD`, `MAX_HOPS` |
 | Memory | `STATE_DIR`, `HISTORY_WINDOW`, `HISTORY_MAX_MESSAGES` |
@@ -268,10 +268,13 @@ Three levels, deliberately separate.
   text.
 - `uv run python -m evals.run_routing_eval` — the routing golden set against a real model, now
   with optional prior turns per row and expected plans.
+- `uv run python -m evals.run_model_benchmark` — the golden set routed through each candidate chat
+  model, with accuracy, latency, tokens and cost, written to `evals/router_benchmark.md`. The
+  default `LLM_MODEL` and `LLM_REASONING_EFFORT` are chosen from it.
 - `uv run python -m evals.run_judge` — the ten challenge scenarios through the real graph, scored
   by a judge model for groundedness and answer relevance, written to `evals/report.md`.
 
-Neither eval runs inside pytest: a statistical measure that dips one case in thirty is not a red
+No eval runs inside pytest: a statistical measure that dips one case in thirty is not a red
 test suite.
 
 ## 12. Docker and CI
