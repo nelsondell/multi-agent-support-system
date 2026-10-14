@@ -4,14 +4,15 @@ It is two nodes because `interrupt()` re-runs its whole node on resume. `prepare
 every side effect, once: it drafts a reply with one model call and records the case in the
 queue, using the protocol `escalate` already minted. `await_operator` reads the state and pauses,
 nothing else. When the operator answers, the same node turns their input into the merchant's
-reply and the graph goes on to `remember`, so the next turn can build on what the human said.
+reply and the graph goes on to `remember`, so the next turn can build on what the human said. A
+case closed without an answer, by the operator or because it expired, ends with a notice.
 """
 
 from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from langgraph.types import interrupt
@@ -104,10 +105,11 @@ async def _draft(state: GraphState, provider: LLMProvider) -> str | None:
 
 
 async def prepare_handoff(
-    state: GraphState, provider: LLMProvider, queue: HandoffQueue | None
+    state: GraphState, provider: LLMProvider, queue: HandoffQueue | None, ttl: timedelta
 ) -> dict[str, Any]:
     """Build the operator's case and record it, before anything pauses."""
     escalation = state.escalation
+    opened_at = datetime.now(UTC)
     case = HandoffCase(
         protocol=escalation.protocol,
         reason=escalation.reason,
@@ -118,7 +120,8 @@ async def prepare_handoff(
         proposed_draft=await _draft(state, provider),
         user_id=state.user_id,
         conversation_id=state.conversation_id,
-        opened_at=datetime.now(UTC),
+        opened_at=opened_at,
+        expires_at=opened_at + ttl,
     )
     if queue is not None:
         await queue.open(case, thread_id(state.user_id, state.conversation_id))
@@ -149,6 +152,9 @@ async def await_operator(state: GraphState, provider: LLMProvider) -> dict[str, 
     """Pause until an operator decides, then answer the merchant from that decision only."""
     case = state.case
     decision = OperatorInput.model_validate(interrupt(case.model_dump(mode="json")))
+    if decision.action == "cancel":
+        # Closed without an answer, by an operator or by expiry: no new fact, no operator source.
+        return {"answer": load_prompt("case_closed").text.format(protocol=case.protocol)}
     if decision.action == "approve":
         if not case.proposed_draft:
             raise ValueError(f"case {case.protocol} has no draft to approve")

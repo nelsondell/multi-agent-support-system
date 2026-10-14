@@ -374,12 +374,27 @@ changed since v1" table. The demo section is refreshed from the image built afte
 **Done when:** a reader cannot take v2 for part of the timed exercise; the demo output matches the
 current image.
 
+## After the independent review
+
+An independent review of v2 found the gaps below; T-42 to T-45 close them.
+
+### T-42 — `feat(T-42): deliver operator replies, keep notes and expire cases`
+The reply a case ends with is held in the queue and delivered by the merchant's next `/chat`, in
+`ChatResponse.delivered`, before that message's answer. `GET /conversations/{id}` returns the
+history through the same thread key as `/chat`. Messages sent while a case waits are appended to
+it as masked notes. Cases carry `expires_at` (`HANDOFF_TTL_HOURS`) and an operator `cancel`
+action; past the deadline, the merchant's next message closes the case as expired and runs. The
+queue gains `outcome`, `notes`, `reply` and `delivered_at`, added in place to an older database.
+**Done when:** an operator's reply reaches the merchant exactly once, with their next message;
+the history is readable by its merchant only; notes reach the operator masked; a cancelled or
+expired case closes with a notice and the conversation goes on; an older queue database opens.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
-| Human-in-the-loop (5.8) | T-21, T-24 |
+| Human-in-the-loop (5.8) | T-21, T-24, T-42 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32 |
 | Multi-agent / orchestration (8.8) | T-22 |

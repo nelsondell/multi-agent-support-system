@@ -85,14 +85,24 @@ the model can read or write, and never appears in a tool schema.
 ### Operator endpoints
 
 All require `Authorization: Bearer <OPERATOR_TOKEN>`. A case is
-`{ "protocol", "reason", "intent", "summary", "attempts": ["string"], "sources": [Source], "proposed_draft": "string | null", "user_id", "conversation_id", "opened_at" }`,
-shown as `{ "status": "open | closed", "case": Case, "closed_at" }`.
+`{ "protocol", "reason", "intent", "summary", "attempts": ["string"], "sources": [Source], "proposed_draft": "string | null", "user_id", "conversation_id", "opened_at", "expires_at" }`,
+shown as `{ "status": "open | closed", "outcome": "answered | cancelled | expired | null", "case": Case, "closed_at", "notes": [{ "at", "message" }] }`.
+`notes` are the merchant's messages sent while the case waited, masked.
 
 - `GET /handoffs` lists open cases, oldest first.
 - `GET /handoffs/{protocol}` shows one case, open or closed.
 - `POST /handoffs/{protocol}/resume` takes `{ "action": "approve" }`, which sends the proposed
-  draft, or `{ "action": "reply", "answer": "string" }`. It resumes the paused conversation and
-  returns the merchant-facing `ChatResponse`.
+  draft, `{ "action": "reply", "answer": "string" }`, or `{ "action": "cancel" }`, which closes
+  the case without an answer. It resumes the paused conversation and returns the resulting
+  `ChatResponse`, which is also held for the merchant: their next `/chat` delivers it, in
+  `delivered`, before that message's own answer.
+
+### Conversation history
+
+`GET /conversations/{conversation_id}?user_id=...` returns `{ "conversation_id", "status":
+"active | pending_human", "protocol", "summary", "messages": [{ "role": "merchant | assistant",
+"content" }] }`, read through the same thread key as `/chat`, so another merchant's id finds an
+empty conversation.
 
 | Condition | Status |
 | --- | --- |
@@ -281,17 +291,19 @@ Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence
    The case is recorded in the queue before the graph pauses.
 2. It pauses the graph with `interrupt()`. The merchant receives a pt-BR notice with the protocol
    and `status = pending_human`.
-3. While a case is open, `/chat` on that conversation returns `pending_human` with the protocol
-   and runs nothing. Other conversations are unaffected.
+3. While a case is open, `/chat` on that conversation returns `pending_human` with the protocol,
+   records the message as a note on the case, and runs nothing. Other conversations are
+   unaffected.
 4. The operator lists open cases and answers one (§3): approving sends the draft as written;
    replying gives the agent the only new facts it may use. It may rephrase them, never add to
    them (hard rule 4). If the rephrasing fails or adds a number, the operator's literal text is
-   sent.
-5. The reply cites the operator as its source, is saved to the conversation history, and the
-   next turn can build on it. Open cases and paused threads survive a restart.
-
-The resume response is what a channel adapter would push to the merchant; the adapter itself is
-out of scope.
+   sent. Cancelling closes the case with a notice and no new fact.
+5. The reply cites the operator as its source, is saved to the conversation history, and is held
+   until the merchant's next message delivers it. The next turn builds on it. Open cases and
+   paused threads survive a restart.
+6. Every case expires after `HANDOFF_TTL_HOURS`. Past that, the merchant's next message closes it
+   as expired, gets the notice delivered, and is answered as usual, so no conversation waits
+   forever.
 
 ## 12. Language
 

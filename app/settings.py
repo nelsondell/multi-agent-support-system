@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     langsmith_api_key: str | None = None
     langsmith_project: str = "getnet-support"
 
+    handoff_ttl_hours: float = Field(default=24.0, gt=0)
+    """How long a case waits for an operator. After that, the merchant's next message closes it
+    as expired and the conversation goes on, so none waits forever."""
+
     operator_token: str | None = None
     """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
 

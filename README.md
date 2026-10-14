@@ -258,10 +258,15 @@ curl -s localhost:8000/chat -H 'Content-Type: application/json' \
 
 A reply is rephrased for the merchant, but if the rephrasing carries a number the operator didn't
 write, the operator's literal text goes out instead. The reply cites the operator and lands in the
-history, so step 4 resolves "essa venda" to the sale the operator named. While a case is open, the
-conversation answers `pending_human` and runs nothing; other conversations are unaffected. Cases
-and paused threads survive a restart. Errors: 401 without a valid token, 503 with none configured,
-404 for an unknown protocol, 409 for a case already answered, 422 to approve a case with no draft.
+history, so step 4 resolves "essa venda" to the sale the operator named. The reply is also held
+for the merchant: their next `/chat` delivers it in `delivered`, before that message's own answer,
+and `GET /conversations/{id}?user_id=...` shows the whole history. While a case is open, the
+conversation answers `pending_human`, records each message as a note the operator sees, and runs
+nothing; other conversations are unaffected. An operator can also cancel a case, and every case
+expires after `HANDOFF_TTL_HOURS` (24): the merchant's next message then closes it with a notice
+and is answered as usual, so no conversation waits forever. Cases and paused threads survive a
+restart. Errors: 401 without a valid token, 503 with none configured, 404 for an unknown protocol,
+409 for a case already closed, 422 to approve a case with no draft.
 
 ## 9. Demo: real outputs
 

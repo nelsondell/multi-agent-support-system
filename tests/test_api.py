@@ -21,12 +21,23 @@ from app.settings import Settings
 CALLER = "cliente1988"
 
 
+class NoCases:
+    """A handoff queue with no case in it: these tests never resume one."""
+
+    async def get(self, protocol: str) -> None:
+        return None
+
+    async def deliver(self, thread_id: str) -> list:
+        return []
+
+
 @pytest.fixture
 def client(build_test_graph):
     """A client whose graph is scripted per test."""
 
     def build(responses: dict, **overrides) -> TestClient:
         app.state.settings = Settings()
+        app.state.queue = NoCases()
         app.state.graph = build_test_graph(responses, checkpointer=InMemorySaver(), **overrides)
         return TestClient(app)
 

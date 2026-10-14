@@ -103,30 +103,55 @@ class HandoffCase(BaseModel):
     user_id: str
     conversation_id: str
     opened_at: datetime
+    expires_at: datetime | None = None
+    """After this, the merchant's next message closes the case as expired and the conversation
+    goes on. Empty only on cases recorded before expiry existed."""
+
+
+Outcome = Literal["answered", "cancelled", "expired"]
+
+
+class CaseNote(BaseModel):
+    """Something the merchant wrote while the case was waiting, masked."""
+
+    at: datetime
+    message: str
 
 
 class HandoffRecord(BaseModel):
     """A case as the operator endpoints show it."""
 
     status: Literal["open", "closed"]
+    outcome: Outcome | None = None
+    """How a closed case ended."""
     case: HandoffCase
     closed_at: datetime | None = None
+    notes: list[CaseNote] = Field(default_factory=list)
 
 
 class OperatorInput(BaseModel):
-    """The operator's decision: send the proposed draft, or answer in their own words."""
+    """The operator's decision: send the proposed draft, answer in their own words, or close the
+    case without an answer."""
 
-    action: Literal["approve", "reply"]
+    action: Literal["approve", "reply", "cancel"]
     answer: str | None = None
 
     @model_validator(mode="after")
     def check_answer(self) -> "OperatorInput":
-        """A reply needs words; an approval takes none, the draft is the answer."""
+        """A reply needs words; an approval and a cancellation take none."""
         if self.action == "reply" and not (self.answer and self.answer.strip()):
             raise ValueError("a reply needs a non-empty answer")
-        if self.action == "approve" and self.answer is not None:
-            raise ValueError("an approval sends the proposed draft and takes no answer")
+        if self.action != "reply" and self.answer is not None:
+            raise ValueError(f"{self.action} takes no answer")
         return self
+
+
+class DeliveredReply(BaseModel):
+    """How a case ended, as the merchant receives it on their next message."""
+
+    protocol: str
+    answer: str
+    sources: list[Source] = Field(default_factory=list)
 
 
 CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
@@ -156,6 +181,9 @@ class ChatResponse(BaseModel):
     sources: list[Source] = Field(default_factory=list)
     escalated: bool = False
     escalation: Escalation | None = None
+    delivered: list[DeliveredReply] = Field(default_factory=list)
+    """How this conversation's cases ended since the merchant last wrote: an operator's reply, or
+    a notice that a case was cancelled or expired. Delivered before this turn's answer."""
 
     @model_validator(mode="after")
     def check_consistency(self) -> "ChatResponse":
@@ -176,3 +204,22 @@ class ChatResponse(BaseModel):
         ):
             raise ValueError("routing never reached a specialist, so none may be reported")
         return self
+
+
+class HistoryMessage(BaseModel):
+    """One message of a conversation, as stored: the merchant's masked."""
+
+    role: Literal["merchant", "assistant"]
+    content: str
+
+
+class ConversationView(BaseModel):
+    """A conversation's history, and whether a human has its case right now."""
+
+    conversation_id: str
+    status: Literal["active", "pending_human"]
+    protocol: str | None = None
+    """The open case's protocol while one is waiting."""
+    summary: str = ""
+    """Rolling summary of the messages that left the history window."""
+    messages: list[HistoryMessage] = Field(default_factory=list)

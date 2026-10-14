@@ -2,15 +2,17 @@
 
 Every route requires `Authorization: Bearer <OPERATOR_TOKEN>`. Without a configured token they
 answer 503 rather than open up. Answering a case resumes the paused graph on that case's thread,
-and the agent turns the operator's input into the merchant's reply.
+and the agent turns the operator's input into the merchant's reply, which is held until the
+merchant's next message delivers it. A case can also be cancelled, which closes it with a notice.
 """
 
 import secrets
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from langgraph.types import Command
 
-from app.contracts import ChatResponse, HandoffRecord, OperatorInput
+from app.contracts import ChatResponse, DeliveredReply, HandoffRecord, OperatorInput, Outcome
 from app.responses import to_response
 
 
@@ -46,11 +48,32 @@ async def show_handoff(protocol: str, request: Request) -> HandoffRecord:
     return found[0]
 
 
+async def settle(
+    app: Any, record: HandoffRecord, thread: str, decision: OperatorInput, outcome: Outcome
+) -> ChatResponse | None:
+    """Close a case, resume its conversation from the decision, and hold the reply for the
+    merchant's next message. None when the case was already closed by someone else."""
+    queue, protocol = app.state.queue, record.case.protocol
+    if not await queue.claim(protocol, outcome):
+        return None
+    config = {"configurable": {"thread_id": thread}}
+    try:
+        final = await app.state.graph.ainvoke(Command(resume=decision.model_dump()), config)
+    except Exception:
+        await queue.reopen(protocol)
+        raise
+    response = to_response(final, record.case.conversation_id)
+    await queue.hold_reply(
+        DeliveredReply(protocol=protocol, answer=response.answer, sources=response.sources)
+    )
+    return response
+
+
 @router.post("/{protocol}/resume", response_model=ChatResponse)
 async def resume_handoff(protocol: str, decision: OperatorInput, request: Request) -> ChatResponse:
-    """Answer a case: approve its draft or reply in the operator's words, and continue the run."""
-    queue = request.app.state.queue
-    found = await queue.get(protocol)
+    """Answer a case (approve its draft or reply in the operator's words), or cancel it, and
+    continue the conversation. The merchant receives the result with their next message."""
+    found = await request.app.state.queue.get(protocol)
     if found is None:
         raise HTTPException(404, f"no case with protocol {protocol}")
     record, thread = found
@@ -58,12 +81,8 @@ async def resume_handoff(protocol: str, decision: OperatorInput, request: Reques
         raise HTTPException(409, f"case {protocol} is already closed")
     if decision.action == "approve" and not record.case.proposed_draft:
         raise HTTPException(422, f"case {protocol} has no draft to approve; reply instead")
-    if not await queue.claim(protocol):
+    outcome = "cancelled" if decision.action == "cancel" else "answered"
+    response = await settle(request.app, record, thread, decision, outcome)
+    if response is None:
         raise HTTPException(409, f"case {protocol} is already closed")
-    config = {"configurable": {"thread_id": thread}}
-    try:
-        final = await request.app.state.graph.ainvoke(Command(resume=decision.model_dump()), config)
-    except Exception:
-        await queue.reopen(protocol)
-        raise
-    return to_response(final, record.case.conversation_id)
+    return response

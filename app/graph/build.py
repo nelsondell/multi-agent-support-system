@@ -7,6 +7,7 @@ arrives from the caller and no node sees it.
 """
 
 from collections.abc import Callable
+from datetime import timedelta
 from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -129,7 +130,12 @@ def graph_nodes(
         "collect": collect,
         "compose": partial(compose, provider=provider),
         "escalate": escalate,
-        "prepare_handoff": partial(prepare_handoff, provider=provider, queue=queue),
+        "prepare_handoff": partial(
+            prepare_handoff,
+            provider=provider,
+            queue=queue,
+            ttl=timedelta(hours=settings.handoff_ttl_hours),
+        ),
         "await_operator": partial(await_operator, provider=provider),
         "remember": partial(
             remember,

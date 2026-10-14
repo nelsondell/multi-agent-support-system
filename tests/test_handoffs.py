@@ -31,8 +31,8 @@ async def test_only_the_first_claim_wins_and_a_reopen_undoes_it(tmp_path):
     async with open_handoff_queue(Settings(state_dir=str(tmp_path))) as queue:
         await queue.open(case(), "thread-1")
 
-        assert await queue.claim("ESC-1A2B3C4D5E") is True
-        assert await queue.claim("ESC-1A2B3C4D5E") is False
+        assert await queue.claim("ESC-1A2B3C4D5E", "answered") is True
+        assert await queue.claim("ESC-1A2B3C4D5E", "answered") is False
         assert await queue.list_open() == []
 
         await queue.reopen("ESC-1A2B3C4D5E")
@@ -60,3 +60,28 @@ async def test_open_cases_are_listed_oldest_first(tmp_path):
         listed = [record.case.protocol for record in await queue.list_open()]
 
     assert listed == ["ESC-AAAAAAAAAA", "ESC-BBBBBBBBBB"]
+
+
+async def test_a_queue_from_an_earlier_release_gains_its_new_columns(tmp_path):
+    """The state volume outlives upgrades: an older table is extended, not replaced."""
+    import aiosqlite
+
+    async with aiosqlite.connect(str(tmp_path / "handoffs.sqlite")) as old:
+        await old.execute(
+            "CREATE TABLE handoffs (protocol TEXT PRIMARY KEY, thread_id TEXT NOT NULL, "
+            "status TEXT NOT NULL CHECK (status IN ('open', 'closed')), payload TEXT NOT NULL, "
+            "opened_at TEXT NOT NULL, closed_at TEXT)"
+        )
+        await old.execute(
+            "INSERT INTO handoffs (protocol, thread_id, status, payload, opened_at) "
+            "VALUES (?, 'thread-1', 'open', ?, ?)",
+            ("ESC-1A2B3C4D5E", case().model_dump_json(exclude={"expires_at"}), "2026-09-01"),
+        )
+        await old.commit()
+
+    async with open_handoff_queue(Settings(state_dir=str(tmp_path))) as queue:
+        await queue.add_note("ESC-1A2B3C4D5E", "ainda esperando")
+        record, _ = await queue.get("ESC-1A2B3C4D5E")
+
+    assert record.status == "open" and record.case.expires_at is None
+    assert [note.message for note in record.notes] == ["ainda esperando"]

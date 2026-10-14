@@ -22,9 +22,11 @@ chat() {
     -d "$(jq -nc --arg m "$message" --arg u "$USER_ID" --arg c "$RUN-$conversation" \
       '{message: $m, user_id: $u, conversation_id: $c}')" \
   | tee "$LAST" \
-  | jq '{status, agents, answer,
+  | jq '{delivered: (if (.delivered | length) > 0 then [.delivered[] | {protocol, answer}] else null end),
+         status, agents, answer,
          sources: [.sources[] | "\(.source_type): \(.url // .title)"],
-         escalation: (if .escalation then {reason: .escalation.reason, protocol: .escalation.protocol} else null end)}'
+         escalation: (if .escalation then {reason: .escalation.reason, protocol: .escalation.protocol} else null end)}
+       | with_entries(select(.value != null))'
 }
 
 operator() {
@@ -62,4 +64,8 @@ printf '\n=== Human review 3: the operator replies ===\n'
 operator -X POST "$BASE/handoffs/$PROTOCOL/resume" -H 'Content-Type: application/json' \
   -d '{"action": "reply", "answer": "Verificamos: o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje, e o valor volta ao comprador em até 2 dias úteis."}' \
   | jq '{status, answer, sources: [.sources[] | "\(.source_type): \(.url // .title)"]}'
-chat "Human review 4: the next turn builds on the reply" hitl "E em que dia foi feita essa venda?"
+chat "Human review 4: the next message receives the reply, then builds on it" hitl \
+  "E em que dia foi feita essa venda?"
+printf '\n=== Human review 5: the conversation as stored ===\n'
+curl -sS "$BASE/conversations/$RUN-hitl?user_id=$USER_ID" | jq '{status, messages: [.messages[] | "\(.role): \(.content)"]}'
+

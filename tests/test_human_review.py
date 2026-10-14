@@ -89,8 +89,12 @@ def pinned_protocol(monkeypatch):
 def stack(tmp_path, sample_chunks, fake_collection):
     """Start the app over stores in `tmp_path`; starting again reopens the same files."""
 
-    async def start(exits: AsyncExitStack, stand_in: Model, token: str | None = TOKEN):
-        settings = Settings(state_dir=str(tmp_path / "state"), operator_token=token)
+    async def start(
+        exits: AsyncExitStack, stand_in: Model, token: str | None = TOKEN, ttl_hours: float = 24
+    ):
+        settings = Settings(
+            state_dir=str(tmp_path / "state"), operator_token=token, handoff_ttl_hours=ttl_hours
+        )
         checkpointer = await exits.enter_async_context(open_checkpointer(settings))
         queue = await exits.enter_async_context(open_handoff_queue(settings))
         above = fake_collection({chunk.id: 0.9 for chunk in sample_chunks})
@@ -378,3 +382,96 @@ async def test_approving_a_case_without_a_draft_is_422(stack):
 
     assert approved.status_code == 422
     assert [record["case"]["protocol"] for record in still_open] == [protocol]
+
+
+REPLY = {"action": "reply", "answer": "Estorno aprovado, cai em 2 dias úteis."}
+
+
+async def test_the_operators_reply_is_delivered_once_with_the_next_message(stack):
+    """The resume answers the operator's call; the merchant gets the reply on their next message,
+    before that message's own answer, and only once."""
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model())
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        await http.post(f"/handoffs/{protocol}/resume", json=REPLY, headers=OPERATOR)
+
+        first = await chat(http, "O que é a Get Smart?")
+        second = await chat(http, "E ela aceita Pix?")
+
+    assert first["delivered"] == [
+        {
+            "protocol": protocol,
+            "answer": REPLY["answer"],
+            "sources": [{"url": None, "title": protocol, "source_type": "operator"}],
+        }
+    ]
+    assert first["status"] == "answered" and first["answer"] == "It takes cards and Pix."
+    assert second["delivered"] == []
+
+
+async def test_the_history_is_readable_by_its_merchant_only(stack):
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model())
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        waiting = (await http.get("/conversations/c1", params={"user_id": CALLER})).json()
+        await http.post(f"/handoffs/{protocol}/resume", json=REPLY, headers=OPERATOR)
+        answered = (await http.get("/conversations/c1", params={"user_id": CALLER})).json()
+        stranger = (await http.get("/conversations/c1", params={"user_id": "cliente7771"})).json()
+
+    assert waiting["status"] == "pending_human" and waiting["protocol"] == protocol
+    assert answered["status"] == "active" and answered["protocol"] is None
+    assert [message["role"] for message in answered["messages"]] == ["merchant", "assistant"]
+    assert "[CPF]" in answered["messages"][0]["content"]
+    assert answered["messages"][1]["content"] == REPLY["answer"]
+    assert stranger == {
+        "conversation_id": "c1",
+        "status": "active",
+        "protocol": None,
+        "summary": "",
+        "messages": [],
+    }
+
+
+async def test_messages_sent_while_waiting_reach_the_operator_as_notes(stack):
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model())
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        await chat(http, "Esqueci de dizer: meu telefone é (51) 99876-5432.")
+        await chat(http, "Alguma novidade?")
+        case = (await http.get(f"/handoffs/{protocol}", headers=OPERATOR)).json()
+
+    notes = [note["message"] for note in case["notes"]]
+    assert notes == ["Esqueci de dizer: meu telefone é [TELEFONE].", "Alguma novidade?"]
+
+
+async def test_a_cancelled_case_closes_with_a_notice_and_the_conversation_goes_on(stack):
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model())
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        cancelled = await http.post(
+            f"/handoffs/{protocol}/resume", json={"action": "cancel"}, headers=OPERATOR
+        )
+        record = (await http.get(f"/handoffs/{protocol}", headers=OPERATOR)).json()
+        after = await chat(http, "O que é a Get Smart?")
+
+    assert cancelled.status_code == 200
+    assert protocol in cancelled.json()["answer"] and cancelled.json()["sources"] == []
+    assert record["status"] == "closed" and record["outcome"] == "cancelled"
+    assert after["delivered"][0]["protocol"] == protocol
+    assert after["status"] == "answered" and after["escalated"] is False
+
+
+async def test_an_expired_case_never_holds_the_conversation(stack):
+    """Past its deadline, the merchant's next message closes the case and is answered."""
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model(), ttl_hours=1e-9)
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+
+        after = await chat(http, "O que é a Get Smart?")
+        record = (await http.get(f"/handoffs/{protocol}", headers=OPERATOR)).json()
+
+    assert after["status"] == "answered" and after["answer"] == "It takes cards and Pix."
+    assert after["delivered"][0]["protocol"] == protocol
+    assert protocol in after["delivered"][0]["answer"]
+    assert record["outcome"] == "expired"
+    assert record["case"]["expires_at"] is not None
