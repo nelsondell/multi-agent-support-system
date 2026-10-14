@@ -62,7 +62,7 @@ parallel plan steps, plans longer than two steps.
   "intent": "product_info | troubleshooting | account_data | individual_case | general_info | other",
   "agents": ["support", "knowledge"],
   "confidence": 0.0,
-  "sources": [{ "source_type": "kb | web | operator", "url": "string | null", "title": "string" }],
+  "sources": [{ "source_type": "kb | web | account | operator", "url": "string | null", "title": "string" }],
   "escalated": false,
   "escalation": { "protocol": "ESC-...", "reason": "string", "summary": "string" }
 }
@@ -73,10 +73,11 @@ parallel plan steps, plans longer than two steps.
 - `agents` lists the specialists that ran, in order; it is empty when routing never reached one.
 - `escalation` is present exactly when `escalated` is true.
 - `status = pending_human` means a human has the case: the answer is a handoff notice with the
-  protocol, and it cites no sources.
+  protocol, preceded by any part of the request already answered, whose sources it keeps.
 - `status = answered` with `escalated = true` is a reply resolved by an operator; it cites one
   `operator` source whose `url` is null and whose `title` is the protocol.
-- `kb` and `web` sources always carry a `url`.
+- `kb` and `web` sources always carry a `url`. An `account` source has no url; its `title` names
+  the tool that read the merchant's account.
 
 `user_id` comes from the request envelope and is treated as authenticated. It is never a field
 the model can read or write, and never appears in a tool schema.
@@ -133,11 +134,12 @@ Possessive phrasing does not decide anything. Only the data dependency does.
 4. Steps run sequentially in plan order. A single-step plan keeps v1's path and cost: no extra
    model call. A two-step plan ends in a compose step that merges both answers into one reply,
    keeps every source from both steps and adds no fact of its own.
-5. If any step refuses, the whole turn escalates with that step's reason. In this domain half an
-   answer about money is worse than a handoff.
+5. If one step answers and the other needs a human, the merchant gets the answered part now and
+   the rest goes to `human_review` in the same turn, under one protocol, with the refusing step's
+   reason. If no step answers, the turn escalates as before.
 6. A specialist that concludes a step is not its own may hand back to the router **once**, with a
-   typed reason; the router then replans the whole turn. `hops` counts router passes. A second
-   miss escalates with `repeated_misroute`.
+   typed reason; the router then replans the whole turn. `hops` counts router passes across the
+   whole plan. A second miss is recorded as that step's refusal, `repeated_misroute`.
 7. LLM failure in the router produces a `RouterDecision` with `confidence = 0.0`, which the
    threshold edge already sends to escalation.
 

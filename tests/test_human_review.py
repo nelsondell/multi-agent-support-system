@@ -18,7 +18,7 @@ from app.graph.build import build_graph
 from app.graph.human_review import HandoffDraft, OperatorReply
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import thread_id
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.handoffs import open_handoff_queue
 from app.main import app
@@ -55,10 +55,13 @@ def routed(user: str) -> RouterDecision:
     product = "Get Smart" in message
     return RouterDecision(
         intent=Intent.PRODUCT_INFO if product else Intent.INDIVIDUAL_CASE,
-        target_agent=TargetAgent.KNOWLEDGE if product else TargetAgent.SUPPORT,
+        steps=[
+            PlanStep(
+                agent=TargetAgent.KNOWLEDGE if product else TargetAgent.SUPPORT, query_pt=message
+            )
+        ],
         confidence=0.9,
         rationale="test",
-        query_pt=message,
     )
 
 

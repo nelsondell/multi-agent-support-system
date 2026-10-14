@@ -4,7 +4,7 @@ import pytest
 
 from app.contracts import EscalationReason, Intent, TargetAgent
 from app.graph.knowledge import KnowledgeAnswer, answer, format_context
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
 from app.providers.llm import LLMProviderError
 from app.rag.retrieve import Hit, RetrievalResult
@@ -30,11 +30,10 @@ def _state(message: str = "como funciona a antecipação?") -> GraphState:
     state = GraphState(message=message, user_id="cliente1988")
     state.route = RouterDecision(
         intent=Intent.PRODUCT_INFO,
-        target_agent=TargetAgent.KNOWLEDGE,
+        steps=[PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt=message)],
         confidence=0.9,
         rationale="produto publicado",
         lang="pt",
-        query_pt=message,
     )
     return state
 
@@ -101,7 +100,8 @@ async def test_retrieved_query_is_the_routers_portuguese_query(sample_chunks, th
     """Retrieval and generation run on query_pt, not on the raw English message."""
     provider = StubProvider(KnowledgeAnswer(answer="ok", used_urls=[]))
     state = _state()
-    state.route = state.route.model_copy(update={"query_pt": "antecipação de recebíveis"})
+    step = PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt="antecipação de recebíveis")
+    state.route = state.route.model_copy(update={"steps": [step]})
 
     await answer(state, provider, _result(sample_chunks[:1], 0.95), threshold)
 

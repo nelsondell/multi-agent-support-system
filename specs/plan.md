@@ -44,12 +44,16 @@ START -> guardrail --blocked--> END                      (not remembered)
            router --confidence < threshold--> escalate
              |
              v  (one step at a time, in plan order)
-     knowledge | support --refusal--> escalate
-             |          --hand-back, hops < 2--> router
-             |          --hand-back, budget spent--> escalate
-             |          --more steps--> next specialist
+     knowledge | support --hand-back, hops < 2--> router (replans the whole turn)
+             |
+             v  (answer, refusal, or hand-back with the budget spent)
+          collect --more steps--> next specialist
+             |
              v
-          compose -> remember -> END
+          compose --a step needs a human--> escalate (answered part kept)
+             |
+             v
+          remember -> END
 
 escalate -> prepare_handoff -> await_operator (interrupt) -> remember -> END
 ```
@@ -125,14 +129,20 @@ decision.
 `RouterDecision` gains `steps: list[PlanStep]` with `min_length=1, max_length=2`; each `PlanStep`
 is `{agent, query_pt}`. Decision-level `intent`, `confidence`, `rationale` and `lang` stay.
 
-After each specialist, `after_step` decides: refusal escalates; a hand-back returns to the router
-while the hop budget lasts; otherwise the next step runs, or `compose` when none is left.
+After each specialist, `after_specialist` decides: a hand-back returns to the router while the hop
+budget lasts, and the router replans the whole turn; anything else goes to `collect`, which
+records the step as a `StepResult` (answer and sources, or a refusal reason) and runs the next
+step, or `compose` when none is left. The steps are sequential, so `step_results` is a plain list
+with no reducer.
 
-`compose` is always the join point. With one step result it copies the answer and sources and
+`compose` is always the join point. With one answered step it copies the answer and sources and
 makes no model call, which is how single-intent turns keep v1's cost. With two it makes one
 structured call (`ComposedAnswer`), takes the union of both steps' sources deterministically, and
 applies the hard-rule-4 guard: if the composed text carries a number absent from the step
-answers, it falls back to the step answers joined through a template.
+answers, it falls back to the step answers joined as written. When one step answered and the
+other refused, the answered part becomes `partial_answer`, the turn escalates with the refused
+step's reason, and `escalate` keeps that part and its sources in front of the handoff notice;
+`remember` later stores it together with the operator's reply.
 
 The guard lives in `app/graph/numbers.py`, introduced by T-21 and reused by T-22. It extracts
 numeric tokens from both texts and compares them as `Decimal` values, never as strings: currency
@@ -216,7 +226,7 @@ operator routes with a 503 rather than leaving them open.
 
 Markdown files under `app/prompts/`, each with a `version` in front matter, loaded by id. No
 prompt literal appears in Python. v2 bumps `router` and adds `summary`, `handoff_draft`,
-`operator_reply`, `pending_human`, `compose`, `compose_fallback`,
+`operator_reply`, `pending_human`, `compose`,
 `knowledge_web`, `web_unavailable` and `judge`. `out_of_domain` is removed with the outcome that
 used it.
 

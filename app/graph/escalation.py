@@ -40,7 +40,7 @@ async def escalate(state: GraphState) -> dict[str, Any]:
     handoff = load_prompt(_HANDOFF_PROMPT).text.format(protocol=protocol)
     return {
         "answer": f"{body}\n\n{handoff}".strip(),
-        "sources": [],
+        "sources": state.sources,
         "escalation": Escalation(
             protocol=protocol,
             reason=reason,

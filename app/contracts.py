@@ -51,21 +51,26 @@ class SourceType(StrEnum):
 
     KB = "kb"
     WEB = "web"
+    ACCOUNT = "account"
     OPERATOR = "operator"
 
 
+_PAGES = (SourceType.KB, SourceType.WEB)
+
+
 class Source(BaseModel):
-    """The evidence behind an answer: a corpus page, a web page, or a human operator."""
+    """The evidence behind an answer: a corpus or web page, the merchant's account, or a human."""
 
     url: str | None = None
     title: str
+    """The page title; for the account, the tool that read it; for an operator, the protocol."""
     source_type: SourceType = SourceType.KB
 
     @model_validator(mode="after")
     def check_url(self) -> "Source":
-        """Pages are cited by url; an operator is cited by the case protocol, in `title`."""
-        if (self.url is None) != (self.source_type is SourceType.OPERATOR):
-            raise ValueError("kb and web sources carry a url, operator sources do not")
+        """Pages are cited by url; the account and an operator are not pages."""
+        if (self.url is not None) != (self.source_type in _PAGES):
+            raise ValueError("kb and web sources carry a url, account and operator sources do not")
         return self
 
 
@@ -141,7 +146,8 @@ class ChatResponse(BaseModel):
     """`pending_human` while an operator has the case; the answer is then a handoff notice."""
     answer: str
     intent: Intent
-    target_agent: TargetAgent | None = None
+    agents: list[TargetAgent] = Field(default_factory=list)
+    """The specialists that ran, in plan order. Empty when routing never reached one."""
     confidence: float = 0.0
     sources: list[Source] = Field(default_factory=list)
     escalated: bool = False
@@ -154,19 +160,15 @@ class ChatResponse(BaseModel):
             raise ValueError("escalated must match the presence of an escalation payload")
         if self.status == "pending_human" and not self.escalated:
             raise ValueError("only an escalated turn can be waiting for a human")
-        if self.status == "pending_human" and self.sources:
-            raise ValueError("a pending response cites no sources: it answered nothing yet")
-        operator = [s for s in self.sources if s.source_type is SourceType.OPERATOR]
-        if self.escalated and len(operator) != len(self.sources):
-            raise ValueError("an escalated turn is answered by its operator and nothing else")
-        if not self.escalated and operator:
-            raise ValueError("an operator source belongs to an escalated turn")
+        operator = any(s.source_type is SourceType.OPERATOR for s in self.sources)
+        if operator and (not self.escalated or self.status == "pending_human"):
+            raise ValueError("an operator source belongs to an escalated turn an operator answered")
         if not self.answer.strip():
             raise ValueError("a response must carry an answer")
         if (
             self.escalation is not None
             and self.escalation.reason is EscalationReason.LOW_ROUTER_CONFIDENCE
-            and self.target_agent is not None
+            and self.agents
         ):
             raise ValueError("routing never reached a specialist, so none may be reported")
         return self

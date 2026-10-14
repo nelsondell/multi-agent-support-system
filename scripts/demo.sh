@@ -16,9 +16,10 @@ ask() {
   curl -sS -X POST "$BASE/chat" \
     -H 'Content-Type: application/json' \
     -d "$(jq -nc --arg m "$message" --arg u "$USER_ID" '{message: $m, user_id: $u}')" \
-  | jq '{answer, intent, target_agent, confidence, escalated,
+  | jq '{status, answer, intent, agents, confidence, escalated,
          reason: (.escalation.reason // null),
-         sources: [.sources[].url]}'
+         protocol: (.escalation.protocol // null),
+         sources: [.sources[] | {source_type, cited: (.url // .title)}]}'
 }
 
 curl -sS "$BASE/health" | jq .

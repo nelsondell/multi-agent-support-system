@@ -11,8 +11,18 @@ from langchain_core.messages import AnyMessage
 from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
-from app.contracts import Escalation, GuardrailOutcome, HandoffCase, Source
-from app.graph.router import RouterDecision
+from app.contracts import Escalation, GuardrailOutcome, HandoffCase, Source, TargetAgent
+from app.graph.router import PlanStep, RouterDecision
+
+
+class StepResult(BaseModel):
+    """What one plan step produced: an answer with its sources, or a reason it stopped."""
+
+    agent: TargetAgent
+    query_pt: str
+    answer: str | None = None
+    sources: list[Source] = Field(default_factory=list)
+    refusal_reason: str | None = None
 
 
 class GraphState(BaseModel):
@@ -43,7 +53,13 @@ class GraphState(BaseModel):
     route: RouterDecision | None = None
 
     hops: int = 0
-    """Router passes so far. Bounds the single hand-back budget."""
+    """Router passes so far. Bounds the single hand-back budget across the whole plan."""
+
+    step_index: int = 0
+    """The plan step running now."""
+
+    step_results: list[StepResult] = Field(default_factory=list)
+    """One entry per finished step, in plan order. Steps run one at a time, so no reducer."""
 
     handoff_reason: str | None = None
     """Set by a specialist that declines the request, read by the router on the second pass."""
@@ -54,6 +70,9 @@ class GraphState(BaseModel):
     answer: str | None = None
     sources: list[Source] = Field(default_factory=list)
     """The evidence the answer was built from. Empty when nothing was answered."""
+
+    partial_answer: str | None = None
+    """When one step answered and another needs a human: the part delivered right away."""
 
     consulted: list[Source] = Field(default_factory=list)
     """Pages a specialist retrieved, whether or not they were good enough to answer from."""
@@ -71,3 +90,14 @@ class GraphState(BaseModel):
 
     summary: str = ""
     """Rolling summary of the exchanges that left the history window."""
+
+    def current_step(self) -> PlanStep | None:
+        """The step a specialist is answering, or None before a plan exists."""
+        if self.route is None or self.step_index >= len(self.route.steps):
+            return None
+        return self.route.steps[self.step_index]
+
+    def current_query(self) -> str:
+        """The standalone question of the running step, or the raw message without a plan."""
+        step = self.current_step()
+        return step.query_pt if step and step.query_pt else self.message

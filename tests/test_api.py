@@ -13,7 +13,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.contracts import Intent, TargetAgent
 from app.graph.human_review import HandoffDraft
 from app.graph.knowledge import KnowledgeAnswer
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.main import app
 from app.settings import Settings
@@ -36,11 +36,14 @@ def client(build_test_graph):
 def _router(agent: TargetAgent, intent: Intent, confidence: float = 0.95) -> RouterDecision:
     return RouterDecision(
         intent=intent,
-        target_agent=agent,
+        steps=[
+            PlanStep(
+                agent=agent, query_pt="em quantas parcelas posso dividir uma venda no crediário"
+            )
+        ],
         confidence=confidence,
         rationale="teste",
         lang="en",
-        query_pt="em quantas parcelas posso dividir uma venda no crediário",
     )
 
 
@@ -65,13 +68,13 @@ def test_knowledge_answer_comes_back_with_its_sources(client) -> None:
 
     assert body["conversation_id"]
     assert body["escalated"] is False
-    assert body["target_agent"] == "knowledge"
+    assert body["agents"] == ["knowledge"]
     assert body["sources"] and body["sources"][0]["url"].startswith("https://")
     assert body["answer"] == "Depende do emissor do cartão."
 
 
 def test_support_answer_uses_the_tool_result(client) -> None:
-    """The account path returns an answer with no corpus sources."""
+    """The account path answers from the tool result and cites the account, not a page."""
     http = client(
         {
             RouterDecision: _router(TargetAgent.SUPPORT, Intent.ACCOUNT_DATA),
@@ -92,8 +95,10 @@ def test_support_answer_uses_the_tool_result(client) -> None:
 
     assert body["conversation_id"]
     assert body["escalated"] is False
-    assert body["target_agent"] == "support"
-    assert body["sources"] == []
+    assert body["agents"] == ["support"]
+    assert body["sources"] == [
+        {"url": None, "title": "get_settlement_schedule", "source_type": "account"}
+    ]
     assert "231,26" in body["answer"]
 
 
@@ -111,7 +116,7 @@ def test_low_router_confidence_escalates_without_naming_an_agent(client) -> None
     assert body["conversation_id"]
     assert body["status"] == "pending_human"
     assert body["escalated"] is True
-    assert body["target_agent"] is None
+    assert body["agents"] == []
     assert body["escalation"]["reason"] == "low_router_confidence"
     assert body["escalation"]["protocol"].startswith("ESC-")
 
@@ -126,7 +131,7 @@ def test_guardrail_refusal_is_a_complete_response(client) -> None:
 
     assert body["conversation_id"]
     assert body["escalated"] is False
-    assert body["target_agent"] is None
+    assert body["agents"] == []
     assert body["sources"] == []
     assert body["answer"].strip()
 

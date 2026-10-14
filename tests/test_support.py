@@ -9,10 +9,11 @@ from app.contracts import (
     EscalationReason,
     Intent,
     Source,
+    SourceType,
     TargetAgent,
 )
 from app.graph.build import after_specialist
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan, answer
 from app.providers.llm import LLMProviderError
@@ -39,11 +40,10 @@ def _state(message: str = "quando cai o dinheiro da venda de ontem?") -> GraphSt
     state = GraphState(message=message, user_id=CALLER)
     state.route = RouterDecision(
         intent=Intent.ACCOUNT_DATA,
-        target_agent=TargetAgent.SUPPORT,
+        steps=[PlanStep(agent=TargetAgent.SUPPORT, query_pt=message)],
         confidence=0.9,
         rationale="depende da conta",
         lang="pt",
-        query_pt=message,
     )
     return state
 
@@ -61,7 +61,9 @@ async def test_tool_result_reaches_the_answer_step() -> None:
     update = await answer(_state(), provider)
 
     assert update["answer"].startswith("A previsão")
-    assert update["sources"] == []
+    assert update["sources"] == [
+        Source(source_type=SourceType.ACCOUNT, title="get_settlement_schedule")
+    ]
     assert "231.26" in provider.calls[1]
 
 
@@ -101,10 +103,10 @@ def test_plan_arguments_never_carry_an_identity() -> None:
 
 @pytest.mark.parametrize(
     ("hops", "expected"),
-    [(1, "router"), (2, "escalate"), (3, "escalate")],
+    [(1, "router"), (2, "collect"), (3, "collect")],
 )
 def test_handoff_is_bounded_by_the_hop_budget(hops: int, expected: str) -> None:
-    """One re-route is allowed; after that the case goes to a human."""
+    """One replan is allowed; after that the hand-off is recorded as the step's refusal."""
     state = _state()
     state.handoff_reason = EscalationReason.REPEATED_MISROUTE.value
     state.hops = hops
@@ -113,47 +115,70 @@ def test_handoff_is_bounded_by_the_hop_budget(hops: int, expected: str) -> None:
 
 
 def test_refusal_never_re_routes() -> None:
-    """A refusal means the specialist reached the data and must not answer, not that it is lost."""
+    """A refusal means the specialist reached the data and must not answer, not that it is lost:
+    it is recorded as the step's result, never sent back to the router."""
     state = _state()
     state.refusal_reason = EscalationReason.INDIVIDUAL_CASE.value
 
-    assert after_specialist(state, max_hops=2) == "escalate"
+    assert after_specialist(state, max_hops=2) == "collect"
 
 
-def test_clean_answer_ends_the_request() -> None:
-    """Nothing set means the specialist answered."""
-    assert after_specialist(_state(), max_hops=2) == "done"
+def test_an_answer_is_recorded_as_the_step_result() -> None:
+    """Nothing set means the specialist answered its step."""
+    assert after_specialist(_state(), max_hops=2) == "collect"
 
 
 def test_response_cannot_claim_an_answer_and_an_escalation() -> None:
     """The flag and the payload have to agree."""
     with pytest.raises(ValidationError):
-        ChatResponse(answer="tudo certo", intent=Intent.ACCOUNT_DATA, escalated=True)
+        ChatResponse(
+            conversation_id="c1", answer="tudo certo", intent=Intent.ACCOUNT_DATA, escalated=True
+        )
 
 
-def test_escalated_response_cannot_cite_sources() -> None:
-    """Citing a page while handing over claims two different outcomes."""
+def _escalation(reason: EscalationReason = EscalationReason.INDIVIDUAL_CASE) -> Escalation:
+    return Escalation(protocol="ESC-1", reason=reason, summary="x")
+
+
+@pytest.mark.parametrize(("status", "escalated"), [("answered", False), ("pending_human", True)])
+def test_an_operator_source_needs_an_escalation_the_operator_answered(status, escalated) -> None:
+    """An operator can only be cited once a human actually answered the turn."""
     with pytest.raises(ValidationError):
         ChatResponse(
-            answer="vou encaminhar",
-            intent=Intent.PRODUCT_INFO,
-            sources=[Source(url="https://site.getnet.com.br/", title="Getnet")],
-            escalated=True,
-            escalation=Escalation(
-                protocol="ESC-1", reason=EscalationReason.INDIVIDUAL_CASE, summary="x"
-            ),
+            conversation_id="c1",
+            status=status,
+            answer="resposta",
+            intent=Intent.ACCOUNT_DATA,
+            sources=[Source(source_type=SourceType.OPERATOR, title="ESC-1")],
+            escalated=escalated,
+            escalation=_escalation() if escalated else None,
         )
+
+
+def test_a_pending_turn_may_cite_the_part_it_already_answered() -> None:
+    """One step answered, the other went to a human: the answered part keeps its page."""
+    response = ChatResponse(
+        conversation_id="c1",
+        status="pending_human",
+        answer="Sobre a antecipação: ... Vou encaminhar o resto.",
+        intent=Intent.ACCOUNT_DATA,
+        agents=[TargetAgent.KNOWLEDGE, TargetAgent.SUPPORT],
+        sources=[Source(url="https://site.getnet.com.br/", title="Getnet")],
+        escalated=True,
+        escalation=_escalation(),
+    )
+
+    assert response.sources and response.status == "pending_human"
 
 
 def test_router_level_escalation_cannot_name_a_specialist() -> None:
     """Nobody was reached, so no agent may be reported as having handled it."""
     with pytest.raises(ValidationError):
         ChatResponse(
+            conversation_id="c1",
             answer="vou encaminhar",
             intent=Intent.OTHER,
-            target_agent=TargetAgent.SUPPORT,
+            agents=[TargetAgent.SUPPORT],
             escalated=True,
-            escalation=Escalation(
-                protocol="ESC-2", reason=EscalationReason.LOW_ROUTER_CONFIDENCE, summary="x"
-            ),
+            escalation=_escalation(EscalationReason.LOW_ROUTER_CONFIDENCE),
         )

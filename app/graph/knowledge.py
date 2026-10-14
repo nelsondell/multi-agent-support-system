@@ -77,7 +77,7 @@ async def answer(
         return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE, looked_at)
 
     prompt = load_prompt("knowledge")
-    question = state.route.query_pt if state.route else state.message
+    question = state.current_query()
     try:
         generated = await provider.structured(
             system=prompt.text,

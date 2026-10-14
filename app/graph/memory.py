@@ -71,9 +71,10 @@ async def remember(
 ) -> dict[str, Any]:
     """Append this exchange to the history, folding the oldest messages into the summary once
     the history would outgrow `limit`. The `window` most recent messages always stay verbatim."""
+    reply = "\n\n".join(part for part in (state.partial_answer, state.answer) if part)
     exchange = [
         HumanMessage(content=state.masked_message or mask_pii(state.message)),
-        AIMessage(content=state.answer or ""),
+        AIMessage(content=reply),
     ]
     total = len(state.messages) + len(exchange)
     if total <= limit:

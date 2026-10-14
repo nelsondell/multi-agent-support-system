@@ -160,13 +160,15 @@ operator's "R$ 1.234,56" is kept, because `app/graph/numbers.py` compares normal
 one protocol per case although `await_operator` re-executes.
 
 ### T-22 — `feat(T-22): plan up to two specialists and compose their answers`
-`RouterDecision.steps` (one or two `PlanStep`), `after_step`, and `compose` as the join point.
-The response's `target_agent` becomes `agents`. The hop budget is unchanged.
+`RouterDecision.steps` (one or two `PlanStep`), `collect` after each step, and `compose` as the
+join point. The response's `target_agent` becomes `agents`; support answers cite the account. The
+hop budget is unchanged and spans the plan.
 **Done when:** a compound message runs support then knowledge and the response lists both agents
-and every source of both; a single-step turn makes no compose model call; a refusal in either
-step escalates the turn; the schema rejects a third step; a composed answer that adds a number
-falls back to the joined step answers, while one that only respells a step's value ("R$ 1.234,56"
-as "1234.56") is kept.
+and every source of both; a single-step turn makes the same model calls as before; when one step
+refuses, the other step's answer goes out now and the rest goes to `human_review` under one
+protocol; the hop budget spans the plan; the schema rejects a third step; a composed answer that
+adds a number falls back to the joined step answers, while one that only respells a step's value
+("R$ 396,06" as "396.06") is kept.
 
 ### T-23 — `feat(T-23): answer general questions with web search`
 `general_info` intent; `app/tools/web.py`; the knowledge agent picks web or corpus by intent;

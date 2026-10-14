@@ -75,7 +75,7 @@ def instrument_node(name: str, node: Callable[[Any], Awaitable[dict]]) -> Callab
             trace_id=getattr(state, "trace_id", None),
             user_id=getattr(state, "user_id", None),
             intent=decision.intent.value if decision else None,
-            target_agent=decision.target_agent.value if decision else None,
+            plan=",".join(step.agent.value for step in decision.steps) if decision else None,
             router_confidence=decision.confidence if decision else None,
             guardrail=_value(update.get("guardrail_outcome")),
             refusal_reason=update.get("refusal_reason"),

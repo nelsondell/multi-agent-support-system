@@ -55,16 +55,23 @@ def attempts(state: GraphState) -> list[str]:
     """What the agents tried and why it stopped, from what the state recorded."""
     lines = []
     if state.route is not None:
-        route = state.route
+        plan = " then ".join(step.agent.value for step in state.route.steps)
         lines.append(
-            f"router: {route.intent.value} for {route.target_agent.value}, "
-            f"confidence {route.confidence:.2f}, query: {mask_pii(route.query_pt)}"
+            f"router: {state.route.intent.value}, plan {plan}, "
+            f"confidence {state.route.confidence:.2f}"
         )
     if state.hops > 1:
         lines.append(f"router: handed back by a specialist, {state.hops} router passes")
+    for number, result in enumerate(state.step_results, start=1):
+        outcome = "answered"
+        if result.refusal_reason:
+            outcome = f"stopped: {STOPPED_BECAUSE[EscalationReason(result.refusal_reason)]}"
+        lines.append(
+            f"step {number} ({result.agent.value}) {outcome}; query: {mask_pii(result.query_pt)}"
+        )
     if state.consulted:
         lines.append(f"knowledge: {len(state.consulted)} pages retrieved")
-    if state.escalation is not None:
+    if state.escalation is not None and not state.step_results:
         lines.append(f"stopped: {STOPPED_BECAUSE[state.escalation.reason]}")
     return lines
 

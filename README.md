@@ -91,30 +91,31 @@ With the service running and the index built:
 ## 2. Orchestration architecture
 
 ```
-POST /chat
+POST /chat  (a conversation waiting for a human answers "pending_human" and stops here)
     |
     v
-+-----------+   blocked (out of scope / identity)  -> answer, END
-| guardrail |-------------------------------------------------+
-+-----------+                                                 |
-    | allow                                                    |
-    v                                                          |
-+-----------+   confidence < ROUTER_CONFIDENCE_THRESHOLD       |
-|  router   |-----------------------------------+              |
-+-----------+                                   |              |
-    |  target_agent                             |              |
-    +-------------------+                       |              |
-    v                   v                       v              |
-+-----------+     +-----------+           +-----------+        |
-| knowledge |     |  support  |           | escalate  |        |
-+-----------+     +-----------+           +-----------+        |
-    |                   |                       ^              |
-    | answer -> END     | answer -> END          |              |
-    | refusal ----------+-----------------------+              |
-    | handoff, hops < MAX_HOPS -> back to router                |
-    | handoff, budget spent ------------------- >               |
-                                                               v
-                                                           response
+ guardrail --blocked (injection / identity swap)--> refusal, END (not remembered)
+    |
+    v
+ router (plan: 1 or 2 steps) --confidence < ROUTER_CONFIDENCE_THRESHOLD--> escalate
+    |
+    v  one step at a time, in plan order
+ knowledge | support --hand-back, hops < MAX_HOPS--> router (replans the whole turn)
+    |
+    v  answer, refusal, or hand-back with the budget spent
+ collect --more steps--> next specialist
+    |
+    v
+ compose --a step needs a human--> escalate (answered part kept)
+    |                                  |
+    |                                  v
+    |                          prepare_handoff -> await_operator (interrupt; resumed by an operator)
+    |                                  |
+    v                                  v
+ remember <----------------------------+
+    |
+    v
+ response
 ```
 
 Three decisions are worth naming:
@@ -124,9 +125,14 @@ Three decisions are worth naming:
   specialist.
 - **A failed model call is not a parallel error path.** The router turns a provider error into a
   `RouterDecision` with `confidence = 0.0`, which the threshold edge already handles.
-- **Hand-back is bounded by `hops`.** A specialist that believes the message is not its own returns
-  it to the router once; a second miss escalates with `repeated_misroute`. Two agents cannot pass
-  the same message back and forth.
+- **Hand-back is bounded by `hops`, across the whole plan.** A specialist that believes its step
+  is not its own returns it to the router once, and the router replans the turn; a second miss is
+  recorded as that step's refusal, `repeated_misroute`. Two agents cannot pass the same message
+  back and forth.
+- **Two specialists only for a genuinely compound request.** "Quando cai o dinheiro de ontem e
+  como funciona a antecipação?" becomes a plan of two steps, each with its own standalone
+  sub-question. The schema caps the plan at two. A single-intent request runs one step and makes
+  exactly the model calls it made before plans existed.
 
 ### The agent boundary
 
@@ -152,17 +158,23 @@ Possessive phrasing decides nothing.
    `identity_swap` are answered on the spot and never routed.
 4. **Router** reads the message and, as data in a separate JSON field, the rolling summary and
    the last `HISTORY_WINDOW` messages. It emits a validated `RouterDecision` — `intent`,
-   `target_agent`, `confidence`, `rationale`, `lang`, `query_pt` — and increments `hops`.
-   `query_pt` is the message as a standalone Portuguese question, with references to earlier
-   turns resolved ("e o de amanhã?" becomes a question about tomorrow's settlement). A rewrite
-   that carries an identifier absent from the conversation (a number, date, protocol or
-   merchant id) is discarded in favour of the original message. Both versions are logged, masked.
-5. The **conditional edge** sends the request to `knowledge`, `support`, or straight to `escalate`.
-6. **Knowledge** retrieves on `query_pt`, and either answers citing the retrieved URLs or abstains
-   with `low_retrieval_confidence`. **Support** plans an action from `query_pt` and the turn's
-   date (Brazil time, so "ontem" and "amanhã" become date ranges), calls at most one tool with
-   the injected identity, and answers from the result — or escalates an individual case.
-   Neither specialist ever sees the history.
+   `confidence`, `rationale`, `lang` and `steps`, one or two `{agent, query_pt}` — and increments
+   `hops`. Each `query_pt` is that step's part of the message as a standalone Portuguese
+   question, with references to earlier turns resolved ("e o de amanhã?" becomes a question
+   about tomorrow's settlement). A rewrite that carries an identifier absent from the
+   conversation (a number, date, protocol or merchant id) is discarded in favour of the original
+   message. Both versions are logged, masked.
+5. The **conditional edge** sends the turn to the first step's specialist, or straight to
+   `escalate`.
+6. **Knowledge** retrieves on its step's `query_pt`, and either answers citing the retrieved URLs
+   or abstains with `low_retrieval_confidence`. **Support** plans an action from its step's
+   `query_pt` and the turn's date (Brazil time, so "ontem" and "amanhã" become date ranges),
+   calls at most one tool with the injected identity, and answers citing the account — or
+   escalates an individual case. Neither specialist ever sees the history. **Collect** records
+   each step's result and starts the next one; **compose** joins them: one answered step is
+   copied as is, two are merged by one model call that may not add a number (otherwise the step
+   answers are joined as written), and every source is kept. If one step answered and the other
+   needs a human, the answered part goes out now and the rest escalates under one protocol.
 7. **Escalate** is deterministic and model-free: it mints a protocol, attaches a typed reason and a
    masked summary, and composes the handoff notice. **Human review** takes over from there (see
    below): the turn pauses until an operator answers, then continues with the operator's reply.
@@ -182,9 +194,9 @@ Response shape:
   "status": "answered",
   "answer": "...",
   "intent": "product_info",
-  "target_agent": "knowledge",
+  "agents": ["knowledge"],
   "confidence": 0.91,
-  "sources": [{"url": "https://site.getnet.com.br/crediario/", "title": "..."}],
+  "sources": [{"url": "https://site.getnet.com.br/crediario/", "title": "...", "source_type": "kb"}],
   "escalated": false,
   "escalation": null
 }
@@ -409,7 +421,7 @@ cannot exist.
 
 ```json
 {"agent": "support", "latency_ms": 1.5, "trace_id": "591f8d5b7aa5475eb1d31e4a9056fa7b",
- "intent": "account_data", "target_agent": "support", "router_confidence": 0.93,
+ "intent": "account_data", "plan": "support", "router_confidence": 0.93,
  "guardrail": null, "refusal_reason": null, "handoff_reason": null, "escalated": false,
  "event": "node.completed", "level": "info", "timestamp": "2026-09-01T18:22:47.886994Z",
  "user_id": "u_a9f6bd311e2b"}

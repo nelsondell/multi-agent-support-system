@@ -19,7 +19,7 @@ from app.contracts import Intent, TargetAgent
 from app.graph.build import build_graph
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import thread_id, turn_input
-from app.graph.router import RouterDecision, invented_identifiers
+from app.graph.router import PlanStep, RouterDecision, invented_identifiers
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.observability import configure_logging
 from app.rag.retrieve import HybridRetriever
@@ -49,11 +49,14 @@ def decide(query: str) -> RouterDecision:
     account = any(word in query.lower() for word in ("dinheiro", "vendas"))
     return RouterDecision(
         intent=Intent.ACCOUNT_DATA if account else Intent.PRODUCT_INFO,
-        target_agent=TargetAgent.SUPPORT if account else TargetAgent.KNOWLEDGE,
+        steps=[
+            PlanStep(
+                agent=TargetAgent.SUPPORT if account else TargetAgent.KNOWLEDGE, query_pt=query
+            )
+        ],
         confidence=0.9,
         rationale="test",
         lang="pt",
-        query_pt=query,
     )
 
 
@@ -123,8 +126,8 @@ async def test_a_settlement_follow_up_goes_to_support_for_tomorrow(start):
     shown_to_planner = json.loads(model.inputs["SupportPlan"][1])
     tool_result = model.inputs["SupportAnswer"][1]
     assert shown_to_router["history"][0]["content"] == "Quando cai o dinheiro das vendas de ontem?"
-    assert final["route"].target_agent is TargetAgent.SUPPORT
-    assert final["route"].query_pt == "Quando cai o dinheiro das vendas de amanhã?"
+    assert final["route"].steps[0].agent is TargetAgent.SUPPORT
+    assert final["route"].steps[0].query_pt == "Quando cai o dinheiro das vendas de amanhã?"
     assert shown_to_planner == {
         "today": "2026-09-01",
         "question": "Quando cai o dinheiro das vendas de amanhã?",
@@ -140,7 +143,7 @@ async def test_a_follow_up_after_a_product_question_stays_in_knowledge(start):
     await send(graph, "O que é a Get Smart?")
     final = await send(graph, "E ela aceita Pix?")
 
-    assert final["route"].target_agent is TargetAgent.KNOWLEDGE
+    assert final["route"].steps[0].agent is TargetAgent.KNOWLEDGE
     assert question_shown_to_knowledge(model, 1).endswith("A Get Smart aceita Pix?")
     assert "O que é a Get Smart?" not in model.inputs["KnowledgeAnswer"][1]
     assert "SupportPlan" not in model.inputs
@@ -154,8 +157,8 @@ async def test_a_new_unrelated_question_leaves_the_previous_topic_behind(start):
     final = await send(graph, "Como funciona o link de pagamento?")
 
     assert "history" in json.loads(model.inputs["RouterDecision"][1])
-    assert final["route"].target_agent is TargetAgent.KNOWLEDGE
-    assert final["route"].query_pt == "Como funciona o link de pagamento?"
+    assert final["route"].steps[0].agent is TargetAgent.KNOWLEDGE
+    assert final["route"].steps[0].query_pt == "Como funciona o link de pagamento?"
     assert question_shown_to_knowledge(model, 0).endswith("Como funciona o link de pagamento?")
     assert len(model.inputs["SupportPlan"]) == 1
 
@@ -200,8 +203,10 @@ async def test_a_rewrite_that_invents_an_identifier_is_dropped(start):
 
     final = await send(graph, "Quando cai o dinheiro das vendas de ontem?")
 
-    assert final["route"].query_pt == "Quando cai o dinheiro das vendas de ontem?"
-    assert json.loads(model.inputs["SupportPlan"][0])["question"] == final["route"].query_pt
+    assert final["route"].steps[0].query_pt == "Quando cai o dinheiro das vendas de ontem?"
+    assert (
+        json.loads(model.inputs["SupportPlan"][0])["question"] == final["route"].steps[0].query_pt
+    )
 
 
 async def test_a_first_turn_sends_no_history_block(start):

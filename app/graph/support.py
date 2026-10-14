@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel
 
-from app.contracts import EscalationReason
+from app.contracts import EscalationReason, Source, SourceType
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
 from app.tools.account import call_tool
@@ -67,7 +67,7 @@ def planning_input(state: GraphState, question: str) -> str:
 
 async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     """Plan, call one tool, and answer from its result."""
-    question = state.route.query_pt if state.route else state.message
+    question = state.current_query()
     try:
         plan = await provider.structured(
             system=load_prompt("support_plan").text,
@@ -101,4 +101,5 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
             "evidence": evidence,
         }
 
-    return {"answer": generated.answer, "sources": [], "evidence": evidence}
+    account = Source(source_type=SourceType.ACCOUNT, title=plan.tool)
+    return {"answer": generated.answer, "sources": [account], "evidence": evidence}

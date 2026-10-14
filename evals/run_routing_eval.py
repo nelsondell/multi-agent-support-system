@@ -5,8 +5,9 @@ one case in fifteen is a signal to read, not a red build.
 
     uv run python -m evals.run_routing_eval
 
-The guardrail half is deterministic and always runs. The router half calls a real model, so it
-runs only when a key is configured, and it costs money.
+The guardrail half is deterministic and always runs. The router half calls the configured model:
+with `LLM_BACKEND=openai` it needs a key and costs money; with `LLM_BACKEND=fake` it runs offline,
+which proves the runner end to end but measures nothing about routing quality.
 """
 
 import argparse
@@ -68,13 +69,13 @@ async def evaluate_router(rows: list[dict]) -> list[Outcome]:
             continue
         state = GraphState(message=row["message"], user_id="eval")
         update = await route(state, provider, window=get_settings().history_window)
-        decision = update["route"]
+        agents = [step.agent.value for step in update["route"].steps]
         outcomes.append(
             Outcome(
                 row_id=row["id"],
                 group=row["group"],
                 expected=row["expected_agent"],
-                actual=decision.target_agent.value,
+                actual=",".join(agents),
             )
         )
     return outcomes
@@ -124,9 +125,11 @@ def main() -> None:
     if arguments.guardrail_only:
         print("\nrouter: skipped (--guardrail-only)")
         return
-    if not get_settings().openai_api_key:
+    settings = get_settings()
+    if settings.llm_backend == "openai" and not settings.openai_api_key:
         print("\nrouter: skipped, OPENAI_API_KEY is not set (this stage calls a real model)")
         return
+    print(f"\nrouter backend: {settings.llm_backend}")
     report("router (model)", asyncio.run(evaluate_router(rows)))
 
 

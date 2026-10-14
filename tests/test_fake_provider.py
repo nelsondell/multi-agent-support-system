@@ -61,5 +61,5 @@ async def test_drives_a_knowledge_question_to_a_sourced_answer(sample_chunks, fa
 
     assert response.conversation_id == "c1"
     assert response.escalated is False
-    assert response.target_agent is not None
+    assert response.agents
     assert response.sources

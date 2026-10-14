@@ -5,7 +5,7 @@ the injected identity ignores, and the scope check answers without routing.
 """
 
 from app.contracts import GuardrailOutcome, Intent, TargetAgent
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.tools.account import call_tool
@@ -19,11 +19,10 @@ def _support_script() -> dict:
     return {
         RouterDecision: RouterDecision(
             intent=Intent.ACCOUNT_DATA,
-            target_agent=TargetAgent.SUPPORT,
+            steps=[PlanStep(agent=TargetAgent.SUPPORT, query_pt="vendas recentes")],
             confidence=0.95,
             rationale="conta",
             lang="pt",
-            query_pt="vendas recentes",
         ),
         SupportPlan: SupportPlan(action=SupportAction.CALL_TOOL, tool="get_transactions"),
         SupportAnswer: SupportAnswer(answer="Suas vendas recentes."),

@@ -48,7 +48,8 @@ def _type_value(annotation: Any, metadata: list[Any]) -> Any:
     if origin is Literal:
         return get_args(annotation)[0]
     if origin in (list, set, tuple):
-        return []
+        members = get_args(annotation)
+        return [_type_value(members[0], []) for _ in range(_min_length(metadata))]
     if origin is dict:
         return {}
     if isinstance(annotation, type) and issubclass(annotation, Enum):
@@ -60,6 +61,11 @@ def _type_value(annotation: Any, metadata: list[Any]) -> Any:
     if annotation in (int, float):
         return annotation(_bound(metadata))
     return FAKE_TEXT
+
+
+def _min_length(metadata: list[Any]) -> int:
+    """The shortest list the field accepts: an empty one unless it declares `min_length`."""
+    return next((item.min_length for item in metadata if hasattr(item, "min_length")), 0)
 
 
 def _bound(metadata: list[Any]) -> float:

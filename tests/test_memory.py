@@ -14,7 +14,7 @@ from app.graph.build import build_graph
 from app.graph.human_review import HandoffDraft, OperatorReply
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import CONVERSATION_FIELDS, ConversationSummary, thread_id, turn_input
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
 from app.prompts import load_prompt
 from app.providers.llm import LLMProviderError
@@ -27,11 +27,10 @@ TODAY = date(2026, 8, 31)
 OTHER = "cliente7771"
 ROUTED = RouterDecision(
     intent=Intent.PRODUCT_INFO,
-    target_agent=TargetAgent.KNOWLEDGE,
+    steps=[PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt="get smart")],
     confidence=0.95,
     rationale="product question",
     lang="en",
-    query_pt="get smart",
 )
 ANSWERED = KnowledgeAnswer(answer="The Get Smart takes cards and Pix.", used_urls=[])
 SCRIPT = {RouterDecision: ROUTED, KnowledgeAnswer: ANSWERED}

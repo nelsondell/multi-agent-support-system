@@ -24,7 +24,8 @@ from app.contracts import (
     SourceType,
     TargetAgent,
 )
-from app.graph.router import RouterDecision
+from app.graph.router import PlanStep, RouterDecision
+from app.graph.state import StepResult
 from app.settings import Settings
 
 STATE_TYPES: tuple[type, ...] = (
@@ -36,7 +37,9 @@ STATE_TYPES: tuple[type, ...] = (
     SourceType,
     Escalation,
     HandoffCase,
+    PlanStep,
     RouterDecision,
+    StepResult,
 )
 """Every application type the graph state can hold. A type missing here comes back from a
 checkpoint as a plain dict or string; a test checks the list against `GraphState`."""

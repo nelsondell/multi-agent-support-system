@@ -1,8 +1,8 @@
-"""The router node and its structured output.
+"""The router node and its structured output: a plan of one or two specialists.
 
 The router is the only agent that reads the conversation history. It uses it for one thing:
-rewriting the current message into a standalone question (`query_pt`), so the specialists stay
-stateless and never see an earlier turn.
+rewriting the current message into standalone questions, one per plan step, so the specialists
+stay stateless and never see an earlier turn.
 """
 
 from __future__ import annotations
@@ -29,17 +29,24 @@ _IDENTIFIER = re.compile(r"[^\W_]*\d[^\W_]*")
 """Any alphanumeric token with a digit in it: amounts, dates, protocols, merchant ids, cards."""
 
 
+class PlanStep(BaseModel):
+    """One specialist and the part of the request it answers."""
+
+    agent: TargetAgent
+    query_pt: str = ""
+    """That part as a standalone Portuguese question: translated when needed, with references
+    to earlier turns resolved. The specialist sees this, never the history."""
+
+
 class RouterDecision(BaseModel):
     """The router's only output. Nothing downstream parses model prose."""
 
     intent: Intent
-    target_agent: TargetAgent
     confidence: float = Field(ge=0.0, le=1.0)
     rationale: str
     lang: Literal["pt", "en", "other"] = "pt"
-    query_pt: str = ""
-    """The current message as a standalone Portuguese question: translated when needed, with
-    references to earlier turns resolved. Specialists see this, never the history."""
+    steps: list[PlanStep] = Field(min_length=1, max_length=2)
+    """Run in order. Two steps only for a genuinely compound request; the schema refuses three."""
 
 
 def _failed_decision(message: str, error: str) -> RouterDecision:
@@ -50,11 +57,10 @@ def _failed_decision(message: str, error: str) -> RouterDecision:
     """
     return RouterDecision(
         intent=Intent.OTHER,
-        target_agent=TargetAgent.KNOWLEDGE,
         confidence=0.0,
         rationale=f"router unavailable: {error}",
         lang="pt",
-        query_pt=message,
+        steps=[PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt=message)],
     )
 
 
@@ -80,26 +86,35 @@ def invented_identifiers(rewrite: str, conversation: str) -> set[str]:
     return {token for token in map(str.lower, _IDENTIFIER.findall(rewrite)) if token not in known}
 
 
-def _grounded(decision: RouterDecision, state: GraphState, window: int) -> RouterDecision:
-    """Keep the rewrite only if every identifier in it came from the conversation.
+def _grounded_step(step: PlanStep, message: str, conversation: str) -> PlanStep:
+    """Keep a step's rewrite only if every identifier in it came from the conversation.
 
     A rewrite that introduces a number, date, protocol or merchant id is the model inventing
     one; the original message is the safer query.
     """
-    if not decision.query_pt:
-        return decision.model_copy(update={"query_pt": state.message})
+    if not step.query_pt:
+        return step.model_copy(update={"query_pt": message})
+    invented = invented_identifiers(step.query_pt, conversation)
+    if not invented:
+        return step
+    events.warning("router.rewrite_rejected", invented_count=len(invented))
+    return step.model_copy(update={"query_pt": message})
+
+
+def _grounded(decision: RouterDecision, state: GraphState, window: int) -> RouterDecision:
+    """Apply the identifier check to every step of the plan."""
     conversation = " ".join(
         [state.message, state.summary, *(str(item.content) for item in state.messages[-window:])]
     )
-    invented = invented_identifiers(decision.query_pt, conversation)
-    if not invented:
-        return decision
-    events.warning("router.rewrite_rejected", invented_count=len(invented))
-    return decision.model_copy(update={"query_pt": state.message})
+    steps = [_grounded_step(step, state.message, conversation) for step in decision.steps]
+    return decision.model_copy(update={"steps": steps})
 
 
 async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[str, Any]:
-    """Classify the message, rewrite it into a standalone query, and record both on the state."""
+    """Plan the turn, rewrite each step into a standalone query, and record both on the state.
+
+    A new plan starts the turn over: earlier step results, from before a hand-back, are dropped.
+    """
     try:
         decision = await provider.structured(
             system=load_prompt("router").text,
@@ -114,6 +129,12 @@ async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[s
     events.info(
         "router.rewrite",
         message=state.masked_message or state.message,
-        standalone_query=decision.query_pt,
+        standalone_query=" | ".join(step.query_pt for step in decision.steps),
     )
-    return {"route": decision, "hops": state.hops + 1, "handoff_reason": None}
+    return {
+        "route": decision,
+        "hops": state.hops + 1,
+        "handoff_reason": None,
+        "step_index": 0,
+        "step_results": [],
+    }
