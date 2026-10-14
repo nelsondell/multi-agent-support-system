@@ -183,7 +183,8 @@ Possessive phrasing decides nothing.
    when the model reports that the excerpts do not answer the question. **Support** plans an action from its step's
    `query_pt` and the turn's date (Brazil time, so "ontem" and "amanhã" become date ranges),
    calls at most one tool with the injected identity and the turn's date, and answers citing the
-   account — or escalates an individual case. The mock records are written as of one day and read
+   account — or escalates an individual case. A decline question reads the declined sales and
+   answers with the reason the issuer recorded; only a decline the data cannot explain escalates. The mock records are written as of one day and read
    as of the turn's, so "ontem" and "amanhã" always land on the same entries, and every amount
    leaves the tool as the merchant writes it ("R$ 1.240,00"), so the model never formats a float.
    Settlements are filtered by the date the question is about: the sale date for "the money from
@@ -527,8 +528,9 @@ routed to a cited web search.
    record. No deriving, rounding or averaging.
 2. No promise of a future date. An account forecast is echoed as a forecast, with the reference
    date of the data.
-3. No verdict on an individual case — declined transactions, chargebacks, blocks, fraud, pending
-   registration — even when the data exists. Those escalate.
+3. No verdict on an individual case beyond the data. A declined sale is answered with the reason
+   the issuer recorded, and nothing more; with no declined sale or no recorded reason, it
+   escalates. Chargebacks, refunds, blocks, fraud and pending registration always escalate.
 4. Rephrasing adds nothing: a composed answer or an operator reply carrying a number its source
    lacks is replaced by that source, with numbers compared by value ("R$ 1.234,56" = "1234.56").
 5. No mention of a human agent unless the turn opened a protocol.

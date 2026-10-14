@@ -63,6 +63,15 @@ class SupportPlan(BaseModel):
         return {"date_from": date_from, "date_to": date_to, "date_field": field}
 
 
+def unexplained_decline(plan: SupportPlan, result: dict[str, Any]) -> bool:
+    """A question about declined sales that the data cannot answer: none is on record, or none
+    carries the reason the issuer gave. Only then does a decline need a person."""
+    if plan.tool != "get_transactions" or plan.status != "negada":
+        return False
+    declined = [item for item in result.get("transactions", []) if item["status"] == "negada"]
+    return not any(item.get("decline_reason") for item in declined)
+
+
 class SupportAnswer(BaseModel):
     """The second structured step: prose grounded in the tool result."""
 
@@ -74,6 +83,20 @@ def planning_input(state: GraphState, question: str) -> str:
     "yesterday" or "tomorrow" into a date range. Never the conversation history."""
     today = state.today.isoformat() if state.today else None
     return json.dumps({"today": today, "question": question}, ensure_ascii=False)
+
+
+def answer_input(
+    state: GraphState, question: str, tool: str, arguments: dict[str, Any], result: dict[str, Any]
+) -> str:
+    """What the answer step reads: today, the question, the query as it was run, and its result.
+    The query matters when it differs from the words of the question, as when "tomorrow's sales"
+    was read as the money crediting tomorrow."""
+    today = state.today.isoformat() if state.today else "não informada"
+    return (
+        f"Hoje: {today}\n\nPergunta do cliente:\n{question}\n\n"
+        f"Consulta feita: {tool} {json.dumps(arguments, ensure_ascii=False)}\n\n"
+        f"Resultado da consulta {tool}:\n{json.dumps(result, ensure_ascii=False)}"
+    )
 
 
 async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
@@ -94,16 +117,15 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     if plan.action is SupportAction.HANDOFF_TO_KNOWLEDGE or plan.tool is None:
         return {"handoff_reason": EscalationReason.REPEATED_MISROUTE.value}
 
-    result = call_tool(plan.tool, plan.arguments(state.today), state.user_id, state.today)
+    arguments = plan.arguments(state.today)
+    result = call_tool(plan.tool, arguments, state.user_id, state.today)
     evidence = [*state.evidence, json.dumps(result, ensure_ascii=False)]
-    today = state.today.isoformat() if state.today else "não informada"
+    if unexplained_decline(plan, result):
+        return {"refusal_reason": EscalationReason.INDIVIDUAL_CASE.value, "evidence": evidence}
     try:
         generated = await provider.structured(
             system=load_prompt("support_answer").text,
-            user=(
-                f"Hoje: {today}\n\nPergunta do cliente:\n{question}\n\n"
-                f"Resultado da consulta {plan.tool}:\n{json.dumps(result, ensure_ascii=False)}"
-            ),
+            user=answer_input(state, question, plan.tool, arguments, result),
             schema=SupportAnswer,
         )
     except LLMProviderError as exc:

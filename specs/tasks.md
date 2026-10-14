@@ -303,6 +303,17 @@ the result and the prompt-only comparison.
 real keys can never be staged.
 **Done when:** `git status` does not list `.env.bak`, and `.env.example` is still tracked.
 
+### T-35 — `fix(T-35): answer declines from the issuer's recorded reason and route them to support`
+The router prompt sends a decline, even one phrased as a card-machine error, to `support` as an
+individual case, with S08 as its example. The planner reads declined sales (`get_transactions`,
+`status = "negada"`), whose records carry the issuer's `decline_reason`; the answer relays it and
+nothing more. A decline the data cannot explain, with no declined sale or no recorded reason,
+escalates. The answer step sees the query as it was run and answers only what was asked. Hard
+rule 3 changes accordingly.
+**Done when:** S08, run 10 times against the real router, goes to support at least 9 times and is
+answered with the recorded reason; a merchant with no declined sale, or one without a reason,
+gets a protocol; "E o de amanhã?" is answered without commenting on what was not asked.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |

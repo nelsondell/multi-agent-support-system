@@ -71,10 +71,10 @@ async def test_tool_result_reaches_the_answer_step() -> None:
 
 
 async def test_individual_case_escalates_even_though_the_data_exists() -> None:
-    """The declined sale is in the fixture; diagnosing it is still a human's job."""
+    """The refund is in the fixture; explaining it is still a human's job."""
     provider = ScriptedProvider(SupportPlan(action=SupportAction.ESCALATE_INDIVIDUAL_CASE))
 
-    update = await answer(_state("por que minha venda foi negada?"), provider)
+    update = await answer(_state("por que meu estorno foi feito?"), provider)
 
     assert update["refusal_reason"] == EscalationReason.INDIVIDUAL_CASE.value
     assert len(provider.calls) == 1
@@ -243,3 +243,33 @@ def test_a_plan_without_a_date_field_filters_by_credit_date() -> None:
         "date_to": "2026-10-15",
         "date_field": "credit_date",
     }
+
+
+DECLINES = SupportPlan(action=SupportAction.CALL_TOOL, tool="get_transactions", status="negada")
+
+
+async def test_a_decline_is_explained_with_the_reason_the_issuer_recorded() -> None:
+    """S08: the answer step reads the declined sale and the issuer's reason, and answers."""
+    provider = ScriptedProvider(DECLINES, SupportAnswer(answer="Saldo ou limite insuficiente."))
+
+    update = await answer(_state("minha maquininha mostra erro de transação negada"), provider)
+
+    assert "refusal_reason" not in update
+    shown = provider.calls[1]
+    assert "saldo ou limite insuficiente no cartão, segundo o banco emissor" in shown
+    assert 'Consulta feita: get_transactions {"status": "negada"' in shown
+
+
+@pytest.mark.parametrize(
+    ("merchant", "why"),
+    [("cliente2042", "declined with no reason recorded"), ("cliente7771", "nothing declined")],
+)
+async def test_a_decline_the_data_cannot_explain_goes_to_a_person(merchant, why) -> None:
+    provider = ScriptedProvider(DECLINES)
+    state = _state("por que minha venda foi negada?")
+    state.user_id = merchant
+
+    update = await answer(state, provider)
+
+    assert update["refusal_reason"] == EscalationReason.INDIVIDUAL_CASE.value, why
+    assert len(provider.calls) == 1, "no answer is written for a decline nobody can explain"

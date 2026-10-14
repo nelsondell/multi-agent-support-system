@@ -14,7 +14,8 @@
       {"id": "TX-20260831-0002", "date": "2026-08-31", "amount": 89.50, "brand": "Mastercard",
        "card": "**** **** **** 7788", "installments": 1, "status": "aprovada"},
       {"id": "TX-20260831-0003", "date": "2026-08-31", "amount": 1240.00, "brand": "Visa",
-       "card": "**** **** **** 1102", "installments": 6, "status": "negada"},
+       "card": "**** **** **** 1102", "installments": 6, "status": "negada",
+       "decline_reason": "saldo ou limite insuficiente no cartão, segundo o banco emissor"},
       {"id": "TX-20260830-0007", "date": "2026-08-30", "amount": 62.30, "brand": "Elo",
        "card": "**** **** **** 5540", "installments": 1, "status": "aprovada"}
     ],
@@ -38,7 +39,9 @@
     },
     "transactions": [
       {"id": "TX-20260828-0011", "date": "2026-08-28", "amount": 780.00, "brand": "Mastercard",
-       "card": "**** **** **** 9031", "installments": 3, "status": "aprovada"}
+       "card": "**** **** **** 9031", "installments": 3, "status": "aprovada"},
+      {"id": "TX-20260830-0012", "date": "2026-08-30", "amount": 455.00, "brand": "Visa",
+       "card": "**** **** **** 3388", "installments": 1, "status": "negada"}
     ],
     "settlement": [
       {"sale_date": "2026-08-28", "credit_date": "2026-09-03", "gross": 780.00, "fees": 34.32,

@@ -225,8 +225,11 @@ These are testable statements, not prompt suggestions.
    released or advanced. An account forecast may be echoed, labelled as a forecast, with the
    reference date of the data. An operator may state a date; the system relays it as the
    operator's.
-3. **No verdict on an individual case.** Declined transactions, chargebacks, blocks, fraud and
-   pending registration go to a human even when account data exists.
+3. **No verdict on an individual case beyond the data.** A declined sale is answered with the
+   reason the issuer recorded in the account data, and nothing more: no inferred cause, no advice
+   the data does not carry. With no declined sale on record, or none with a recorded reason, it
+   goes to a human. Chargebacks, refunds, blocks, fraud and pending registration go to a human
+   even when account data exists.
 4. **Rephrasing adds nothing.** A composed answer or an operator reply that contains a number
    absent from the text it was built from is discarded in favour of that text, delivered
    verbatim. Numbers are compared by value, not by spelling: currency symbols
