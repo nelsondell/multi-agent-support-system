@@ -1,6 +1,7 @@
 """HTTP surface: one conversational endpoint and a liveness probe."""
 
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -16,6 +17,10 @@ from app.observability import configure_logging
 from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
 from app.settings import get_settings
+
+MERCHANT_TIMEZONE = timezone(timedelta(hours=-3), "America/Sao_Paulo")
+"""Brazil has had no daylight saving time since 2019, so a fixed offset is exact and needs no
+timezone database in the image."""
 
 
 @asynccontextmanager
@@ -68,7 +73,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
     structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
     config = {"configurable": {"thread_id": thread_id(request.user_id, conversation_id)}}
     try:
-        turn = turn_input(request.message, request.user_id, trace_id)
+        today = datetime.now(MERCHANT_TIMEZONE).date()
+        turn = turn_input(request.message, request.user_id, trace_id, today)
         return to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
     finally:
         structlog.contextvars.clear_contextvars()

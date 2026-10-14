@@ -67,7 +67,7 @@ async def evaluate_router(rows: list[dict]) -> list[Outcome]:
         if row["expected_guardrail"] != "allow":
             continue
         state = GraphState(message=row["message"], user_id="eval")
-        update = await route(state, provider)
+        update = await route(state, provider, window=get_settings().history_window)
         decision = update["route"]
         outcomes.append(
             Outcome(

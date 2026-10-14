@@ -1,6 +1,7 @@
 """Conversation memory: threads, turn resets, what is remembered, and the summary fold."""
 
 import ast
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ from app.settings import Settings
 from tests.conftest import ScriptedProvider
 
 CALLER = "cliente1988"
+TODAY = date(2026, 8, 31)
 OTHER = "cliente7771"
 ROUTED = RouterDecision(
     intent=Intent.PRODUCT_INFO,
@@ -39,7 +41,7 @@ def config(user_id: str = CALLER, conversation_id: str = "c1") -> dict:
 
 async def send(graph, message: str, user_id: str = CALLER, conversation_id: str = "c1") -> dict:
     return await graph.ainvoke(
-        turn_input(message, user_id, "trace"), config(user_id, conversation_id)
+        turn_input(message, user_id, "trace", TODAY), config(user_id, conversation_id)
     )
 
 
@@ -191,7 +193,7 @@ def test_thread_ids_are_stable_and_unambiguous():
 
 
 def test_the_turn_input_resets_every_per_turn_field():
-    turn = turn_input("hello", CALLER, "trace")
+    turn = turn_input("hello", CALLER, "trace", TODAY)
 
     assert set(turn) == set(GraphState.model_fields) - CONVERSATION_FIELDS
     assert turn["hops"] == 0 and turn["answer"] is None and turn["sources"] == []

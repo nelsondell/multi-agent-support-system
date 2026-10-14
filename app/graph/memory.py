@@ -9,6 +9,7 @@ the history.
 import hashlib
 import json
 import logging
+from datetime import date
 from typing import Any
 
 from langchain_core.messages import AIMessage, AnyMessage, HumanMessage, RemoveMessage
@@ -42,7 +43,7 @@ def thread_id(user_id: str, conversation_id: str) -> str:
     return hashlib.sha256(pair.encode("utf-8")).hexdigest()
 
 
-def turn_input(message: str, user_id: str, trace_id: str) -> dict[str, Any]:
+def turn_input(message: str, user_id: str, trace_id: str, today: date) -> dict[str, Any]:
     """The input of one turn, with every per-turn field explicitly back at its default.
 
     A checkpointed invocation merges its input into the stored state, so a field left out here
@@ -53,7 +54,13 @@ def turn_input(message: str, user_id: str, trace_id: str) -> dict[str, Any]:
         for name, field in GraphState.model_fields.items()
         if name not in CONVERSATION_FIELDS and not field.is_required()
     }
-    return {**fresh, "message": message, "user_id": user_id, "trace_id": trace_id}
+    return {
+        **fresh,
+        "message": message,
+        "user_id": user_id,
+        "trace_id": trace_id,
+        "today": today,
+    }
 
 
 async def remember(

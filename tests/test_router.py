@@ -37,7 +37,7 @@ async def test_product_question_in_english_goes_to_knowledge() -> None:
         user_id="cliente1988",
     )
 
-    update = await route(state, StubProvider(decision))
+    update = await route(state, StubProvider(decision), window=6)
 
     assert update["route"].target_agent is TargetAgent.KNOWLEDGE
     assert update["route"].query_pt.startswith("diferença")
@@ -56,7 +56,7 @@ async def test_account_question_goes_to_support() -> None:
     )
     state = GraphState(message="Quando cai o dinheiro da venda de ontem?", user_id="cliente1988")
 
-    update = await route(state, StubProvider(decision))
+    update = await route(state, StubProvider(decision), window=6)
 
     assert update["route"].target_agent is TargetAgent.SUPPORT
     assert update["route"].intent is Intent.ACCOUNT_DATA
@@ -66,7 +66,7 @@ async def test_provider_failure_becomes_zero_confidence_not_an_exception() -> No
     """The failure collapses into the value the threshold edge already handles."""
     state = GraphState(message="Quando cai o dinheiro?", user_id="cliente1988")
 
-    update = await route(state, StubProvider(error="upstream timeout"))
+    update = await route(state, StubProvider(error="upstream timeout"), window=6)
 
     assert update["route"].confidence == 0.0
     assert update["route"].query_pt == state.message

@@ -58,12 +58,21 @@ class SupportAnswer(BaseModel):
     answer: str
 
 
+def planning_input(state: GraphState, question: str) -> str:
+    """The planner's input: the standalone question and the date of the turn, which is what turns
+    "yesterday" or "tomorrow" into a date range. Never the conversation history."""
+    today = state.today.isoformat() if state.today else None
+    return json.dumps({"today": today, "question": question}, ensure_ascii=False)
+
+
 async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     """Plan, call one tool, and answer from its result."""
     question = state.route.query_pt if state.route else state.message
     try:
         plan = await provider.structured(
-            system=load_prompt("support_plan").text, user=question, schema=SupportPlan
+            system=load_prompt("support_plan").text,
+            user=planning_input(state, question),
+            schema=SupportPlan,
         )
     except LLMProviderError as exc:
         logger.warning("support planning failed: %s", exc)

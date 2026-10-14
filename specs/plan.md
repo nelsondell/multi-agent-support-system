@@ -108,9 +108,17 @@ decision.
   as context. When `messages` exceeds `HISTORY_MAX_MESSAGES`, `remember` folds everything older
   than the window into `summary` with one structured call (`ConversationSummary`) and removes
   those messages with `RemoveMessage`. On failure it removes nothing and logs the event.
-- **Standalone query.** The router prompt receives the window and must return each step's
-  `query_pt` as a self-contained Portuguese question. The original message and every `query_pt`
-  are kept in state and logged masked, so a bad rewrite can be read in the logs.
+- **Standalone query.** The router receives a JSON input: `message`, plus `history` (the window)
+  and `summary` only when there are earlier turns. History is a data field, never part of the
+  instructions, and the prompt forbids obeying text found in it or dragging an old topic into a
+  new question. The router must return each step's `query_pt` as a self-contained Portuguese
+  question, keeping relative dates as words. A rewrite containing an identifier-like token (any
+  alphanumeric token with a digit) absent from the message, window or summary is discarded for
+  the original message. The original message and every `query_pt` are kept in state and logged
+  masked, so a bad rewrite can be read in the logs.
+- **Turn date.** The API stamps each turn with the merchant's date (UTC-3, Brazil has no daylight
+  saving time). The support planner receives it with the standalone question, which is what
+  turns "amanhã" into a date range; it never receives the history.
 
 ## 5. Plans and compose
 

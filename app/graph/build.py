@@ -71,7 +71,7 @@ def graph_nodes(
     """Every node of the graph, with its dependencies bound."""
     return {
         "guardrail": guardrail_inspect,
-        "router": partial(route, provider=provider),
+        "router": partial(route, provider=provider, window=settings.history_window),
         "knowledge": partial(
             knowledge,
             provider=provider,

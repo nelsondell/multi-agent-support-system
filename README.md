@@ -149,12 +149,19 @@ Possessive phrasing decides nothing.
    another `user_id` opens a different, empty thread. The turn input resets every per-turn field.
 3. **Guardrail** masks PII into `masked_message`, then classifies. `out_of_domain` and
    `identity_swap` are answered on the spot and never routed.
-4. **Router** emits a validated `RouterDecision` — `intent`, `target_agent`, `confidence`,
-   `rationale`, `lang`, `query_pt` — and increments `hops`.
+4. **Router** reads the message and, as data in a separate JSON field, the rolling summary and
+   the last `HISTORY_WINDOW` messages. It emits a validated `RouterDecision` — `intent`,
+   `target_agent`, `confidence`, `rationale`, `lang`, `query_pt` — and increments `hops`.
+   `query_pt` is the message as a standalone Portuguese question, with references to earlier
+   turns resolved ("e o de amanhã?" becomes a question about tomorrow's settlement). A rewrite
+   that carries an identifier absent from the conversation (a number, date, protocol or
+   merchant id) is discarded in favour of the original message. Both versions are logged, masked.
 5. The **conditional edge** sends the request to `knowledge`, `support`, or straight to `escalate`.
 6. **Knowledge** retrieves on `query_pt`, and either answers citing the retrieved URLs or abstains
-   with `low_retrieval_confidence`. **Support** plans an action, calls at most one tool with the
-   injected identity, and answers from the result — or escalates an individual case.
+   with `low_retrieval_confidence`. **Support** plans an action from `query_pt` and the turn's
+   date (Brazil time, so "ontem" and "amanhã" become date ranges), calls at most one tool with
+   the injected identity, and answers from the result — or escalates an individual case.
+   Neither specialist ever sees the history.
 7. **Escalate** is deterministic and model-free: it mints a protocol, attaches a typed reason and a
    masked summary, and composes the handoff message.
 8. **Remember** appends the masked merchant turn and the reply to the thread's `messages`. A

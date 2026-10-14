@@ -4,6 +4,7 @@ The state carries only what has to cross a node boundary. Retrieved chunks stay 
 knowledge agent; only the sources that actually back an answer are promoted here.
 """
 
+from datetime import date
 from typing import Annotated
 
 from langchain_core.messages import AnyMessage
@@ -28,6 +29,9 @@ class GraphState(BaseModel):
 
     trace_id: str = ""
     """Correlates every log line of one request."""
+
+    today: date | None = None
+    """The merchant's calendar date when the turn arrived, which gives "yesterday" a date."""
 
     masked_message: str = ""
     """Filled by the guardrail; this is the only form that reaches a log or the history."""
