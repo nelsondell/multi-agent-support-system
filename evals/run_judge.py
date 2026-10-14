@@ -1,18 +1,22 @@
 """LLM-as-judge: the challenge scenarios, two follow-ups, a compound request and the human-review
 loop through the real graph, every answered turn scored for groundedness and relevance.
 
-    uv run python -m evals.run_judge
+    uv run python -m evals.run_judge [--runs 3]
 
 Calls the real chat model, the embedder, the web search and the judge (`JUDGE_MODEL`), so it
 needs OPENAI_API_KEY and TAVILY_API_KEY and costs cents. The judge reads exactly what the system
 had in hand for that turn, its `evidence`, so a fluent answer the evidence does not back scores
-low. Writes `evals/report.md`. Like every eval, it never runs inside pytest.
+low. Every line runs three times by default, and `evals/report.md` reports each line's mean and
+minimum and the spread between runs, never one chosen run. Like every eval, it never runs inside
+pytest.
 """
 
+import argparse
 import asyncio
 import json
 import statistics
 import subprocess
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -41,6 +45,8 @@ REPORT = Path(__file__).parent / "report.md"
 CALIBRATION = Path(__file__).parent / "retrieval_calibration.md"
 CALLER = "cliente1988"
 JUDGE_EFFORT = "medium"
+RUNS = 3
+"""One run is a reading, not a measurement: web results and sampling move between runs."""
 OPERATOR_REPLY = (
     "Verificamos: o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje, e o "
     "valor volta ao comprador em até 2 dias úteis."
@@ -190,88 +196,140 @@ def calibration_summary() -> list[str]:
     return table
 
 
-def score_rows(turns: list[Turn]) -> list[str]:
-    """One table row per turn, scored or not."""
+Key = tuple[str, str]
+
+
+def grouped(runs: list[list[Turn]]) -> dict[Key, list[Turn]]:
+    """Every turn of every run, under its line and turn, in the order the lines run."""
+    groups: dict[Key, list[Turn]] = {}
+    for turns in runs:
+        for turn in turns:
+            groups.setdefault((turn.line, turn.label), []).append(turn)
+    return groups
+
+
+def outcome(turn: Turn) -> str:
+    """How one run of a turn ended, in the report's words."""
+    escalation = turn.response.escalation
+    if turn.response.status == "pending_human":
+        return f"escalated ({escalation.reason.value})"
+    return "answered by the operator" if escalation else "answered"
+
+
+def spread(values: list[int]) -> str:
+    """Mean and minimum of one score over the runs that scored it."""
+    return f"{statistics.mean(values):.2f} / {min(values)}" if values else "—"
+
+
+def line_rows(groups: dict[Key, list[Turn]], runs: int) -> list[str]:
+    """One row per line and turn: how it ended in each run, and its scores across them."""
     rows = [
-        "| Line | Turn | Status | Agents | Retrieval | Groundedness | Relevance | Judge's note |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        f"| Line | Turn | Outcome over {runs} runs | Groundedness mean / min "
+        "| Relevance mean / min | Note from its lowest-scored run |",
+        "| --- | --- | --- | --- | --- | --- |",
     ]
-    for turn in turns:
-        response = turn.response
-        retrieval = f"{turn.retrieval:.3f}" if turn.retrieval is not None else "—"
-        agents = ", ".join(agent.value for agent in response.agents) or "—"
-        status = response.status
-        if response.escalation:
-            status += f" ({response.escalation.reason.value})"
-        if turn.verdict is None:
-            rows.append(
-                f"| {turn.line} | {turn.label} | {status} | {agents} | {retrieval} | — | — "
-                "| not scored: a handoff notice |"
-            )
-            continue
-        verdict = turn.verdict
+    for (line, label), turns in groups.items():
+        outcomes = Counter(outcome(turn) for turn in turns)
+        ended = ", ".join(f"{name} {count}/{runs}" for name, count in outcomes.most_common())
+        judged = [turn for turn in turns if turn.verdict]
+        worst = min(
+            judged, key=lambda t: t.verdict.groundedness + t.verdict.relevance, default=None
+        )
         rows.append(
-            f"| {turn.line} | {turn.label} | {status} | {agents} | {retrieval} "
-            f"| {verdict.groundedness} | {verdict.relevance} | {verdict.rationale} |"
+            f"| {line} | {label} | {ended} "
+            f"| {spread([t.verdict.groundedness for t in judged])} "
+            f"| {spread([t.verdict.relevance for t in judged])} "
+            f"| {worst.verdict.rationale if worst else 'not scored: a handoff notice'} |"
         )
     return rows
 
 
-def transcript(turns: list[Turn]) -> list[str]:
-    """The questions and answers behind the scores, so a reader can check the judge."""
-    out = ["## Answers", ""]
-    for turn in turns:
-        title = f"{turn.line} {turn.label}".strip()
-        sources = ", ".join(source.url or source.title for source in turn.response.sources)
-        out += [
-            f"**{title}** — {turn.question}",
-            "",
-            *(f"> {line}" for line in turn.response.answer.splitlines()),
-            "",
-            f"Sources: {sources or 'none'}. Evidence items: {len(turn.evidence)}.",
-            "",
-        ]
-    return out
+def run_rows(runs: list[list[Turn]]) -> list[str]:
+    """One row per run, then the spread of the run means."""
+    rows = [
+        "| Run | Scored turns | Escalated turns | Groundedness | Relevance |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    means: list[tuple[float, float]] = []
+    for number, turns in enumerate(runs, start=1):
+        judged = [turn.verdict for turn in turns if turn.verdict]
+        escalated = sum(turn.response.status == "pending_human" for turn in turns)
+        mean = (
+            statistics.mean(v.groundedness for v in judged),
+            statistics.mean(v.relevance for v in judged),
+        )
+        means.append(mean)
+        rows.append(f"| {number} | {len(judged)} | {escalated} | {mean[0]:.2f} | {mean[1]:.2f} |")
+    grounded, relevant = zip(*means, strict=True)
+    rows += [
+        "",
+        f"Across runs: groundedness {statistics.mean(grounded):.2f} ± "
+        f"{statistics.stdev(grounded):.2f} (range {min(grounded):.2f} to {max(grounded):.2f}), "
+        f"relevance {statistics.mean(relevant):.2f} ± {statistics.stdev(relevant):.2f} "
+        f"(range {min(relevant):.2f} to {max(relevant):.2f}), mean ± standard deviation of the "
+        "run means.",
+    ]
+    return rows
 
 
-def render(turns: list[Turn], settings: Settings) -> str:
-    """The committed report."""
-    judged = [turn.verdict for turn in turns if turn.verdict]
-    s09 = next(turn.retrieval for turn in turns if turn.line == "S09")
-    lines_out = [
+def lowest(groups: dict[Key, list[Turn]]) -> list[str]:
+    """Every scored run below 4 on either score, with the answer the judge read."""
+    out = ["## Every score below 4", ""]
+    for (line, label), turns in groups.items():
+        for run, turn in enumerate(turns, start=1):
+            verdict = turn.verdict
+            if verdict is None or min(verdict.groundedness, verdict.relevance) >= 4:
+                continue
+            out += [
+                f"**{f'{line} {label}'.strip()}, run {run}** — groundedness "
+                f"{verdict.groundedness}, relevance "
+                f"{verdict.relevance}. {verdict.rationale}",
+                "",
+                *(f"> {text}" for text in turn.response.answer.splitlines()),
+                "",
+            ]
+    return out if len(out) > 2 else [*out, "None.", ""]
+
+
+def render(runs: list[list[Turn]], settings: Settings) -> str:
+    """The committed report: every run, aggregated, none chosen."""
+    groups = grouped(runs)
+    s09 = [turn.retrieval for turn in groups[("S09", "")] if turn.retrieval is not None]
+    report = [
         "# LLM-as-judge report",
         "",
         f"Written by `uv run python -m evals.run_judge` on {date.today().isoformat()}, at "
-        f"{revision()}. Chat model `{settings.llm_model}` at {settings.llm_reasoning_effort} "
-        f"effort; embedder `{settings.embedding_model}` with a retrieval threshold of "
+        f"{revision()}: {len(runs)} independent runs of every line, aggregated, no run chosen. "
+        f"Chat model `{settings.llm_model}` at {settings.llm_reasoning_effort} effort; embedder "
+        f"`{settings.embedding_model}` with a retrieval threshold of "
         f"{settings.retrieval_confidence_threshold}; judge `{settings.judge_model}` at "
         f"{JUDGE_EFFORT} effort. Every answered turn is scored 1 to 5 for groundedness (each "
         "claim is in the evidence the system had for that turn: excerpts, account data, web pages "
         "or the operator's reply) and relevance (it answers what was asked). A turn that paused "
-        "for a human is listed, not scored: its answer is a fixed handoff notice.",
+        "for a human is counted, not scored: its answer is a fixed handoff notice. Web answers "
+        "use live search results, so they change from run to run.",
         "",
-        *score_rows(turns),
+        *line_rows(groups, len(runs)),
         "",
-        f"**Means over {len(judged)} scored turns:** groundedness "
-        f"{statistics.mean(v.groundedness for v in judged):.2f}, relevance "
-        f"{statistics.mean(v.relevance for v in judged):.2f}.",
+        "## Run to run",
+        "",
+        *run_rows(runs),
         "",
         "## Retrieval threshold",
         "",
-        f"S09 (crediário) retrieved with a confidence of {s09:.3f} against the "
-        f"{settings.retrieval_confidence_threshold} threshold in this run. The threshold comes "
-        "from `evals/retrieval_calibration.md`:",
+        f"S09 (crediário) retrieved at {', '.join(f'{value:.3f}' for value in s09)} across the "
+        f"runs, against a threshold of {settings.retrieval_confidence_threshold} that comes from "
+        "`evals/retrieval_calibration.md`:",
         "",
         *calibration_summary(),
         "",
-        *transcript(turns),
+        *lowest(groups),
     ]
-    return "\n".join(lines_out)
+    return "\n".join(report)
 
 
-async def main() -> None:
-    settings = get_settings()
-    retriever = HybridRetriever.from_settings(settings)
+async def run_once(settings: Settings, retriever: HybridRetriever) -> list[Turn]:
+    """Every line through a fresh graph, then every answered turn judged."""
     judge_provider = OpenAIProvider(
         api_key=settings.openai_api_key, model=settings.judge_model, reasoning_effort=JUDGE_EFFORT
     )
@@ -288,7 +346,17 @@ async def main() -> None:
     for turn in turns:
         if scored(turn):
             turn.verdict = await judge(turn, judge_provider)
-    REPORT.write_text(render(turns, settings), encoding="utf-8")
+    return turns
+
+
+async def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--runs", type=int, default=RUNS, help="independent runs to aggregate")
+    arguments = parser.parse_args()
+    settings = get_settings()
+    retriever = HybridRetriever.from_settings(settings)
+    runs = [await run_once(settings, retriever) for _ in range(arguments.runs)]
+    REPORT.write_text(render(runs, settings), encoding="utf-8")
     print(REPORT.read_text(encoding="utf-8"))
 
 

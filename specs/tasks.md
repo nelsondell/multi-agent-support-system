@@ -350,6 +350,13 @@ another day ends with the notice naming both days; a date the pages do not show 
 printed; a question that does not depend on the day gets neither the filter nor the notice; the
 weather and euro questions, asked for real, answer with the date of their data.
 
+### T-39 — `docs(T-39): report the judge over three runs with means, minimums and spread`
+`evals/run_judge.py` runs every line three times (`--runs`) and `evals/report.md` reports, per line
+and turn, how often it was answered or escalated and the mean and minimum of each score, the means
+of each run with their standard deviation, S09's retrieval confidence in every run, and every score
+below 4 with the answer the judge read. No run is chosen.
+**Done when:** the report aggregates three real runs and states the run-to-run spread.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
