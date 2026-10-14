@@ -18,6 +18,8 @@ class Intent(StrEnum):
     TROUBLESHOOTING = "troubleshooting"
     ACCOUNT_DATA = "account_data"
     INDIVIDUAL_CASE = "individual_case"
+    GENERAL_INFO = "general_info"
+    """A general-purpose question with nothing to do with the acquirer: weather, exchange rates."""
     OTHER = "other"
 
 
@@ -32,7 +34,6 @@ class GuardrailOutcome(StrEnum):
     """What the guardrail decided before routing."""
 
     ALLOW = "allow"
-    OUT_OF_DOMAIN = "out_of_domain"
     IDENTITY_SWAP = "identity_swap"
 
 

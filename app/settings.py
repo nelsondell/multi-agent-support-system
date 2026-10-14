@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     history_max_messages: int = Field(default=12, ge=3)
     """Once the history would pass this length, everything before the window is summarised."""
 
+    tavily_api_key: str | None = None
+    """Web search credential. Without it, general-purpose questions get a pt-BR message saying
+    the system cannot look them up right now."""
+    web_search_max_results: int = Field(default=3, ge=1, le=10)
+    web_search_timeout_s: float = Field(default=8.0, gt=0)
+
     operator_token: str | None = None
     """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
 

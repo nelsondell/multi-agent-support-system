@@ -1,8 +1,10 @@
 """Shared fixtures. The suite runs offline: no vendor call, no network, no cost."""
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 
+import httpx
 import pytest
 
 from app.rag.chunk import Chunk
@@ -85,6 +87,7 @@ def build_test_graph(sample_chunks, fake_collection):
         responses: dict | None = None,
         similarities: dict | None = None,
         checkpointer=None,
+        web=None,
         **overrides,
     ):
         from app.graph.build import build_graph
@@ -93,6 +96,35 @@ def build_test_graph(sample_chunks, fake_collection):
 
         settings = Settings(**overrides)
         retriever = HybridRetriever(sample_chunks, fake_collection(similarities), top_k=5)
-        return build_graph(ScriptedProvider(responses), settings, retriever, checkpointer)
+        return build_graph(ScriptedProvider(responses), settings, retriever, checkpointer, web=web)
+
+    return build
+
+
+@pytest.fixture
+def web_search():
+    """A web search client over a mocked transport. Nothing leaves the process.
+
+    Returns the client and the list of request bodies it sent. `respond` turns a request into
+    the provider's response, or raises, to simulate a timeout.
+    """
+    from app.settings import Settings
+    from app.tools.web import WebSearch
+
+    def build(
+        pages: list[dict] | None = None,
+        key: str | None = "tvly-test",
+        respond: Callable[[httpx.Request], httpx.Response] | None = None,
+    ):
+        sent: list[dict] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(json.loads(request.content))
+            if respond is not None:
+                return respond(request)
+            return httpx.Response(200, json={"results": pages or []})
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return WebSearch(Settings(tavily_api_key=key), client), sent
 
     return build

@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
+import httpx
 import structlog
 from fastapi import FastAPI
 
@@ -18,6 +19,7 @@ from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
 from app.responses import PAUSED_AT, pending_response, to_response
 from app.settings import get_settings
+from app.tools.web import WebSearch
 
 MERCHANT_TIMEZONE = timezone(timedelta(hours=-3), "America/Sao_Paulo")
 """Brazil has had no daylight saving time since 2019, so a fixed offset is exact and needs no
@@ -26,8 +28,8 @@ timezone database in the image."""
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Build the provider, open the conversation store and the handoff queue, and compile the
-    graph once, failing fast on bad configuration.
+    """Build the provider, open the conversation store, the handoff queue and the web client,
+    and compile the graph once, failing fast on bad configuration.
 
     The index is never built here: a missing one raises with the command that creates it.
     """
@@ -38,10 +40,12 @@ async def lifespan(app: FastAPI):
     async with (
         open_checkpointer(settings) as checkpointer,
         open_handoff_queue(settings) as queue,
+        httpx.AsyncClient() as http,
     ):
         app.state.settings = settings
         app.state.queue = queue
-        app.state.graph = build_graph(provider, settings, retriever, checkpointer, queue)
+        web = WebSearch(settings, http)
+        app.state.graph = build_graph(provider, settings, retriever, checkpointer, queue, web)
         yield
 
 

@@ -13,12 +13,14 @@ from typing import TYPE_CHECKING, Any, Literal
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
+from app.contracts import Intent
 from app.graph.compose import compose
 from app.graph.escalation import escalate
 from app.graph.guardrail import after_guardrail
 from app.graph.guardrail import inspect as guardrail_inspect
 from app.graph.human_review import await_operator, prepare_handoff
 from app.graph.knowledge import answer as knowledge_answer
+from app.graph.knowledge import answer_from_web
 from app.graph.memory import remember
 from app.graph.router import route
 from app.graph.state import GraphState, StepResult
@@ -30,6 +32,7 @@ from app.settings import Settings
 
 if TYPE_CHECKING:
     from app.handoffs import HandoffQueue
+    from app.tools.web import WebSearch
 
 
 def dispatch(state: GraphState, threshold: float) -> Literal["knowledge", "support", "escalate"]:
@@ -44,8 +47,14 @@ async def knowledge(
     provider: LLMProvider,
     retriever: HybridRetriever,
     threshold: float,
+    web: "WebSearch | None",
 ) -> dict[str, Any]:
-    """Retrieve on the running step's Portuguese query, then answer from what came back."""
+    """A general-purpose question goes to the web; anything else is retrieved from the corpus.
+
+    Never both: a product question the corpus cannot answer abstains, it does not search the web.
+    """
+    if state.route is not None and state.route.intent is Intent.GENERAL_INFO:
+        return await answer_from_web(state, provider, web)
     query = state.current_query()
     return await knowledge_answer(state, provider, retriever.search(query), threshold)
 
@@ -104,6 +113,7 @@ def graph_nodes(
     settings: Settings,
     retriever: HybridRetriever,
     queue: "HandoffQueue | None",
+    web: "WebSearch | None",
 ) -> dict[str, Callable]:
     """Every node of the graph, with its dependencies bound."""
     return {
@@ -114,6 +124,7 @@ def graph_nodes(
             provider=provider,
             retriever=retriever,
             threshold=settings.retrieval_confidence_threshold,
+            web=web,
         ),
         "support": partial(support, provider=provider),
         "collect": collect,
@@ -161,14 +172,15 @@ def build_graph(
     retriever: HybridRetriever,
     checkpointer: BaseCheckpointSaver | None = None,
     queue: "HandoffQueue | None" = None,
+    web: "WebSearch | None" = None,
 ):
     """Compile the orchestration graph, persisting each thread when a checkpointer is given.
 
     An escalated turn pauses for a human, which needs the checkpointer; the queue is where the
-    operator finds the case.
+    operator finds the case. Without `web`, general-purpose questions get the degraded answer.
     """
     graph = StateGraph(GraphState)
-    for name, node in graph_nodes(provider, settings, retriever, queue).items():
+    for name, node in graph_nodes(provider, settings, retriever, queue, web).items():
         graph.add_node(name, instrument_node(name, node))
     _wire(graph, settings)
     return graph.compile(checkpointer=checkpointer)

@@ -49,6 +49,9 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | `HISTORY_WINDOW` | `6` | Most recent messages kept verbatim. |
 | `HISTORY_MAX_MESSAGES` | `12` | Past this length, older messages are folded into a rolling summary. |
 | `OPERATOR_TOKEN` | unset | Bearer token for `/handoffs`. Unset, those endpoints answer 503. |
+| `TAVILY_API_KEY` | unset | Web search for general questions. Unset, they get a "cannot look this up now" message. |
+| `WEB_SEARCH_MAX_RESULTS` | `3` | Pages per web search. |
+| `WEB_SEARCH_TIMEOUT_S` | `8.0` | Seconds before a web search counts as unavailable. |
 
 The embedder is deliberately configurable apart from the chat key: it is part of the index's
 identity, and adding a key must not silently change it under an index built without one.
@@ -154,8 +157,9 @@ Possessive phrasing decides nothing.
 2. A `trace_id` is minted and bound to the logging context for the whole request. The thread key
    is the SHA-256 of the `(user_id, conversation_id)` pair, so the same conversation id sent with
    another `user_id` opens a different, empty thread. The turn input resets every per-turn field.
-3. **Guardrail** masks PII into `masked_message`, then classifies. `out_of_domain` and
-   `identity_swap` are answered on the spot and never routed.
+3. **Guardrail** masks PII into `masked_message`, then classifies. `identity_swap` (prompt
+   injection, or a request for another merchant's data) is answered on the spot and never
+   routed. Scope is not the guardrail's call: a weather or exchange-rate question is routed.
 4. **Router** reads the message and, as data in a separate JSON field, the rolling summary and
    the last `HISTORY_WINDOW` messages. It emits a validated `RouterDecision` — `intent`,
    `confidence`, `rationale`, `lang` and `steps`, one or two `{agent, query_pt}` — and increments
@@ -296,6 +300,18 @@ similarity is what can say "this is not in the base".
 labelled with its URL, plus the financial hard rules. Sources are taken from what was retrieved,
 never from URLs the model claims to have used.
 
+**Web search** (`app/tools/web.py`) — only for steps the router labels `general_info`, such as
+the weather or an exchange rate; never a fallback for a product question the corpus cannot
+answer, which still abstains, and never reachable from the support agent. What leaves the process
+is the step's question, PII-masked, with every token carrying a digit removed unless the merchant
+typed it in that very message, so an amount read from the account or the history cannot end up
+in a web query. One Tavily call, capped at `WEB_SEARCH_MAX_RESULTS` pages, with a timeout. The
+pages reach the model as untrusted data in a JSON field, with today's date. The answer must
+carry only numbers found in the pages (hard rule 4) and no link or e-mail of its own, which is how
+a planted instruction usually shows; otherwise, and when there is no key, the call times out or
+the provider fails, the merchant gets a pt-BR "cannot look this up right now" message instead.
+Sources carry `source_type: "web"` with the page's url and title.
+
 ### Corpus and fixture
 
 | | Corpus | Fixture |
@@ -372,7 +388,7 @@ $ uv run pytest -q
 One module per graph node (`test_router`, `test_knowledge`, `test_support`, `test_guardrail`,
 `test_escalation`), the two tools (`test_tools`), masking and the log pipeline
 (`test_observability`), retrieval and fusion (`test_retrieve`), three adversarial paths
-(`test_adversarial`: prompt injection, another customer's data, out of scope) and HTTP integration
+(`test_adversarial`: prompt injection, another customer's data, a web page that gives orders) and HTTP integration
 (`test_api`, which injects a scripted graph instead of running the lifespan).
 
 **CI** — `.github/workflows/ci.yml` runs on every push and pull request: ruff and the offline
@@ -383,30 +399,28 @@ instance of any schema from its declaration, so the smoke test proves the image,
 on first boot and the graph work together without a vendor account. It asserts the response
 contract, never the content.
 
-**Routing golden set** — 15 labelled rows (the 10 challenge scenarios, 3 ambiguous, 2 out of
-scope). It is a measurement, not a test: a score that dips one row in fifteen is a signal to read,
+**Routing golden set** — 15 labelled rows (the 10 challenge scenarios, 3 ambiguous, 2 general
+questions unrelated to the acquirer). It is a measurement, not a test: a score that dips one row in fifteen is a signal to read,
 not a red build, so it never runs inside pytest.
 
 ```
-$ uv run python -m evals.run_routing_eval
+$ uv run python -m evals.run_routing_eval --guardrail-only
+golden set: 15 rows from evals/routing_golden_set.jsonl
+
 guardrail (deterministic)
-  overall: 86.7%  (13/15)
+  overall: 100.0%  (15/15)
   by expected class:
-    allow            100.0%  (11/11)
-    out_of_domain     50.0%  (2/4)
+    allow            100.0%  (15/15)
   by group:
     ambiguous        100.0%  (3/3)
     challenge        100.0%  (10/10)
-    out_of_scope       0.0%  (0/2)
-  misses:
-    O01  expected=out_of_domain  got=allow
-    O02  expected=out_of_domain  got=allow
-
-router: skipped, OPENAI_API_KEY is not set (this stage calls a real model)
+    general          100.0%  (2/2)
 ```
 
-The guardrail catches every out-of-scope case the challenge anticipates and none of the two
-open-ended ones written to probe it. That is the honest limit of a pattern-based scope check.
+The guardrail now judges only injection and identity, so every labelled row passes it; whether a
+weather or exchange-rate question goes to the web is the router's call, measured by the router
+stage on rows S02, S07, O01 and O02. With `LLM_BACKEND=fake` the router stage also runs, offline:
+that proves the runner end to end and measures nothing about routing quality.
 
 **Router accuracy against a real model: [preencher].** The stage requires an API key and was never
 run. Per-class accuracy, confusion between `knowledge` and `support`, and behaviour on the three
@@ -436,9 +450,9 @@ Production latency and escalation rates: **[preencher]** — the figures above c
 stubbed model and say nothing about real inference time.
 
 **Guardrail.** Deterministic patterns, before any model call: prompt injection and identity-swap
-attempts get a short refusal, out-of-scope questions get a scope reply, and PII is masked. It is
-defence in depth for identity, since injected state already blocks the data path, and it is the
-only thing that can answer an out-of-scope question — there is no web search to fall back on.
+attempts get a short refusal, and PII is masked. It is defence in depth for identity, since
+injected state already blocks the data path. It no longer judges scope: general questions are
+routed to a cited web search.
 
 **Financial hard rules**, carried in the prompts and asserted in tests:
 
@@ -470,9 +484,9 @@ Beaver Builder" — turned out to describe every Portuguese page, not just artic
 
 **Actual development time: [preencher].**
 
-**Out of scope, deliberately.** Web search, OpenTelemetry and MCP were excluded when the scope was
-closed, and were never re-proposed. Web search would have made the out-of-scope scenarios
-answerable, but abstaining is the correct behaviour for a system whose only warrant is its corpus.
+**Out of scope, deliberately.** OpenTelemetry and MCP were excluded when the scope was closed, and
+were never re-proposed. v1 also left web search out; v2 adds it for general questions only, so a
+product question the corpus cannot answer still abstains instead of trusting a third-party page.
 OpenTelemetry would duplicate what structured logs already carry at this size. A fourth agent and a
 human-handoff queue were left out; escalation emits a protocol and a typed reason, which is the
 part a queue would consume.
@@ -481,8 +495,8 @@ part a queue would consume.
 
 **The retrieval threshold is not calibrated.** Measured on the local fallback embedder, in-domain
 queries score 0.59–0.70 and out-of-domain ones 0.50–0.55 — a separation of about 0.05. The default
-of 0.35 therefore catches almost nothing, and no threshold on this signal can reject out-of-scope
-questions; the guardrail has to. With `text-embedding-3-small` the numbers change entirely and must
+of 0.35 therefore catches almost nothing, and no threshold on this signal can tell a general
+question from a product one; the router's `general_info` label does. With `text-embedding-3-small` the numbers change entirely and must
 be re-measured: **[preencher]**.
 
 **`query_pt` is load-bearing.** A raw English question scores 0.375 against this corpus, below an
@@ -495,9 +509,9 @@ in direct tension with hard rule 1. Structural chunking (by heading, block or ta
 article route is the highest-value fix, and it costs little because the 120 FAQ pairs never reach
 the window.
 
-**The scope check is a denylist.** It scores 0/2 on open-ended out-of-scope questions. A small
-classifier, or an in-domain allowlist checked against the corpus, would generalise where patterns
-cannot.
+**The web route depends on one label.** Whether a question goes to the web is the router's
+`general_info` call. A product question mislabelled as general would be answered from third-party
+pages; the prompt forbids it and the golden set measures it, but no deterministic check backs it.
 
 **The test fixture is generated by the pipeline it tests.** If extraction is wrong, the fixture is
 wrong in the same way and the suite still passes. Hand-curating the sampled chunks once would break

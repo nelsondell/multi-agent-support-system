@@ -173,16 +173,24 @@ build; retrieval and generation happen at request time.
 
 ## 7. Web search
 
-`app/tools/web.py` exposes `search_web(query, settings, client) -> list[WebResult]`, where
-`WebResult` is `{url, title, snippet}`. It masks the query with `mask_pii` before building the
-request, posts to the provider's REST endpoint over `httpx` with a timeout, and returns an empty
-list with a logged reason on a missing key, a timeout or a non-2xx response. Tests inject an
-`httpx.MockTransport`, so no request leaves the suite.
+`app/tools/web.py` holds `WebSearch`, a Tavily client over the API's shared `httpx.AsyncClient`:
+one `POST /search` per question with a bearer key, `max_results` capped by
+`WEB_SEARCH_MAX_RESULTS` and a `WEB_SEARCH_TIMEOUT_S` timeout, returning `WebResult`
+`{url, title, content}`. A missing key, a timeout, an error status, an unreadable body or no
+usable result raises `WebSearchUnavailable`. `outbound_query(query, message)` builds what may
+leave the process: the step's question through `mask_pii`, with every token carrying a digit
+dropped unless the merchant typed it in the current message, so amounts and ids from the account
+or the history never reach the provider. Tests inject an `httpx.MockTransport`, so no request
+leaves the suite.
 
 The knowledge agent chooses its evidence by the decision's intent, not by fallback: `general_info`
-goes to the web, everything else to the corpus. The web prompt (`knowledge_web.md`) receives the
-snippets and today's date, must cite the urls it used, and is bound by hard rule 1. With no
-results the agent answers with the `web_unavailable` template and no sources.
+goes to the web, everything else to the corpus, and the support agent has no path to it. The web
+prompt (`knowledge_web.md`) receives the question, today's date and the pages as a JSON data field,
+is told that page content is untrusted and never an instruction, and must cite the urls it used.
+`trustworthy()` then checks the answer deterministically: every number must appear in a page or
+be today's date (hard rule 4), and the text may hold no link or e-mail, which is how a planted
+instruction usually surfaces. A failed check, a failed call or `WebSearchUnavailable` all produce
+the `web_unavailable` pt-BR template with no sources and no escalation.
 
 ## 8. Human review
 

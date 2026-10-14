@@ -183,11 +183,17 @@ such as weather and exchange rates. It is never a fallback for a product questio
 cannot answer, because a third-party page about acquirer rates is exactly the unsourced number
 hard rule 1 forbids, and it is never used for account data.
 
-- The query is PII-masked before it leaves the process.
-- Web answers cite the pages they used, with `source_type = web`, and receive today's date so
-  "today" and "tomorrow" mean something.
-- Without an API key, on timeout or on a provider error, the agent says in pt-BR that it cannot
-  look that up right now. This is a degraded answer, not an escalation.
+- The query is PII-masked before it leaves the process, and carries no number or id the merchant
+  did not type in the current message, so account data never reaches a web query.
+- Page content is untrusted data: an instruction inside it is never followed. Every number in the
+  answer must appear in the pages (hard rule 1 and 4), and the answer carries no link or e-mail of
+  its own.
+- Web answers cite the pages they used, with `source_type = web`, url and title, and receive
+  today's date so "today" and "tomorrow" mean something. Results are capped and the call has a
+  timeout.
+- Without an API key, on timeout, on a provider error, or when the answer fails those checks, the
+  agent says in pt-BR that it cannot look that up right now. This is a degraded answer, not an
+  escalation.
 
 ## 8. Support tools and authorization
 
