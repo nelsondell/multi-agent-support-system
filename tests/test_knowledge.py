@@ -168,3 +168,28 @@ async def test_excerpts_that_answer_part_of_the_question_are_answered(sample_chu
     assert update["answer"] == reply
     assert "refusal_reason" not in update
     assert [source.url for source in update["sources"]] == [chunks[0].url]
+
+
+class QueryRecorder:
+    """A retriever that records what it was asked and finds nothing."""
+
+    def __init__(self) -> None:
+        self.asked: list[tuple[str, tuple]] = []
+
+    def search(self, query_pt: str, also=()) -> RetrievalResult:
+        self.asked.append((query_pt, tuple(also)))
+        return RetrievalResult(hits=[], confidence=0.0)
+
+
+def test_the_whole_question_is_always_one_of_the_queries() -> None:
+    state = _state("diferença entre a maquininha Get Clássica e a Get Smart")
+    items = ["maquininha Get Clássica", "maquininha Get Smart"]
+    step = state.route.steps[0].model_copy(update={"search_queries": items})
+    state.route = state.route.model_copy(update={"steps": [step]})
+    recorder = QueryRecorder()
+
+    retrieve(state, recorder)
+
+    assert recorder.asked == [
+        ("diferença entre a maquininha Get Clássica e a Get Smart", tuple(items))
+    ]

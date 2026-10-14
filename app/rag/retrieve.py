@@ -50,7 +50,7 @@ class RetrievalResult:
 
     hits: list[Hit]
     confidence: float
-    """Best dense similarity among the fused hits.
+    """Best dense similarity any of the queries reached.
 
     RRF is a ranking signal, not a relevance one: a document that tops both lists scores the same
     whether the corpus answers the question or not. Abstention therefore keys off an absolute
@@ -154,13 +154,20 @@ class HybridRetriever:
         ]
 
     def search(self, query_pt: str, also: Sequence[str] = ()) -> RetrievalResult:
-        """Retrieve for the question and any per-item searches, and cut to the top-k.
+        """Retrieve for the whole question and any per-item searches, and cut to the top-k.
+
+        The question is always one of the queries; confidence is the best dense similarity any
+        of them reached.
 
         Raises `RetrievalUnavailable` when the dense side cannot be queried.
         """
         rankings = [self._ranking(query) for query in dict.fromkeys([query_pt, *also])]
         hits = interleave(rankings)[: self._top_k]
-        confidence = max((hit.dense_similarity for hit in hits), default=0.0)
+        # The best match any query found, not only among the hits kept: a per-item search can
+        # be the one that finds the page, and the question as a whole must not veto it.
+        confidence = max(
+            (hit.dense_similarity for ranking in rankings for hit in ranking), default=0.0
+        )
         return RetrievalResult(hits=hits, confidence=confidence)
 
 

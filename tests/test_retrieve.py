@@ -73,3 +73,17 @@ def test_an_unreachable_embedder_raises_its_own_error(sample_chunks) -> None:
 
     with pytest.raises(RetrievalUnavailable):
         retriever.search(COMPARISON)
+
+
+def test_confidence_is_the_best_match_any_query_found(sample_chunks, fake_collection) -> None:
+    """A strong dense match outside the kept hits still says the corpus has the subject."""
+    lexical = next(c for c in sample_chunks if "crediário" in c.text.lower())
+    semantic = next(c for c in sample_chunks if "/get-tap/" in c.url)
+    similarities = {chunk.id: 0.0 for chunk in sample_chunks}
+    similarities.update({lexical.id: 0.3, semantic.id: 0.9})
+    retriever = HybridRetriever(sample_chunks, fake_collection(similarities), top_k=1)
+
+    result = retriever.search("parcelamento no crediário")
+
+    assert [hit.chunk.id for hit in result.hits] == [lexical.id]
+    assert result.confidence == pytest.approx(0.9)

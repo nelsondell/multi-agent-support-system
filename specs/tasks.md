@@ -324,6 +324,21 @@ rule 3 changes accordingly.
 answered with the recorded reason; a merchant with no declined sale, or one without a reason,
 gets a protocol; "E o de amanhã?" is answered without commenting on what was not asked.
 
+## Third fix pass
+
+The judge's first runs found three weak spots, closed by T-37 and T-38; T-39 replaces the single
+judged run with three.
+
+### T-37 — `fix(T-37): keep S01 above the threshold and state conditions in knowledge answers`
+Retrieval confidence is the best dense similarity any query reached, the whole question being
+always one of them. The router writes each per-item search with the product type ("maquininha
+Get Clássica"), whose absence dropped S01 below the threshold. The knowledge prompt states the
+condition behind a conditional price, and allows "the site doesn't say X" only when no excerpt
+treats X.
+**Done when:** a kept hit weaker than another query's best match does not lower the confidence;
+the question is always searched; S01, run 5 times for real, answers every time, with both
+product pages and the tiered prices stated with their conditions.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |

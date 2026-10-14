@@ -325,7 +325,9 @@ interleaved, best hit of each first. Fusing every list at once was tried and rej
 consensus, so the generic offer pages that rank fairly well for every query crowded out the one
 page each item is about.
 
-Abstention keys off **dense similarity, not the RRF score**. RRF is a ranking signal: a document
+The whole standalone question is always one of the queries, and the confidence is the best dense
+similarity any query reached, so a per-item search that finds the page counts even when its hit
+is not among the ones kept. Abstention keys off **dense similarity, not the RRF score**. RRF is a ranking signal: a document
 that tops both lists scores the same whether the corpus answers the question or not. The absolute
 similarity is what can say "this is not in the base". The threshold is calibrated in
 [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md) (`uv run python -m
