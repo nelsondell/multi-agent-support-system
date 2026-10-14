@@ -13,6 +13,20 @@ FIXTURE = Path(__file__).parent / "fixtures" / "kb_sample.jsonl"
 
 
 @pytest.fixture(autouse=True)
+def isolated_settings(monkeypatch):
+    """The suite never reads the developer's configuration: no `.env`, and no setting exported in
+    the shell. Every test sees the defaults plus whatever it passes itself."""
+    from app.settings import Settings, get_settings
+
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture(autouse=True)
 def pinned_today(monkeypatch):
     """The suite never reads the wall clock: `/chat` turns happen on the day the mock account
     records describe, so their dates are read as written."""

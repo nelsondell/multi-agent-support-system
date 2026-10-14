@@ -416,7 +416,9 @@ One module per graph node (`test_router`, `test_knowledge`, `test_support`, `tes
 `test_escalation`), the two tools (`test_tools`), masking and the log pipeline
 (`test_observability`), retrieval and fusion (`test_retrieve`), three adversarial paths
 (`test_adversarial`: prompt injection, another customer's data, a web page that gives orders) and HTTP integration
-(`test_api`, which injects a scripted graph instead of running the lifespan).
+(`test_api`, which injects a scripted graph instead of running the lifespan). The suite reads
+neither the developer's `.env`, nor an exported setting, nor the wall clock: each test sees the
+defaults, plus what it passes, on the day the mock account records describe.
 
 **CI** — `.github/workflows/ci.yml` runs on every push and pull request: ruff and the offline
 suite, then `docker compose build`, the container started from `.env.example` with
@@ -463,7 +465,10 @@ apart is within noise, so the choice rests as much on the twentyfold cost gap as
 ## 7. Observability and guardrails
 
 **Structured logs.** `structlog` renders JSON to stdout. `mask_pii` is installed as a processor,
-not called at each site, so no node can log an unmasked value even by accident. `instrument_node`
+not called at each site, so no node can log an unmasked value even by accident. It never touches
+the system's own ids: `trace_id` and `protocol` skip it by field, a digit run glued to letters (as
+in a hex id) is never read as a phone, and protocols and transaction ids are skipped wherever they
+appear, because one protocol in a hundred is shaped exactly like a phone number. `instrument_node`
 wraps every graph node, so timing and outcome fields are uniform and an agent that forgets to log
 cannot exist.
 

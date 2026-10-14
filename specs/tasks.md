@@ -254,6 +254,15 @@ only of that escalates with `insufficient_sources`. The prompts stop offering a 
 entry; the model receives "R$ 1.240,00", never `1240.0`; an answered turn never mentions a person
 and a turn that only promised one opens a protocol; the suite never reads the wall clock.
 
+### T-31 — `fix(T-31): keep system ids out of masking and isolate the suite from its environment`
+The phone pattern stops matching digits glued to letters, `mask_pii` skips protocols and
+transaction ids, and the log processor leaves `trace_id` and `protocol` alone. The flaky-test hunt
+runs the suite 30 times in order and 10 times shuffled; an autouse fixture keeps it off the
+developer's `.env` and exported settings, which made 49 tests fail under non-default values.
+**Done when:** no generated trace id or protocol is altered by masking, while CPF, CNPJ, card and
+phone still are; 30 ordered and 10 shuffled runs pass; the suite passes with hostile values for
+every setting exported in the shell.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -263,8 +272,8 @@ and a turn that only promised one opens a protocol; the suite never reads the wa
 | Infra / Docker (6.8) | T-16, T-17, T-18 |
 | Product / completeness (7.5) | T-23, T-27, T-30 |
 | Multi-agent / orchestration (8.8) | T-22 |
-| Observability / evals (9.1) | T-25, T-26 |
-| Tests / quality (9.2) | T-24, plus the tests inside every task |
+| Observability / evals (9.1) | T-25, T-26, T-31 |
+| Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
 | Security / isolation (9.5) | T-19, T-21, T-23 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29 |

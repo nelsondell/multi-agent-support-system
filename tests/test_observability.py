@@ -1,6 +1,7 @@
 """Masking, pseudonymisation and the log pipeline."""
 
 import json
+import random
 
 import pytest
 
@@ -70,3 +71,32 @@ def test_emitted_line_is_json_with_the_operational_fields(capsys) -> None:
     assert line["trace_id"] == "abc123"
     assert line["user_id"].startswith("u_")
     assert "4111" not in line["message"]
+
+
+TRACE_ID = "4521987654d4418b8a341127817bef7d"
+"""A real shape: a uuid4 hex whose first ten digits once read as a phone number."""
+
+
+def test_a_trace_id_reaches_the_log_as_generated() -> None:
+    event = mask_event(None, "info", {"event": "node.completed", "trace_id": TRACE_ID})
+
+    assert event["trace_id"] == TRACE_ID
+
+
+def test_digits_inside_a_hex_id_are_never_a_phone() -> None:
+    assert mask_pii(f"conversa {TRACE_ID}") == f"conversa {TRACE_ID}"
+
+
+def test_a_protocol_shaped_like_a_phone_survives_while_the_phone_beside_it_does_not() -> None:
+    masked = mask_pii("protocolo ESC-1198765432, telefone (51) 99876-5432")
+
+    assert masked == "protocolo ESC-1198765432, telefone [TELEFONE]"
+
+
+def test_no_generated_id_is_ever_masked() -> None:
+    """Thousands of ids in the formats the system issues, none of which masking may touch."""
+    generator = random.Random(7)
+    hex_ids = [f"{generator.getrandbits(128):032x}" for _ in range(2000)]
+    protocols = [f"ESC-{generator.getrandbits(40):010X}" for _ in range(2000)]
+
+    assert [mask_pii(value) for value in hex_ids + protocols] == hex_ids + protocols

@@ -248,7 +248,8 @@ Runs before routing, deterministic, no model call.
 | `allow` | Proceeds to the router. |
 
 CPF, CNPJ, card number and phone are masked on every message before anything is logged or
-stored; the message still proceeds. v1's `out_of_domain` outcome is removed: weather and
+stored; the message still proceeds. Masking never alters an id the system issued: trace ids,
+case protocols and transaction ids reach logs and history as generated. v1's `out_of_domain` outcome is removed: weather and
 exchange-rate questions now have an answer (§7).
 
 ## 11. Escalation and human review

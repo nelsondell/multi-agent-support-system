@@ -68,3 +68,11 @@ def test_an_empty_temperature_in_the_environment_counts_as_unset(monkeypatch):
 
     assert configured.llm_temperature is None
     assert configured.llm_reasoning_effort == "low"
+
+
+def test_the_suite_never_reads_the_developers_configuration(tmp_path, monkeypatch):
+    """A `.env` in the working directory and an exported setting are both ignored under test."""
+    (tmp_path / ".env").write_text("RETRIEVAL_CONFIDENCE_THRESHOLD=0.99\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    assert Settings().retrieval_confidence_threshold == 0.52

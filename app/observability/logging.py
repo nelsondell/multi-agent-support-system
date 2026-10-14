@@ -16,6 +16,10 @@ import structlog
 
 PSEUDONYM_PREFIX = "u_"
 
+TECHNICAL_FIELDS = frozenset({"trace_id", "protocol", "timestamp"})
+"""Values this system generates, never masked: a trace id that loses digits can no longer be
+searched for. `conversation_id` is not one of them, because a client may choose it."""
+
 
 def pseudonymize(user_id: str) -> str:
     """A stable, non-reversible handle for one merchant."""
@@ -24,13 +28,15 @@ def pseudonymize(user_id: str) -> str:
 
 
 def mask_event(_logger: Any, _name: str, event: dict[str, Any]) -> dict[str, Any]:
-    """Mask every string in the event, and never let a raw id through as `user_id`."""
+    """Mask every string in the event but the technical ids, and never let a raw id through as
+    `user_id`."""
     from app.observability.masking import mask_pii
 
     if "user_id" in event:
         event["user_id"] = pseudonymize(str(event.pop("user_id")))
     return {
-        key: mask_pii(value) if isinstance(value, str) else value for key, value in event.items()
+        key: mask_pii(value) if isinstance(value, str) and key not in TECHNICAL_FIELDS else value
+        for key, value in event.items()
     }
 
 
