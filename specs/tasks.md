@@ -185,10 +185,13 @@ swap are still refused.
 HTTP-level tests through the FastAPI app with a scripted provider: two-turn memory, persistence
 across an app restart over the same state directory, thread isolation between users, the full
 human-review loop (chat, list, resume, next turn), a compound plan, web search with and without a
-key, and the masked web query. The golden set gains multi-turn, human-review and compound rows;
-the runner accepts prior turns and expected plans.
+key, and the masked web query. The golden set gains multi-turn, human-review and compound rows,
+and A03 is relabelled as the compound request it is; the runner accepts prior turns and expected
+plans. `specs/plan.md` §11 maps every v2 invariant to the test that pins it; a failing account
+tool, the one invariant found unpinned and unmet, escalates with `tool_unavailable`.
 **Done when:** those flows pass offline and the suite still runs in seconds; the runner reports
-accuracy for the new groups; assertions check invariants, never exact model text.
+accuracy for the new groups, and the extended set has run against the real router; assertions
+check invariants, never exact model text.
 
 ### T-25 — `feat(T-25): add the llm judge eval and commit its report`
 Per-turn `evidence` in state. `evals/run_judge.py` runs the ten challenge scenarios through the

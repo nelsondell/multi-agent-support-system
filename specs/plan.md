@@ -285,6 +285,43 @@ Three levels, deliberately separate.
 No eval runs inside pytest: a statistical measure that dips one case in thirty is not a red
 test suite.
 
+### Every v2 invariant and the offline test that pins it
+
+| Invariant (spec section) | Test |
+| --- | --- |
+| `conversation_id` minted when absent, echoed, validated (§3) | `test_api::test_a_conversation_id_is_minted_when_absent_and_echoed_when_given`, `test_a_malformed_conversation_id_is_rejected` |
+| Response consistency: escalation iff escalated, operator source only when resolved, no agent on router escalation (§3) | `test_support::test_response_cannot_claim_an_answer_and_an_escalation`, `test_an_operator_source_needs_an_escalation_the_operator_answered`, `test_router_level_escalation_cannot_name_a_specialist` |
+| kb and web sources carry a url, account and operator ones never (§3) | `test_support::test_pages_are_cited_with_a_url_and_nothing_else_is` |
+| Operator endpoints: 401, 503, 404, 409, 422 (§3) | `test_human_review::test_operator_routes_reject_a_missing_or_wrong_token`, `test_operator_routes_are_disabled_without_a_configured_token`, `test_an_unknown_protocol_is_404`, `test_resuming_a_closed_case_is_409`, `test_approving_a_case_without_a_draft_is_422` |
+| Open cases listed oldest first (§3) | `test_handoffs::test_open_cases_are_listed_oldest_first` |
+| A plan has one or two steps; one step costs what v1 did (§5) | `test_plans::test_a_three_step_plan_is_rejected_by_the_schema`, `test_a_single_intent_request_makes_the_same_calls_as_before` |
+| Compose keeps every source and adds no number (§5) | `test_plans::test_a_compound_request_runs_support_then_knowledge_and_keeps_both_sources`, `test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answers`, `test_flows::test_a_compound_request_answers_both_parts_with_every_source` |
+| Partial answer plus handoff under one protocol; hop budget spans the plan (§5) | `test_plans::test_one_step_answers_now_and_the_other_goes_to_a_human_under_one_protocol`, `test_the_hop_budget_holds_across_the_plan` |
+| Router failure is zero confidence (§5) | `test_router::test_provider_failure_becomes_zero_confidence_not_an_exception` |
+| History persists and survives a restart (§6) | `test_memory::test_a_second_turn_finds_the_first_in_the_history`, `test_a_graph_rebuilt_over_the_same_sqlite_file_continues`, `test_flows::test_a_second_turn_reads_the_first`, `test_a_restart_over_the_same_state_directory_continues_the_conversation` |
+| Thread bound to user and conversation (§6) | `test_memory::test_the_same_conversation_id_under_another_user_starts_empty`, `test_flows::test_the_same_conversation_id_under_another_merchant_starts_empty` |
+| Per-turn fields reset; blocked turns forgotten; history masked; summary fold (§6) | `test_memory::test_per_turn_fields_do_not_leak_into_the_next_turn`, `test_a_blocked_turn_is_not_remembered`, `test_the_history_holds_the_masked_text`, `test_older_exchanges_fold_into_the_summary`, `test_a_failed_fold_keeps_the_history_whole` |
+| No node imports the checkpointer; restricted deserialization (§6) | `test_memory::test_no_graph_module_imports_a_checkpointer`, `test_checkpoints::*` |
+| Follow-ups rewritten, history as data, no invented identifier (§6) | `test_followups::*`, `test_router::test_a_search_that_invents_an_identifier_is_dropped` |
+| Comparison retrieves each item's page; abstention below threshold (§7) | `test_retrieve::test_a_comparison_retrieves_the_page_of_each_item`, `test_knowledge::test_below_threshold_refuses_without_calling_the_model` |
+| Coverage: full and partial answered, none escalates (§7) | `test_knowledge::test_excerpts_that_answer_part_of_the_question_are_answered`, `test_excerpts_that_do_not_answer_abstain_instead_of_saying_so`, `test_human_review::test_a_product_question_the_excerpts_do_not_answer_goes_to_a_human` |
+| Unreachable embedder abstains (§7, §14) | `test_knowledge::test_an_unreachable_embedder_reads_as_nothing_retrieved` |
+| Web only for general questions; masked, dated, capped, degraded (§7) | `test_web::*`, `test_flows::test_a_general_question_is_answered_from_the_web_with_a_key`, `test_without_a_key_a_general_question_degrades_and_nothing_leaves`, `test_the_web_query_that_leaves_is_masked` |
+| Guardrail: injection and identity refused, PII masked, system ids untouched (§10) | `test_guardrail::*`, `test_adversarial::*`, `test_observability::*` |
+| Escalation deterministic, typed reason, masked summary (§11) | `test_escalation::*` |
+| Human review: case before pause, pending runs nothing, approve or reply, rephrase guarded, survives restart (§11) | `test_human_review::*` |
+| Hard rule 1 and 4: no number its source lacks (§9) | `test_numbers::*`, `test_plans::test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answers`, `test_human_review::test_a_rephrasing_with_a_new_number_falls_back_to_the_operator_text`, `test_web::test_an_answer_with_a_number_the_results_lack_degrades` |
+| Hard rule 3: declines answered from the recorded reason, otherwise a person (§9) | `test_support::test_a_decline_is_explained_with_the_reason_the_issuer_recorded`, `test_a_decline_the_data_cannot_explain_goes_to_a_person` |
+| Hard rule 5: a person is promised only with a protocol (§9) | `test_plans::test_an_answer_never_promises_a_person_when_no_protocol_opens`, `test_an_answer_that_only_promises_a_person_opens_the_protocol` |
+| Identity injected, never in a tool schema (§8) | `test_tools::test_user_id_is_not_in_the_schema_the_model_sees`, `test_a_smuggled_user_id_cannot_reach_another_customer`, `test_adversarial::test_another_customers_data_is_unreachable_through_the_graph` |
+| Settlements by sale or credit date, derived status, merchant's money notation (§8) | `test_tools::test_yesterdays_sales_are_found_by_sale_date_and_credit_today`, `test_records_are_read_as_of_the_turns_day`, `test_amounts_reach_the_model_in_the_merchants_notation`, `test_support::test_tomorrows_sales_are_read_as_the_money_crediting_tomorrow` |
+| A tool error escalates, never a stack trace (§14) | `test_flows::test_an_unreadable_account_escalates_instead_of_failing_the_request` |
+| First boot: no key, no half index (§13) | `test_ingest::test_a_first_boot_without_a_key_stops_with_the_fix_and_writes_nothing`, `test_a_build_that_fails_halfway_keeps_neither_half` |
+| The suite reads no developer configuration and no clock | `test_model_settings::test_the_suite_never_reads_the_developers_configuration`, the `pinned_today` fixture |
+
+Hard rule 2 (a forecast is labelled as one) lives in the support prompt and is checked by the
+judge, not offline: no scripted model can show that a real one labels it.
+
 ## 12. Docker and CI
 
 Multi-stage build with uv, no API key at build time. The image includes the committed corpus

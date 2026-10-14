@@ -273,3 +273,18 @@ async def test_a_decline_the_data_cannot_explain_goes_to_a_person(merchant, why)
 
     assert update["refusal_reason"] == EscalationReason.INDIVIDUAL_CASE.value, why
     assert len(provider.calls) == 1, "no answer is written for a decline nobody can explain"
+
+
+@pytest.mark.parametrize(
+    ("source_type", "url"),
+    [
+        (SourceType.KB, None),
+        (SourceType.WEB, None),
+        (SourceType.ACCOUNT, "https://site.getnet.com.br/"),
+        (SourceType.OPERATOR, "https://site.getnet.com.br/"),
+    ],
+)
+def test_pages_are_cited_with_a_url_and_nothing_else_is(source_type, url) -> None:
+    """kb and web sources always link their page; account and operator sources never do."""
+    with pytest.raises(ValidationError):
+        Source(source_type=source_type, url=url, title="title")

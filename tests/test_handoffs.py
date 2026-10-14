@@ -7,14 +7,14 @@ from app.handoffs import open_handoff_queue
 from app.settings import Settings
 
 
-def case(protocol: str = "ESC-1A2B3C4D5E") -> HandoffCase:
+def case(protocol: str = "ESC-1A2B3C4D5E", hour: int = 12) -> HandoffCase:
     return HandoffCase(
         protocol=protocol,
         reason=EscalationReason.INDIVIDUAL_CASE,
         summary="charged twice for one sale",
         user_id="cliente1988",
         conversation_id="c1",
-        opened_at=datetime(2026, 9, 1, 12, tzinfo=UTC),
+        opened_at=datetime(2026, 9, 1, hour, tzinfo=UTC),
     )
 
 
@@ -50,3 +50,13 @@ async def test_cases_survive_reopening_the_database(tmp_path):
 
     assert record.status == "open" and thread == "thread-1"
     assert unknown is None
+
+
+async def test_open_cases_are_listed_oldest_first(tmp_path):
+    async with open_handoff_queue(Settings(state_dir=str(tmp_path))) as queue:
+        await queue.open(case("ESC-BBBBBBBBBB", hour=15), "thread-2")
+        await queue.open(case("ESC-AAAAAAAAAA", hour=9), "thread-1")
+
+        listed = [record.case.protocol for record in await queue.list_open()]
+
+    assert listed == ["ESC-AAAAAAAAAA", "ESC-BBBBBBBBBB"]

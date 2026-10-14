@@ -57,7 +57,7 @@ CANDIDATES = [
     Candidate("gpt-6-sol", effort="none"),
 ]
 
-FOLLOW_UP_GROUP = "multi_turn"
+FOLLOW_UP_GROUPS = ("multi_turn", "human_review")
 FOLLOW_UP_RUNS = 5
 FOLLOW_UP_CANDIDATES = [
     Candidate("gpt-6-luna", effort="low"),
@@ -170,8 +170,8 @@ def render(results: list[Result], follow_ups: list[Result], rows: int, turns: in
         "",
         "## Follow-up resolution",
         "",
-        f"The {turns} `{FOLLOW_UP_GROUP}` rows, {FOLLOW_UP_RUNS} runs each, on the two efforts the "
-        "router could use.",
+        f"The {turns} follow-up rows (`multi_turn` and `human_review`), {FOLLOW_UP_RUNS} runs "
+        "each, on the two efforts the router could use.",
         "",
         *table(follow_ups),
         "",
@@ -185,7 +185,7 @@ def render(results: list[Result], follow_ups: list[Result], rows: int, turns: in
 
 async def main() -> None:
     rows = [row for row in load_rows() if row["expected_guardrail"] == "allow"]
-    turns = [row for row in rows if row["group"] == FOLLOW_UP_GROUP]
+    turns = [row for row in rows if row["group"] in FOLLOW_UP_GROUPS]
     results = [await measure(candidate, rows) for candidate in CANDIDATES]
     follow_ups = [
         await measure(candidate, turns, FOLLOW_UP_RUNS) for candidate in FOLLOW_UP_CANDIDATES

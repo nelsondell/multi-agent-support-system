@@ -360,3 +360,21 @@ async def test_a_product_question_the_excerpts_do_not_answer_goes_to_a_human(sta
     assert PROTOCOL in paused["answer"]
     assert "Não encontrei isso nos trechos" not in paused["answer"]
     assert [case["case"]["protocol"] for case in listed] == [PROTOCOL]
+
+
+def draft_step_down(user: str) -> HandoffDraft:
+    raise LLMProviderError("draft model unavailable")
+
+
+async def test_approving_a_case_without_a_draft_is_422(stack):
+    """With no draft there is nothing to approve; the operator must reply in their own words."""
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model(HandoffDraft=draft_step_down))
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        approved = await http.post(
+            f"/handoffs/{protocol}/resume", json={"action": "approve"}, headers=OPERATOR
+        )
+        still_open = (await http.get("/handoffs", headers=OPERATOR)).json()
+
+    assert approved.status_code == 422
+    assert [record["case"]["protocol"] for record in still_open] == [protocol]

@@ -428,16 +428,19 @@ Two levels, deliberately separate.
 
 ```
 $ uv run pytest -q
-99 passed in 1.31s
+249 passed in 3.96s
 ```
 
 One module per graph node (`test_router`, `test_knowledge`, `test_support`, `test_guardrail`,
-`test_escalation`), the two tools (`test_tools`), masking and the log pipeline
-(`test_observability`), retrieval and fusion (`test_retrieve`), three adversarial paths
-(`test_adversarial`: prompt injection, another customer's data, a web page that gives orders) and HTTP integration
-(`test_api`, which injects a scripted graph instead of running the lifespan). The suite reads
-neither the developer's `.env`, nor an exported setting, nor the wall clock: each test sees the
-defaults, plus what it passes, on the day the mock account records describe.
+`test_escalation`, `test_plans`, `test_human_review`), the two tools (`test_tools`), masking and
+the log pipeline (`test_observability`), retrieval and fusion (`test_retrieve`), memory
+(`test_memory`, `test_followups`), web search (`test_web`), three adversarial paths
+(`test_adversarial`: prompt injection, another customer's data, a web page that gives orders), and
+the v2 flows over HTTP through the real app and SQLite stores (`test_flows`: two-turn memory, a
+restart, thread isolation, a compound plan, web search with and without a key, the masked web
+query, a failing tool). `specs/plan.md` §11 maps every v2 invariant to the test that pins it. The
+suite reads neither the developer's `.env`, nor an exported setting, nor the wall clock: each test
+sees the defaults, plus what it passes, on the day the mock account records describe.
 
 **CI** — `.github/workflows/ci.yml` runs on every push and pull request: ruff and the offline
 suite, then `docker compose build`, the container started from `.env.example` with
@@ -447,49 +450,56 @@ instance of any schema from its declaration, so the smoke test proves the image,
 on first boot and the graph work together without a vendor account. It asserts the response
 contract, never the content.
 
-**Routing golden set** — 23 labelled rows: the 10 challenge scenarios, 3 ambiguous, 2 general
-questions unrelated to the acquirer, and 8 follow-ups. A follow-up row carries its earlier turns,
-the post-operator case among them, and the words its rewrite must keep ("dessa venda" has to come
-out naming the sale), so the right agent with a query that lost its referent is a miss. It is a
+**Routing golden set** — 28 labelled rows: the 10 challenge scenarios, 2 ambiguous, 2 general
+questions unrelated to the acquirer, 5 compound requests (A03 among them, relabelled as the
+compound request it is), 6 follow-ups and 3 turns after an operator's reply. A follow-up row
+carries its earlier turns and the words its rewrite must keep ("dessa venda" has to come out
+naming the sale), so the right agent with a query that lost its referent is a miss. It is a
 measurement, not a test: a score that dips one row is a signal to read, not a red build, so it
-never runs inside pytest.
+never runs inside pytest. Against the real router (`gpt-6-luna`, low effort, prompt v8):
 
 ```
-$ uv run python -m evals.run_routing_eval --guardrail-only
-golden set: 23 rows from evals/routing_golden_set.jsonl
+$ uv run python -m evals.run_routing_eval
+golden set: 28 rows from evals/routing_golden_set.jsonl
 
 guardrail (deterministic)
-  overall: 100.0%  (23/23)
-  by expected class:
-    allow            100.0%  (23/23)
+  overall: 100.0%  (28/28)
+
+router (model)
+  overall: 96.4%  (27/28)
   by group:
-    ambiguous        100.0%  (3/3)
+    ambiguous         50.0%  (1/2)
     challenge        100.0%  (10/10)
+    compound         100.0%  (5/5)
     general          100.0%  (2/2)
-    multi_turn       100.0%  (8/8)
+    human_review     100.0%  (3/3)
+    multi_turn       100.0%  (6/6)
+  misses:
+    A01  expected=support  got=knowledge
 ```
 
-The guardrail now judges only injection and identity, so every labelled row passes it; whether a
-weather or exchange-rate question goes to the web is the router's call, measured by the router
-stage on rows S02, S07, O01 and O02. With `LLM_BACKEND=fake` the router stage also runs, offline:
-that proves the runner end to end and measures nothing about routing quality.
+A01 ("Quanto eu pago de taxa por venda no crédito?") is ambiguous by design: the published rate
+table or this merchant's own rate. The guardrail judges only injection and identity, so every
+labelled row passes it; whether a weather or exchange-rate question goes to the web is the
+router's call. With `LLM_BACKEND=fake` the router stage also runs, offline: that proves the runner
+end to end and measures nothing about routing quality.
 
 **Router accuracy against a real model** is in
 [`evals/router_benchmark.md`](evals/router_benchmark.md), written by
 `uv run python -m evals.run_model_benchmark`: the golden set routed twice through five candidate
-models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort routes
-within one row of `gpt-6-sol` (41/46 against 42/46 on router prompt v7; 26/30 against 25/30 on
-v5) at about an eighteenth of the cost, and beats `gpt-4o-mini` (38/46) while costing less, for
-under a second more per call. That is the default.
+models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort scores
+54/56, within one row of `gpt-6-sol` (55/56) at about an eighteenth of the cost, and beats
+`gpt-4o-mini` (46/56) while costing less, for under a second more per call. That is the default.
+Every luna and sol miss is A01.
 
 Effort was measured where it could pay, the follow-ups, whose rewrite has to carry a referent
-across turns: 8 rows, 5 runs each. Low and medium both score 40/40, medium 0.4 s slower, so the
-router stays on low and no per-node setting was added; the bar set before measuring was a
-10-point win. What fixed follow-ups was the prompt, not the effort: the same rows through router
-prompt v6, before the rule that resolves "dessa venda" to the entity of the last reply, scored
-28/40 on low, losing the sale an operator had just named in 5 runs out of 5. Every candidate splits A03 into two steps, because the row is a compound
-request labelled as a single one. Thirty calls per candidate is a small sample, and one or two rows
-apart is within noise, so the choice rests as much on the twentyfold cost gap as on accuracy.
+across turns: 9 rows, 5 runs each. Low and medium both score 45/45, medium slower, so the router
+stays on low and no per-node setting was added; the bar set before measuring was a 10-point win.
+What fixed follow-ups was the prompt, not the effort: the first eight follow-up rows through
+router prompt v6, before the rule that resolves "dessa venda" to the entity of the last reply, scored 28/40 on
+low, losing the sale an operator had just named in 5 runs out of 5. Two runs per row is a small
+sample, and one row apart is within noise, so the model choice rests as much on the twentyfold
+cost gap as on accuracy.
 
 ## 7. Observability and guardrails
 
@@ -511,8 +521,8 @@ cannot exist.
 
 The merchant id is pseudonymised with a stable SHA-256 prefix, so traces correlate without
 carrying the identifier. `escalation.reason` is a typed enum and doubles as the operational metric:
-`low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`, `individual_case`,
-`agent_not_implemented`.
+`low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`, `insufficient_sources`,
+`individual_case`, `tool_unavailable`, `agent_not_implemented`.
 
 Production latency and escalation rates: **[preencher]** — the figures above come from runs with a
 stubbed model and say nothing about real inference time.

@@ -36,6 +36,7 @@ STOPPED_BECAUSE = {
     EscalationReason.LOW_RETRIEVAL_CONFIDENCE: "no retrieved passage was close enough to answer",
     EscalationReason.INSUFFICIENT_SOURCES: "the sources found do not answer the question",
     EscalationReason.INDIVIDUAL_CASE: "an individual case, which only a person may decide",
+    EscalationReason.TOOL_UNAVAILABLE: "the account data could not be read",
     EscalationReason.AGENT_NOT_IMPLEMENTED: "a model call failed before the specialist finished",
 }
 

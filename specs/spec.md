@@ -119,7 +119,7 @@ data?** A second question now precedes it: **is this about the acquirer at all?*
 | "When will yesterday's sales be deposited?" | support | reads the account |
 | "What's the weather in Porto Alegre tomorrow?" | knowledge | general question, web |
 | "What's the euro exchange rate today?" | knowledge | general question, web |
-| "My machine won't connect and yesterday's money didn't land" | support, knowledge | two intents |
+| "My machine won't connect and yesterday's money didn't land" | knowledge, support | two intents, in the order asked |
 
 Possessive phrasing does not decide anything. Only the data dependency does.
 
@@ -266,7 +266,7 @@ exchange-rate questions now have an answer (§7).
 summary, and writes one structured log line. The typed reason doubles as the operational metric.
 
 Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`,
-`insufficient_sources`, `individual_case`, `agent_not_implemented`.
+`insufficient_sources`, `individual_case`, `tool_unavailable`, `agent_not_implemented`.
 
 **human_review** takes every escalated turn:
 

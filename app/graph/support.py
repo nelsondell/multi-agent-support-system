@@ -118,7 +118,11 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
         return {"handoff_reason": EscalationReason.REPEATED_MISROUTE.value}
 
     arguments = plan.arguments(state.today)
-    result = call_tool(plan.tool, arguments, state.user_id, state.today)
+    try:
+        result = call_tool(plan.tool, arguments, state.user_id, state.today)
+    except Exception as exc:  # the account store is an external system with its own failures
+        logger.warning("support tool %s failed: %s", plan.tool, type(exc).__name__)
+        return {"refusal_reason": EscalationReason.TOOL_UNAVAILABLE.value}
     evidence = [*state.evidence, json.dumps(result, ensure_ascii=False)]
     if unexplained_decline(plan, result):
         return {"refusal_reason": EscalationReason.INDIVIDUAL_CASE.value, "evidence": evidence}

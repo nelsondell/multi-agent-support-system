@@ -18,6 +18,7 @@ class Intent(StrEnum):
     TROUBLESHOOTING = "troubleshooting"
     ACCOUNT_DATA = "account_data"
     INDIVIDUAL_CASE = "individual_case"
+    TOOL_UNAVAILABLE = "tool_unavailable"
     GENERAL_INFO = "general_info"
     """A general-purpose question with nothing to do with the acquirer: weather, exchange rates."""
     OTHER = "other"
@@ -45,6 +46,7 @@ class EscalationReason(StrEnum):
     LOW_RETRIEVAL_CONFIDENCE = "low_retrieval_confidence"
     INSUFFICIENT_SOURCES = "insufficient_sources"
     INDIVIDUAL_CASE = "individual_case"
+    TOOL_UNAVAILABLE = "tool_unavailable"
     AGENT_NOT_IMPLEMENTED = "agent_not_implemented"
 
 
