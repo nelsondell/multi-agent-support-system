@@ -16,7 +16,7 @@ import json
 import logging
 import re
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
@@ -26,7 +26,13 @@ from app.graph.numbers import adds_numbers
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
 from app.rag.retrieve import Hit, HybridRetriever, RetrievalResult, RetrievalUnavailable
-from app.tools.web import WebResult, WebSearch, WebSearchUnavailable, outbound_query
+from app.tools.web import (
+    NoWebResults,
+    WebResult,
+    WebSearch,
+    WebSearchUnavailable,
+    outbound_query,
+)
 
 if TYPE_CHECKING:
     from app.graph.state import GraphState
@@ -49,6 +55,9 @@ class KnowledgeAnswer(BaseModel):
     was found."""
     answer: str
     used_urls: list[str] = Field(default_factory=list)
+    data_date: str | None = None
+    """Web answers about a given day only: the day the data refers to, as the source shows it,
+    as AAAA-MM-DD; null when the source shows no date."""
 
 
 def format_context(hits: list[Hit]) -> str:
@@ -145,15 +154,63 @@ def _web_unavailable(looked_at: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 def trustworthy(answer: str, results: list[WebResult], state: GraphState) -> bool:
-    """Hard rule 4 for the web: every number comes from a result (or is today's date), and the
-    answer carries no link or e-mail of its own, which is how a planted instruction would show."""
-    allowed = [f"{result.title} {result.content}" for result in results]
-    if state.today is not None:
-        allowed.append(state.today.isoformat())
+    """Hard rule 4 for the web: every number comes from a result (or is today's date, or the day
+    asked about), and the answer carries no link or e-mail of its own, which is how a planted
+    instruction would show."""
+    allowed = [f"{result.title} {result.content} {result.published or ''}" for result in results]
+    allowed += [day.isoformat() for day in (state.today, target_date(state)) if day is not None]
     return bool(answer.strip()) and not adds_numbers(answer, allowed) and not _LINK.search(answer)
 
 
+def shown_in(day: date, results: list[WebResult]) -> bool:
+    """Whether the results write this day in one of the usual forms."""
+    text = " ".join(f"{r.title} {r.content} {r.published or ''}" for r in results).lower()
+    forms = {
+        f"{day:%d/%m}",
+        f"{day.day}/{day.month}",
+        day.isoformat(),
+        f"{day.day} de {PT_MONTHS[day.month - 1]}",
+        f"{day:%d %b %Y}".lower(),
+    }
+    return any(form in text for form in forms)
+
+
+def _day(value: str | None) -> date | None:
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+
+def dated(generated: KnowledgeAnswer, results: list[WebResult], target: date | None) -> str:
+    """The answer, followed by a plain notice when its data is not shown to be from the day asked
+    about. A date the model reports is printed only if the results show it."""
+    if target is None:
+        return generated.answer
+    day = _day(generated.data_date)
+    if day == target and shown_in(target, results):
+        return generated.answer
+    asked = f"{target:%d/%m/%Y}"
+    if day is not None and day != target and shown_in(day, results):
+        notice = load_prompt("web_other_day").text.format(data_date=f"{day:%d/%m/%Y}", asked=asked)
+    else:
+        notice = load_prompt("web_undated").text.format(asked=asked)
+    return f"{generated.answer}\n\n{notice}"
+
+
 DAY_OFFSET = {"yesterday": -1, "today": 0, "tomorrow": 1}
+PT_MONTHS = (
+    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+)  # fmt: skip
+
+
+def target_date(state: GraphState) -> date | None:
+    """The day a general-information step asks about, when its answer depends on one."""
+    step = state.current_step()
+    if step is None or step.target_day is None or state.today is None:
+        return None
+    return state.today + timedelta(days=DAY_OFFSET[step.target_day])
 
 
 def web_query(state: GraphState) -> str:
@@ -164,11 +221,18 @@ def web_query(state: GraphState) -> str:
     system's own, never something the merchant typed.
     """
     query = outbound_query(state.current_query(), state.message)
-    step = state.current_step()
-    if step is not None and step.target_day is not None and state.today is not None:
-        day = state.today + timedelta(days=DAY_OFFSET[step.target_day])
-        query = f"{query} {day:%d/%m/%Y}"
-    return query
+    day = target_date(state)
+    return f"{query} {day:%d/%m/%Y}" if day is not None else query
+
+
+async def search_recent_first(web: WebSearch, query: str, recent: bool) -> list[WebResult]:
+    """For a question about a given day, pages from the last day first, then any page."""
+    if recent:
+        try:
+            return await web.search(query, recent=True)
+        except NoWebResults:
+            logger.info("no page from the last day; searching without the recency filter")
+    return await web.search(query)
 
 
 async def answer_from_web(
@@ -176,10 +240,11 @@ async def answer_from_web(
 ) -> dict[str, Any]:
     """Answer a general-purpose step from a cited web search, or say it cannot be looked up."""
     question = state.current_query()
+    target = target_date(state)
     try:
         if web is None:
             raise WebSearchUnavailable("web search is not configured")
-        results = await web.search(web_query(state))
+        results = await search_recent_first(web, web_query(state), target is not None)
     except WebSearchUnavailable as exc:
         logger.warning("web search unavailable: %s", exc)
         return _web_unavailable()
@@ -190,6 +255,7 @@ async def answer_from_web(
     payload = {
         "question": question,
         "today": state.today.isoformat() if state.today else None,
+        "target_date": target.isoformat() if target else None,
         "results": [asdict(result) for result in results],
     }
     try:
@@ -208,4 +274,4 @@ async def answer_from_web(
         logger.warning("web answer rejected: a number or a link not found in the results")
         return _web_unavailable(looked_at)
     sources = _web_sources(results, generated.used_urls)
-    return {"answer": generated.answer, "sources": sources, **looked_at}
+    return {"answer": dated(generated, results, target), "sources": sources, **looked_at}

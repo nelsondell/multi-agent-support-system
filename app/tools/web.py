@@ -32,6 +32,10 @@ class WebSearchUnavailable(RuntimeError):
     """The search could not be made or returned nothing usable."""
 
 
+class NoWebResults(WebSearchUnavailable):
+    """The search worked and found nothing usable."""
+
+
 @dataclass(frozen=True)
 class WebResult:
     """One page returned by the search, as untrusted data."""
@@ -39,6 +43,8 @@ class WebResult:
     url: str
     title: str
     content: str
+    published: str | None = None
+    """When the provider knows it, the page's publication date, as the provider writes it."""
 
 
 def outbound_query(query: str, message: str) -> str:
@@ -61,11 +67,14 @@ class WebSearch:
         self._timeout = settings.web_search_timeout_s
         self._client = client
 
-    async def search(self, query: str) -> list[WebResult]:
-        """Up to `web_search_max_results` pages for an already-sanitised query."""
+    async def search(self, query: str, recent: bool = False) -> list[WebResult]:
+        """Up to `web_search_max_results` pages for an already-sanitised query; with `recent`,
+        only pages from the last day."""
         if not self._key:
             raise WebSearchUnavailable("TAVILY_API_KEY is not set")
         body = {"query": query, "max_results": self._max_results, "search_depth": "basic"}
+        if recent:
+            body["time_range"] = "day"
         try:
             response = await self._client.post(
                 TAVILY_SEARCH_URL,
@@ -92,8 +101,9 @@ def _results(rows: list) -> list[WebResult]:
                     url=row["url"],
                     title=row.get("title") or row["url"],
                     content=row.get("content") or "",
+                    published=row.get("published_date"),
                 )
             )
     if not usable:
-        raise WebSearchUnavailable("web search returned no usable result")
+        raise NoWebResults("web search returned no usable result")
     return usable

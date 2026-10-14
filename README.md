@@ -355,7 +355,11 @@ typed it in that very message, so an amount read from the account or the history
 in a web query. One Tavily call, capped at `WEB_SEARCH_MAX_RESULTS` pages, with a timeout. A step whose
 answer depends on the day (a forecast, a rate) carries the date of the day it asks about, set by
 the router as `target_day`: a search engine cannot resolve "amanhã", undated it returns
-yesterday's page, and dated with today it returns today's forecast. The pages reach the
+yesterday's page, and dated with today it returns today's forecast. Such a step asks for pages
+from the last day first and falls back to any page; the answer cites the date its data is from,
+as the source shows it, and when that is not the day asked about, or the pages show no date, a
+fixed notice says so ("os dados mais recentes que encontrei são de 13/10/2026, não de
+14/10/2026"). A date is only ever printed if the pages show it. The pages reach the
 model as untrusted data in a JSON field, with today's date; results that do not answer the
 question are reported as such (`coverage: none`) and degrade like a failed search; results that
 answer part of it are answered as far as they go. The answer must

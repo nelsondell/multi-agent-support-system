@@ -39,6 +39,17 @@ EURO = {
     "title": "Cotação do euro hoje",
     "content": "Euro comercial: R$ 6,12 na venda, atualizado às 10h.",
 }
+DATED_WEATHER = {
+    "url": "https://clima.example/porto-alegre-15-10",
+    "title": "Previsão para 15/10/2026 em Porto Alegre",
+    "content": "Quinta-feira, 15/10/2026: máxima de 24°C e mínima de 15°C, com chuva fraca.",
+}
+EURO_YESTERDAY = {
+    "url": "https://cambio.example/euro-fechamento",
+    "title": "Euro fecha em alta",
+    "content": "Fechamento de 13/10/2026: euro comercial a R$ 6,10 na venda.",
+    "published_date": "Tue, 13 Oct 2026 21:00:00 GMT",
+}
 PLANTED = {
     "url": "https://golpe.example/euro",
     "title": "Euro hoje",
@@ -359,9 +370,11 @@ async def test_results_that_do_not_answer_degrade_instead_of_answering(run, web_
 
 
 async def test_results_that_answer_part_of_the_question_are_answered(run, web_search):
-    web, _ = web_search([WEATHER])
-    reply = "Amanhã a máxima é de 24°C. Os sites consultados não informam o vento."
-    partial = KnowledgeAnswer(coverage="partial", answer=reply, used_urls=[WEATHER["url"]])
+    web, _ = web_search([DATED_WEATHER])
+    reply = "Em 15/10/2026 a máxima é de 24°C. Os sites consultados não informam o vento."
+    partial = KnowledgeAnswer(
+        coverage="partial", answer=reply, used_urls=[DATED_WEATHER["url"]], data_date="2026-10-15"
+    )
     model = Model(
         {RouterDecision: general("previsão do tempo amanhã", "tomorrow"), KnowledgeAnswer: partial}
     )
@@ -370,3 +383,97 @@ async def test_results_that_answer_part_of_the_question_are_answered(run, web_se
 
     assert response.answer == reply
     assert response.status == "answered" and response.sources
+
+
+def euro(text: str, data_date: str | None) -> KnowledgeAnswer:
+    return KnowledgeAnswer(
+        coverage="full", answer=text, used_urls=[EURO_YESTERDAY["url"]], data_date=data_date
+    )
+
+
+async def test_a_question_about_a_day_asks_for_pages_from_the_last_day_first(run, web_search):
+    web, sent = web_search([DATED_WEATHER])
+    reply = "Em 15/10/2026 a máxima é de 24°C."
+    dated = KnowledgeAnswer(coverage="full", answer=reply, used_urls=[], data_date="2026-10-15")
+    model = Model(
+        {RouterDecision: general("previsão do tempo amanhã", "tomorrow"), KnowledgeAnswer: dated}
+    )
+
+    response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
+
+    assert [body.get("time_range") for body in sent] == ["day"]
+    assert response.answer == reply, "data from the day asked about needs no notice"
+
+
+async def test_with_no_page_from_the_last_day_any_page_is_searched(run, web_search):
+    def respond(request: httpx.Request) -> httpx.Response:
+        recent = json.loads(request.content).get("time_range") == "day"
+        return httpx.Response(200, json={"results": [] if recent else [EURO_YESTERDAY]})
+
+    web, sent = web_search(respond=respond)
+    model = Model(
+        {
+            RouterDecision: general("cotação do euro hoje", "today"),
+            KnowledgeAnswer: euro("O euro fechou em R$ 6,10 em 13/10/2026.", "2026-10-13"),
+        }
+    )
+
+    await run(model, web, "Qual a cotação do euro hoje?")
+
+    assert [body.get("time_range") for body in sent] == ["day", None]
+
+
+async def test_data_from_another_day_is_answered_with_a_plain_notice(run, web_search):
+    web, _ = web_search([EURO_YESTERDAY])
+    reply = "O euro fechou em R$ 6,10 em 13/10/2026."
+    model = Model(
+        {
+            RouterDecision: general("cotação do euro hoje", "today"),
+            KnowledgeAnswer: euro(reply, "2026-10-13"),
+        }
+    )
+
+    response = to_response(await run(model, web, "Qual a cotação do euro hoje?"), "c1")
+    shown = json.loads(model.inputs("KnowledgeAnswer")[0])
+
+    assert response.answer.startswith(reply)
+    assert response.answer.endswith("são de 13/10/2026, não de 14/10/2026.")
+    assert shown["target_date"] == "2026-10-14"
+    assert shown["results"][0]["published"] == EURO_YESTERDAY["published_date"]
+
+
+@pytest.mark.parametrize("data_date", [None, "2026-10-12"], ids=["undated", "date-not-in-pages"])
+async def test_a_date_the_pages_do_not_show_is_never_vouched_for(run, web_search, data_date):
+    web, _ = web_search([WEATHER])
+    reply = "Amanhã em Porto Alegre a máxima é de 24°C."
+    model = Model(
+        {
+            RouterDecision: general("previsão do tempo amanhã", "tomorrow"),
+            KnowledgeAnswer: KnowledgeAnswer(
+                coverage="full", answer=reply, used_urls=[], data_date=data_date
+            ),
+        }
+    )
+
+    response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
+
+    assert response.answer.endswith("não posso confirmar que valem para 15/10/2026.")
+    assert "12/10" not in response.answer
+
+
+async def test_a_question_that_does_not_depend_on_the_day_gets_no_filter_and_no_notice(
+    run, web_search
+):
+    web, sent = web_search([WEATHER])
+    reply = "Porto Alegre é a capital do Rio Grande do Sul."
+    model = Model(
+        {
+            RouterDecision: general("capital do Rio Grande do Sul"),
+            KnowledgeAnswer: web_answer(reply),
+        }
+    )
+
+    response = to_response(await run(model, web, "Qual a capital do Rio Grande do Sul?"), "c1")
+
+    assert "time_range" not in sent[0]
+    assert response.answer == reply

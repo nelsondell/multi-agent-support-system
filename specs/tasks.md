@@ -339,6 +339,17 @@ treats X.
 the question is always searched; S01, run 5 times for real, answers every time, with both
 product pages and the tiered prices stated with their conditions.
 
+### T-38 — `fix(T-38): date time-sensitive web answers and say when the data is old`
+A step with a `target_day` searches with Tavily's `time_range = day` first and without it when
+that finds nothing. Results carry the provider's publication date. The web prompt cites the date
+the data is from and reports it in `KnowledgeAnswer.data_date`; when it is not the day asked
+about, or the pages do not show it, a fixed pt-BR notice is appended, printing a date only if the
+pages show it.
+**Done when:** a question about a day asks for recent pages first and falls back; data from
+another day ends with the notice naming both days; a date the pages do not show is never
+printed; a question that does not depend on the day gets neither the filter nor the notice; the
+weather and euro questions, asked for real, answer with the date of their data.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
