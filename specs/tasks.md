@@ -5,9 +5,9 @@ reused and two tasks are never grouped in one commit.
 
 T-01 to T-06 are the core slice: a running graph with a real router and honest stubs. T-07 to
 T-14 replace the stubs with retrieval, tools and packaging. Together they are v1, frozen at the
-tag `v1`. T-15 to T-34 are v2: they close the gaps in the v1 evaluation, in an order that keeps
-the suite green after every commit. T-28 to T-34 are two fix passes from real runs and land
-before T-24.
+tag `v1`. T-15 to T-41 are v2, an iteration on the v1 evaluation outside the 60-minute timebox:
+they close its gaps in an order that keeps the suite green after every commit. T-28 to T-36 are
+fix passes from real runs and land before T-24; T-37 to T-41 follow the judge's first runs.
 
 ## Core
 
@@ -366,6 +366,13 @@ has one. The judge runs three more times and `evals/report.md` is refreshed in t
 **Done when:** the stamp comes from the structured date only, converted to Brazil's calendar, with
 no time of day; the model never sees that date; an undated source says so; the report reflects
 three runs on this code.
+
+### T-41 — `docs(T-41): state that v2 iterates on the evaluator's feedback outside the timebox`
+Next to the 60-minute line, the README says plainly that v2 is an iteration on the evaluator's
+feedback on v1, done at the evaluator's invitation and outside the timebox, and links the "What
+changed since v1" table. The demo section is refreshed from the image built after T-40.
+**Done when:** a reader cannot take v2 for part of the timed exercise; the demo output matches the
+current image.
 
 ### Traceability
 

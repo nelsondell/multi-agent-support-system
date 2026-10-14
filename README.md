@@ -13,7 +13,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then continues) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Tests** | 265 offline tests; CI builds the image and smoke-tests the container |
+| **Tests** | 264 offline tests; CI builds the image and smoke-tests the container |
 | **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.88, relevance 4.67 ([report](evals/report.md)) |
 
 **Contents** — [Quick start](#1-quick-start) · [Configuration](#2-configuration) ·
@@ -52,7 +52,7 @@ uv run uvicorn app.main:app --reload      # http://localhost:8000
 **Tests and evals**:
 
 ```bash
-uv run pytest -q                          # 265 offline tests, no network, no cost
+uv run pytest -q                          # 264 offline tests, no network, no cost
 uv run ruff check .
 uv run python -m evals.run_routing_eval   # routing golden set (needs OPENAI_API_KEY)
 uv run python -m evals.run_judge          # LLM judge, 3 runs (needs both keys)
@@ -272,15 +272,15 @@ merchant gets them; web answers change with the live results.
 | # | Question | Agents | Status | Answer, shortened |
 | --- | --- | --- | --- | --- |
 | S01 | What's the difference between the Get Clássica and the Get Smart? | knowledge | answered | Clássica for CPF or CNPJ, Smart only for CNPJ above R$ 10 mil/mês; Smart rental R$ 50,00 from R$ 10 mil, R$ 10,00 from R$ 30 mil, free from R$ 60 mil; otherwise R$ 79,90 vs R$ 129,90/mês. Two product pages cited. |
-| S02 | What's the weather forecast in Porto Alegre tomorrow? | knowledge (web) | answered | Forecast for 15/10/2026: rain at night and morning, thunderstorms in the afternoon, 19–21 °C, 25 mm. |
-| S03 | When will the money from yesterday's sales be deposited? | support | answered | "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026." |
-| S04 | Do I need a bank account to receive my sales via Pix? | knowledge | answered (partial) | The Get Conta receives sales via Pix; the site doesn't say whether another bank account is needed. |
-| S05 | My card machine won't connect to the internet, what should I do? | knowledge | **pending_human** | The corpus has no connectivity procedure: abstains, protocol `insufficient_sources`. |
+| S02 | What's the weather forecast in Porto Alegre tomorrow? | knowledge (web) | answered | Thunderstorms on 15/10/2026, 17.3–22.6 °C, 86% chance of rain; then the notice that the source gives no publication date. |
+| S03 | When will the money from yesterday's sales be deposited? | support | answered | "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje (14/10/2026)." |
+| S04 | Do I need a bank account to receive my sales via Pix? | knowledge | answered (partial) | Sales can be received in the Get Conta, chosen when contracting a machine; the site doesn't say whether a bank account is needed for Pix. |
+| S05 | My card machine won't connect to the internet, what should I do? | knowledge | answered (partial) | The Chip Algar connects to several carriers where there is 2G/3G coverage; the site has no troubleshooting steps. In earlier runs it abstained and opened a protocol instead. |
 | S06 | How does receivables advance (antecipação) work with Getnet? | knowledge | answered (partial) | Receive credit sales before settlement; automatic advance needs a credit evaluation; rate and how to request not published. |
-| S07 | What's the euro exchange rate today? | knowledge (web) | answered | "R$ 5,6099, segundo o Valor Data, em 14/10/2026, às 17:17." |
+| S07 | What's the euro exchange rate today? | knowledge (web) | answered | "O euro comercial está cotado a R$ 5,6099." Then the notice that the source gives no publication date. |
 | S08 | My card machine is showing a transaction decline error. | support | answered | "Negada porque, segundo o banco emissor, havia saldo ou limite insuficiente no cartão." |
 | S09 | How many installments can I split a sale into with the crediário? | knowledge | answered | Up to 48 installments; limit and interest depend on the card issuer, simulated on the machine. |
-| S10 | Can I sell through WhatsApp using the Payment Link? | knowledge | answered | "Sim. Com o Link de Pagamento, você pode vender pelo WhatsApp: crie o link e compartilhe por onde quiser." |
+| S10 | Can I sell through WhatsApp using the Payment Link? | knowledge | answered | "Sim. Você pode vender pelo WhatsApp usando o Link de Pagamento: depois de criar o link, é só compartilhá-lo por onde quiser, inclusive no WhatsApp." |
 | Follow-up | "Quando cai o dinheiro das vendas de ontem?" → "E o de amanhã?" | support, support | answered | R$ 231,26 today; then R$ 60,18 crediting 15/10/2026. |
 | Compound | "Quando cai o dinheiro de ontem e como funciona a antecipação?" | support, knowledge | answered | Both parts in one reply, account and website sources. |
 | Human review | refund case → operator reply → "E em que dia foi feita essa venda?" | support | paused → answered | The operator's reply, rephrased and cited; then "A venda foi feita em 13/10/2026." |
@@ -299,7 +299,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A Get Clássica é apresentada como opção para CPF ou CNPJ; a Get Smart é exclusiva para CNPJ com faturamento acima de R$ 10 mil por mês. Nas condições de aluguel por faturamento publicadas para a Get Smart, o valor é R$ 50,00/mês a partir de R$ 10 mil, R$ 10,00/mês a partir de R$ 30 mil e grátis a partir de R$ 60 mil. Se não atingir as faixas indicadas, o trecho informa valores de utilização de R$ 79,90/mês para a Clássica e R$ 129,90/mês para a Smart. Ambas indicam recebimento em 2 dias úteis pela Get Conta. O site não informa diferenças de recursos ou especificações técnicas entre as maquininhas.",
+  "answer": "As duas oferecem recebimento em 2 dias úteis e podem ficar grátis mediante as condições de faturamento. A Get Clássica aparece como opção para CPF e CNPJ; a Get Smart é exclusiva para CNPJ com faturamento acima de R$ 10 mil/mês. O aluguel da Smart varia conforme o faturamento: R$ 50,00/mês a partir de R$ 10 mil, R$ 10,00/mês a partir de R$ 30 mil e grátis a partir de R$ 60 mil. Se não atingir as faixas indicadas, o valor de utilização informado é R$ 79,90/mês para a Clássica e R$ 129,90/mês para a Smart. O site não informa diferenças de funcionalidades ou especificações técnicas entre as maquininhas.",
   "sources": [
     "kb: https://site.getnet.com.br/maquininha/get-classica/",
     "kb: https://site.getnet.com.br/maquininha/get-smart/"
@@ -314,9 +314,10 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Para quinta-feira, 15 de outubro de 2026, a previsão em Porto Alegre é de chuva na madrugada, períodos de sol e precipitações pela manhã, pancadas com trovoadas à tarde e muitas nuvens à noite. Temperaturas entre 19 °C e 21 °C e acumulado estimado em 25 mm. Informação dos sites consultados; a previsão pode mudar.",
+  "answer": "Em Porto Alegre, amanhã (15 de outubro de 2026), a previsão é de trovoadas, com máxima de 22.6C, mínima de 17.3C e 86% de chance de chuva. Também há previsão de chuva moderada a pontualmente forte na região metropolitana de Porto Alegre.\n\nAtenção: a fonte não informa a data de publicação, então não posso confirmar que o dado está atualizado.",
   "sources": [
-    "web: https://www.climatempo.com.br/noticia/primavera/previsao-brasil-15-10-chuva-volumosa-em-sp-incluindo-a-capital-paulista-e-em-areas-de-mg"
+    "web: https://www.bra1.com.br/clima/id-698754/previsao_do_tempo_em_porto_alegre__parcialmente_nublado__max_21.5_c_e_84__de_chuva",
+    "web: https://www.defesacivil.rs.gov.br/upload/arquivos/202610/14095752-boletim-hidrometeorolo-gico-diurno-14-10-2026.pdf"
   ],
   "escalation": null
 }
@@ -328,7 +329,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026.",
+  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje (14/10/2026).",
   "sources": [
     "account: get_settlement_schedule"
   ],
@@ -342,7 +343,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A Get Conta é uma conta digital que permite enviar e receber dinheiro e vender por meio do Pix. O site não informa se é necessário ter outra conta bancária para receber vendas via Pix.",
+  "answer": "O site informa que, para receber as vendas na Get Conta, você pode escolher essa opção ao contratar uma máquina de aluguel ou compra. Não informa se é necessário ter uma conta bancária para receber vendas via Pix.",
   "sources": [
     "kb: https://site.getnet.com.br/duvidas/"
   ],
@@ -352,16 +353,15 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 === S05 connectivity, not in the corpus ===
 > My card machine won't connect to the internet, what should I do?
 {
-  "status": "pending_human",
+  "status": "answered",
   "agents": [
     "knowledge"
   ],
-  "answer": "Não encontrei essa informação na minha base de conhecimento e prefiro não arriscar um palpite sobre um assunto que envolve o seu dinheiro.\n\nNão consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nGuarde o número de protocolo ESC-8922E09FF8 para acompanhar o caso.",
-  "sources": [],
-  "escalation": {
-    "reason": "insufficient_sources",
-    "protocol": "ESC-8922E09FF8"
-  }
+  "answer": "O site informa que, com o Chip Algar, a maquininha pode se conectar a várias operadoras e ser usada em locais com cobertura 2G/3G. Não informa quais etapas seguir para solucionar uma falha de conexão.",
+  "sources": [
+    "kb: https://site.getnet.com.br/duvidas/"
+  ],
+  "escalation": null
 }
 
 === S06 receivables advance ===
@@ -371,7 +371,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A antecipação permite receber antes do prazo de compensação os valores de vendas feitas no crédito, à vista ou parceladas. A Antecipação Automática é uma condição para obter isenção no plano “Receba Conforme suas Vendas” e depende de aprovação de crédito, avaliada individualmente pela Getnet. O site não informa nesta página a taxa da antecipação nem como solicitá-la.",
+  "answer": "Com a antecipação de vendas, você pode receber antes os valores das vendas feitas no crédito, à vista ou parceladas, sem esperar o prazo de compensação. A Antecipação Automática está relacionada à isenção para clientes que optam pelo plano “Receba Conforme suas Vendas” e depende de aprovação de crédito, com avaliação individual de cada contrato. O site não informa as taxas nem todos os detalhes de como solicitar a antecipação.",
   "sources": [
     "kb: https://site.getnet.com.br/duvidas/"
   ],
@@ -385,7 +385,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "O euro comercial está cotado a R$ 5,6099, segundo o Valor Data, em 14/10/2026, às 17:17 (com atraso de 15 minutos). A informação vem dos sites consultados e pode mudar.",
+  "answer": "O euro comercial está cotado a R$ 5,6099.\n\nAtenção: a fonte não informa a data de publicação, então não posso confirmar que o dado está atualizado.",
   "sources": [
     "web: https://valor.globo.com/valor-data"
   ],
@@ -413,7 +413,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "O Crediário permite parcelamento em até 48 vezes. O limite máximo e os juros podem variar conforme o emissor do cartão; a quantidade disponível e os juros podem ser conferidos na simulação feita diretamente na maquininha.",
+  "answer": "O Crediário permite parcelar em até 48 vezes, mas o limite disponível depende das políticas de crédito do emissor do cartão. Você pode conferir as opções e os juros simulando a venda na maquininha.",
   "sources": [
     "kb: https://site.getnet.com.br/crediario/",
     "kb: https://site.getnet.com.br/duvidas/"
@@ -428,7 +428,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Sim. Com o Link de Pagamento, você pode vender pelo WhatsApp: crie o link e compartilhe por onde quiser.",
+  "answer": "Sim. Você pode vender pelo WhatsApp usando o Link de Pagamento: depois de criar o link, é só compartilhá-lo por onde quiser, inclusive no WhatsApp.",
   "sources": [
     "kb: https://site.getnet.com.br/link-de-pagamento/"
   ],
@@ -456,7 +456,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de 12/10/2026, R$ 60,18 líquidos, está previsto para cair em 15/10/2026.",
+  "answer": "O dinheiro das vendas de 12/10/2026, R$ 60,18 líquidos, está previsto para cair amanhã, 15/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ],
@@ -471,7 +471,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
     "support",
     "knowledge"
   ],
-  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026. A antecipação de vendas permite receber antes os valores de vendas feitas no crédito, à vista ou parceladas, sem esperar o prazo de compensação. O site não informa como solicitar a antecipação nem quais são os prazos e custos.",
+  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026. A antecipação de recebíveis permite receber antes os valores de vendas feitas no crédito, à vista ou parceladas, sem esperar o prazo de compensação para receber o valor na conta.",
   "sources": [
     "account: get_settlement_schedule",
     "kb: https://site.getnet.com.br/duvidas/"
@@ -486,11 +486,11 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "Não consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nGuarde o número de protocolo ESC-ECF4B2E5DF para acompanhar o caso.",
+  "answer": "Não consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nGuarde o número de protocolo ESC-BF2D7CA964 para acompanhar o caso.",
   "sources": [],
   "escalation": {
     "reason": "individual_case",
-    "protocol": "ESC-ECF4B2E5DF"
+    "protocol": "ESC-BF2D7CA964"
   }
 }
 
@@ -498,13 +498,13 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 {
   "status": "open",
   "case": {
-    "protocol": "ESC-ECF4B2E5DF",
+    "protocol": "ESC-BF2D7CA964",
     "reason": "individual_case",
     "attempts": [
-      "router: individual_case, plan support, confidence 0.99",
+      "router: individual_case, plan support, confidence 0.98",
       "step 1 (support) stopped: an individual case, which only a person may decide; query: Por que o estorno da venda no Mastercard final 7788 ainda não apareceu?"
     ],
-    "proposed_draft": "Entendo sua preocupação com o estorno da venda no Mastercard final 7788. Nossa equipe está verificando o caso e vai analisar o que aconteceu."
+    "proposed_draft": "Entendo sua preocupação com o estorno da venda no Mastercard final 7788. Nossa equipe está verificando o caso para entender o que aconteceu e retornará com mais informações."
   }
 }
 
@@ -513,7 +513,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "status": "answered",
   "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. Segundo a informação da operadora, o valor volta ao comprador em até 2 dias úteis.",
   "sources": [
-    "operator: ESC-ECF4B2E5DF"
+    "operator: ESC-BF2D7CA964"
   ]
 }
 
@@ -538,7 +538,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 265 tests, about 7 s, no network: one module per node, the two tools, masking, retrieval, memory, web search, three adversarial paths, and the v2 flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 264 tests, about 7 s, no network: one module per node, the two tools, masking, retrieval, memory, web search, three adversarial paths, and the v2 flows over HTTP through the real app and SQLite stores | `tests/` |
 | Invariants | every v2 invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
 | CI | ruff, the suite, `docker compose build`, the container started keyless with the fake backend, smoke tests of `/health`, `/metrics` and `/chat` | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
@@ -591,7 +591,9 @@ run.
 
 ## 12. What changed since v1
 
-v1 scored 8.7/10. v2 is 25 more tasks (T-15 to T-39), each one commit with a done criterion.
+v1 scored 8.7/10 within the 60-minute timebox. v2 is an iteration on that evaluation's feedback,
+done at the evaluator's invitation and outside the timebox: 27 more tasks (T-15 to T-41), each one
+commit with a done criterion.
 
 | Criterion (v1 score) | v2 | Tasks |
 | --- | --- | --- |
@@ -601,7 +603,7 @@ v1 scored 8.7/10. v2 is 25 more tasks (T-15 to T-39), each one commit with a don
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38 |
 | Multi-agent (8.8) | Plans of up to two specialists joined by compose; a partial answer plus a handoff under one protocol; hop budget across the plan | T-21, T-22 |
 | Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; Prometheus counters; masked tracing | T-25, T-26, T-28, T-29, T-39 |
-| Tests / quality (9.2) | 78 → 265 offline tests; HTTP flows; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31 |
+| Tests / quality (9.2) | 78 → 264 offline tests; HTTP flows; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
 | Security / isolation (9.5) | Threads bound to the merchant; restricted checkpoint deserializer; masked web queries; operator token | T-19, T-21, T-23, T-31 |
 | RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |
@@ -692,6 +694,8 @@ Spec-driven development with Claude Code: `specs/spec.md` (what), `specs/plan.md
 `specs/tasks.md` (one task per commit, each with a done criterion) were approved before code, and
 `CLAUDE.md` carries the non-negotiables. Every commit follows `<type>(<T-id>): <imperative>`, so the
 history is the task list. The v1 core went from scaffold to a packaged service in 60 minutes of
-commits (T-00 to T-14). v2 came from the v1 evaluation (T-15 to T-27), and three fix passes
+commits (T-00 to T-14). **v2 is outside that timebox:** it is an iteration on the evaluator's
+feedback on v1, done at the evaluator's invitation, and
+[What changed since v1](#12-what-changed-since-v1) maps each change to the criterion it answers. v2 came from the v1 evaluation (T-15 to T-27), and three fix passes
 (T-28 to T-39) followed from real runs in Docker. Each run's findings became tasks, and each
 decision kept its measurement in `evals/`.
