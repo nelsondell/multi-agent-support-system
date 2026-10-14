@@ -83,19 +83,23 @@ the model can read or write, and never appears in a tool schema.
 
 ### Operator endpoints
 
-Both require `Authorization: Bearer <OPERATOR_TOKEN>`.
+All require `Authorization: Bearer <OPERATOR_TOKEN>`. A case is
+`{ "protocol", "reason", "intent", "summary", "attempts": ["string"], "sources": [Source], "proposed_draft": "string | null", "user_id", "conversation_id", "opened_at" }`,
+shown as `{ "status": "open | closed", "case": Case, "closed_at" }`.
 
-- `GET /handoffs` lists open cases:
-  `[{ "protocol", "reason", "summary", "attempts": ["string"], "proposed_draft": "string | null", "user_id", "opened_at" }]`.
-- `POST /handoffs/{protocol}/resume` with `{ "answer": "string" }` resumes the paused
-  conversation and returns the merchant-facing `ChatResponse` for that conversation.
+- `GET /handoffs` lists open cases, oldest first.
+- `GET /handoffs/{protocol}` shows one case, open or closed.
+- `POST /handoffs/{protocol}/resume` takes `{ "action": "approve" }`, which sends the proposed
+  draft, or `{ "action": "reply", "answer": "string" }`. It resumes the paused conversation and
+  returns the merchant-facing `ChatResponse`.
 
 | Condition | Status |
 | --- | --- |
 | Missing or wrong token | 401 |
 | `OPERATOR_TOKEN` not configured | 503, with a message saying operator endpoints are disabled |
 | Unknown protocol | 404 |
-| Protocol already resolved | 409 |
+| Case already closed | 409 |
+| Approving a case that has no draft | 422 |
 
 ### Probes
 
@@ -209,7 +213,7 @@ These are testable statements, not prompt suggestions.
    pending registration go to a human even when account data exists.
 4. **Rephrasing adds nothing.** A composed answer or an operator reply that contains a number
    absent from the text it was built from is discarded in favour of that text, delivered
-   verbatim through a template. Numbers are compared by value, not by spelling: currency symbols
+   verbatim. Numbers are compared by value, not by spelling: currency symbols
    and spaces are dropped and both pt-BR (`1.234,56`) and en (`1,234.56`) separators are read,
    so "R$ 1.234,56" and "1234.56" are the same value. A token whose separator is ambiguous
    ("1.234") matches under either reading.
@@ -239,18 +243,21 @@ Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence
 
 **human_review** takes every escalated turn:
 
-1. It builds a case for the operator: the masked summary, what was tried (plan, reasons, tools
-   called, retrieval confidence) and a proposed draft reply. If the draft cannot be generated the
-   case opens without one.
+1. It builds a case for the operator: the masked summary, the intent, what the agents tried and
+   why they stopped, the pages retrieved if any, and a proposed draft reply. The draft may quote
+   the case's evidence (the merchant's message, tool results, retrieved chunks); if it cannot be
+   generated, or states a number found in none of that evidence, the case opens without one.
+   The case is recorded in the queue before the graph pauses.
 2. It pauses the graph with `interrupt()`. The merchant receives a pt-BR notice with the protocol
    and `status = pending_human`.
 3. While a case is open, `/chat` on that conversation returns `pending_human` with the protocol
-   and runs nothing.
-4. The operator lists open cases and resumes one with an answer (§3). The operator's answer is
-   the only new fact the agent may use: it may rephrase it, never add to it (hard rule 4). If the
-   rephrasing call fails, the answer is delivered verbatim through a template.
+   and runs nothing. Other conversations are unaffected.
+4. The operator lists open cases and answers one (§3): approving sends the draft as written;
+   replying gives the agent the only new facts it may use. It may rephrase them, never add to
+   them (hard rule 4). If the rephrasing fails or adds a number, the operator's literal text is
+   sent.
 5. The reply cites the operator as its source, is saved to the conversation history, and the
-   next turn can build on it.
+   next turn can build on it. Open cases and paused threads survive a restart.
 
 The resume response is what a channel adapter would push to the merchant; the adapter itself is
 out of scope.

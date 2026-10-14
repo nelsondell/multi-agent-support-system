@@ -6,10 +6,12 @@ from pathlib import Path
 
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.types import Command
 
 from app.checkpoints import open_checkpointer
 from app.contracts import Intent, TargetAgent
 from app.graph.build import build_graph
+from app.graph.human_review import HandoffDraft, OperatorReply
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import CONVERSATION_FIELDS, ConversationSummary, thread_id, turn_input
 from app.graph.router import RouterDecision
@@ -41,7 +43,14 @@ def config(user_id: str = CALLER, conversation_id: str = "c1") -> dict:
 
 async def send(graph, message: str, user_id: str = CALLER, conversation_id: str = "c1") -> dict:
     return await graph.ainvoke(
-        turn_input(message, user_id, "trace", TODAY), config(user_id, conversation_id)
+        turn_input(
+            message=message,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            trace_id="trace",
+            today=TODAY,
+        ),
+        config(user_id, conversation_id),
     )
 
 
@@ -125,14 +134,21 @@ async def test_per_turn_fields_do_not_leak_into_the_next_turn(conversation):
     assert blocked["escalation"] is None
 
 
-async def test_an_escalated_turn_is_remembered_with_its_handoff_notice(conversation):
+async def test_an_escalated_turn_is_remembered_once_the_operator_answers(conversation):
     unsure = ROUTED.model_copy(update={"confidence": 0.1})
-    graph = conversation(responses={RouterDecision: unsure})
+    graph = conversation(
+        responses={
+            RouterDecision: unsure,
+            HandoffDraft: HandoffDraft(draft="We are looking into it."),
+            OperatorReply: OperatorReply(answer="Your machine is active."),
+        }
+    )
 
-    final = await send(graph, "hmm")
+    paused = await send(graph, "hmm")
+    assert paused["__interrupt__"] and await history(graph) == []
 
-    assert final["escalation"] is not None
-    assert await history(graph) == ["hmm", final["answer"]]
+    await graph.ainvoke(Command(resume={"action": "reply", "answer": "It is active."}), config())
+    assert await history(graph) == ["hmm", "Your machine is active."]
 
 
 async def test_a_blocked_turn_is_not_remembered(conversation):
@@ -193,7 +209,9 @@ def test_thread_ids_are_stable_and_unambiguous():
 
 
 def test_the_turn_input_resets_every_per_turn_field():
-    turn = turn_input("hello", CALLER, "trace", TODAY)
+    turn = turn_input(
+        message="hello", user_id=CALLER, conversation_id="c1", trace_id="trace", today=TODAY
+    )
 
     assert set(turn) == set(GraphState.model_fields) - CONVERSATION_FIELDS
     assert turn["hops"] == 0 and turn["answer"] is None and turn["sources"] == []

@@ -48,12 +48,14 @@ def _sources(hits: list[Hit], used_urls: list[str]) -> list[Source]:
     ]
 
 
-def _refusal(reason: EscalationReason) -> dict[str, Any]:
-    """Abstain: no generated text, an explicit reason, and a handoff."""
+def _refusal(reason: EscalationReason, looked_at: dict[str, Any]) -> dict[str, Any]:
+    """Abstain: no generated text, an explicit reason, and a handoff. What was retrieved still
+    goes to the operator, as what was looked at."""
     return {
         "answer": load_prompt("no_knowledge").text,
         "refusal_reason": reason.value,
         "sources": [],
+        **looked_at,
     }
 
 
@@ -61,6 +63,10 @@ async def answer(
     state: GraphState, provider: LLMProvider, result: RetrievalResult, threshold: float
 ) -> dict[str, Any]:
     """Answer the question from retrieved sources, or refuse below the threshold."""
+    looked_at = {
+        "consulted": _sources(result.hits, []),
+        "evidence": [*state.evidence, *(hit.chunk.text for hit in result.hits)],
+    }
     if not result.hits or result.confidence < threshold:
         logger.info(
             "knowledge abstained: confidence=%.3f threshold=%.3f hits=%d",
@@ -68,7 +74,7 @@ async def answer(
             threshold,
             len(result.hits),
         )
-        return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE)
+        return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE, looked_at)
 
     prompt = load_prompt("knowledge")
     question = state.route.query_pt if state.route else state.message
@@ -80,6 +86,10 @@ async def answer(
         )
     except LLMProviderError as exc:
         logger.warning("knowledge generation failed: %s", exc)
-        return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE)
+        return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE, looked_at)
 
-    return {"answer": generated.answer, "sources": _sources(result.hits, generated.used_urls)}
+    return {
+        "answer": generated.answer,
+        "sources": _sources(result.hits, generated.used_urls),
+        **looked_at,
+    }

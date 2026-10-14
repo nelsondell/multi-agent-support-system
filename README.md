@@ -48,6 +48,7 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | `STATE_DIR` | `data/state` | Conversation checkpoints (SQLite); the `state` named volume in Docker. |
 | `HISTORY_WINDOW` | `6` | Most recent messages kept verbatim. |
 | `HISTORY_MAX_MESSAGES` | `12` | Past this length, older messages are folded into a rolling summary. |
+| `OPERATOR_TOKEN` | unset | Bearer token for `/handoffs`. Unset, those endpoints answer 503. |
 
 The embedder is deliberately configurable apart from the chat key: it is part of the index's
 identity, and adding a key must not silently change it under an index built without one.
@@ -163,7 +164,8 @@ Possessive phrasing decides nothing.
    the injected identity, and answers from the result — or escalates an individual case.
    Neither specialist ever sees the history.
 7. **Escalate** is deterministic and model-free: it mints a protocol, attaches a typed reason and a
-   masked summary, and composes the handoff message.
+   masked summary, and composes the handoff notice. **Human review** takes over from there (see
+   below): the turn pauses until an operator answers, then continues with the operator's reply.
 8. **Remember** appends the masked merchant turn and the reply to the thread's `messages`. A
    message the guardrail refused never gets here. Once the history passes
    `HISTORY_MAX_MESSAGES`, everything before the last `HISTORY_WINDOW` messages is folded into a
@@ -177,6 +179,7 @@ Response shape:
 ```json
 {
   "conversation_id": "9f2c4e1ab3d84f0e8a7c6b5d4e3f2a1b",
+  "status": "answered",
   "answer": "...",
   "intent": "product_info",
   "target_agent": "knowledge",
@@ -194,6 +197,44 @@ checkpoint is a persistent store and gets the same treatment as a log. Its decod
 (`app/checkpoints.py`): LangGraph would otherwise import any type a checkpoint names, so only its
 safe built-ins and the application types the state holds are rebuilt; anything else comes back
 as plain data.
+
+### Human review: agent → human → agent
+
+Every escalated turn goes to a fourth agent, `human_review`, which pauses the graph with
+LangGraph's `interrupt()` and continues it when an operator answers. It is two nodes because
+`interrupt()` re-runs its whole node on resume:
+
+- `prepare_handoff` does every side effect, once: it builds the case (masked summary, intent,
+  what the agents tried and why they stopped, the pages retrieved, a proposed draft from one
+  model call) and records it in the handoff queue, a SQLite table next to the checkpoints.
+- `await_operator` only reads the state and pauses. On resume it turns the operator's input into
+  the merchant's reply: an approved draft goes out as written; a reply is rephrased, and if the
+  rephrasing carries a number the operator did not write (compared by value, so "R$ 1.234,56"
+  and "1234.56" match), the operator's literal text goes out instead. The reply cites the
+  operator, lands in the history, and the next turn builds on it.
+
+While a case is open, `/chat` on that conversation answers `status: "pending_human"` with the
+protocol and starts no run; other conversations are unaffected. Cases and paused threads live on
+the `state` volume, so both survive a restart.
+
+```bash
+# 1. an individual case pauses
+curl -s localhost:8000/chat -H 'Content-Type: application/json' \
+  -d '{"message": "Fui cobrado duas vezes na mesma venda", "user_id": "cliente1988", "conversation_id": "c1"}'
+# 2. the operator lists open cases, or reads one
+curl -s localhost:8000/handoffs -H "Authorization: Bearer $OPERATOR_TOKEN"
+curl -s localhost:8000/handoffs/ESC-XXXXXXXXXX -H "Authorization: Bearer $OPERATOR_TOKEN"
+# 3. and answers it: approve the draft, or reply in their own words
+curl -s -X POST localhost:8000/handoffs/ESC-XXXXXXXXXX/resume \
+  -H "Authorization: Bearer $OPERATOR_TOKEN" -H 'Content-Type: application/json' \
+  -d '{"action": "reply", "answer": "Estorno aprovado, cai em 2 dias úteis."}'
+# 4. the next turn knows what the operator said
+curl -s localhost:8000/chat -H 'Content-Type: application/json' \
+  -d '{"message": "E quando cai mesmo?", "user_id": "cliente1988", "conversation_id": "c1"}'
+```
+
+Operator errors: 401 without a valid token, 503 when no token is configured, 404 for an unknown
+protocol, 409 for a case already closed, 422 when approving a case that has no draft.
 
 ## 4. RAG pipeline
 

@@ -145,15 +145,17 @@ the raw follow-up; a first turn sends no history block; the router log event car
 versions, masked.
 
 ### T-21 — `feat(T-21): add the human review agent with interrupt and resume`
-`prepare_handoff` and `await_operator` after `escalate`; `HandoffCase` with summary, attempts and
-proposed draft. `app/handoffs.py` queue. `GET /handoffs` and `POST /handoffs/{protocol}/resume`
-behind the operator bearer token. `/chat` returns `status = pending_human` while a case is open.
-The operator's answer is the only new fact the reply may carry.
+`prepare_handoff` and `await_operator` after `escalate`; `HandoffCase` with summary, intent,
+attempts, retrieved sources and proposed draft, recorded in the `app/handoffs.py` queue before the
+pause. `GET /handoffs`, `GET /handoffs/{protocol}` and `POST /handoffs/{protocol}/resume`
+(`approve` the draft or `reply`) behind the operator bearer token. `/chat` returns
+`status = pending_human` while a case is open. The operator's answer is the only new fact the
+reply may carry.
 **Done when:** offline tests show an individual-case turn pausing with a complete case; `/chat`
 on that conversation returning `pending_human` without a model call; resume producing a reply
 with an `operator` source that lands in `messages`; 401 for a missing or wrong token, 503 when
 none is configured, 404 for an unknown protocol, 409 for a second resume; a rephrased reply that
-adds a number replaced by the verbatim template, while one that writes "1234.56" for an
+adds a number replaced by the operator's literal text, while one that writes "1234.56" for an
 operator's "R$ 1.234,56" is kept, because `app/graph/numbers.py` compares normalized values;
 one protocol per case although `await_operator` re-executes.
 

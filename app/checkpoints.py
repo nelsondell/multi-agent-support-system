@@ -18,8 +18,10 @@ from app.contracts import (
     Escalation,
     EscalationReason,
     GuardrailOutcome,
+    HandoffCase,
     Intent,
     Source,
+    SourceType,
     TargetAgent,
 )
 from app.graph.router import RouterDecision
@@ -31,7 +33,9 @@ STATE_TYPES: tuple[type, ...] = (
     TargetAgent,
     EscalationReason,
     Source,
+    SourceType,
     Escalation,
+    HandoffCase,
     RouterDecision,
 )
 """Every application type the graph state can hold. A type missing here comes back from a

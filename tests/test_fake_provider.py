@@ -3,19 +3,28 @@
 import pytest
 
 from app.graph.build import build_graph
+from app.graph.human_review import HandoffDraft, OperatorReply
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import ConversationSummary
 from app.graph.router import RouterDecision
 from app.graph.state import GraphState
 from app.graph.support import SupportAnswer, SupportPlan
-from app.main import to_response
 from app.providers.fake import FakeProvider
 from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
+from app.responses import to_response
 from app.settings import Settings
 
 # Every `schema=` passed to `provider.structured` under app/graph/.
-GRAPH_SCHEMAS = [RouterDecision, KnowledgeAnswer, SupportPlan, SupportAnswer, ConversationSummary]
+GRAPH_SCHEMAS = [
+    RouterDecision,
+    KnowledgeAnswer,
+    SupportPlan,
+    SupportAnswer,
+    ConversationSummary,
+    HandoffDraft,
+    OperatorReply,
+]
 
 
 @pytest.mark.parametrize("schema", GRAPH_SCHEMAS, ids=lambda schema: schema.__name__)

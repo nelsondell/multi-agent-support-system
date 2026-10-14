@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     history_max_messages: int = Field(default=12, ge=3)
     """Once the history would pass this length, everything before the window is summarised."""
 
+    operator_token: str | None = None
+    """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
+
     @model_validator(mode="after")
     def check_history_bounds(self) -> "Settings":
         """A window as large as the limit would never fold anything."""

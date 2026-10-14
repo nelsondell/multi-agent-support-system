@@ -177,30 +177,37 @@ results the agent answers with the `web_unavailable` template and no sources.
 ## 8. Human review
 
 The fourth agent is two nodes because `interrupt()` re-executes its node from the start on
-resume. Anything with a cost or a random value must happen in an earlier node, or it would run
-twice.
+resume. Anything with a cost, a random value or a write must happen in an earlier node, or it
+would run twice.
 
 - `escalate` (unchanged role, deterministic) mints the protocol and the typed reason. The protocol
   is minted before the pause, so it survives the re-execution.
-- `prepare_handoff` builds the `HandoffCase`: masked summary and attempts from state, plus a
-  proposed draft from one structured call (`HandoffDraft`). A failed call leaves the draft empty.
+- `prepare_handoff` builds the `HandoffCase`: masked summary, intent, attempts derived from the
+  state (route, hops, pages consulted, why it stopped), the pages the knowledge agent retrieved,
+  and a proposed draft from one structured call (`HandoffDraft`) that also sees the turn's
+  `evidence` (retrieved chunks and tool results). A failed call, or a draft with a number found
+  in none of the merchant's message, the protocol or that evidence, leaves the draft empty. It then records the case in the
+  queue (`INSERT OR IGNORE` on the protocol), so no conversation can wait for a human without its
+  case being listed.
 - `await_operator` calls `interrupt(case)` and nothing else before it. On resume it receives the
-  operator's answer, makes one structured call (`OperatorReply`) to rephrase it, applies the
-  hard-rule-4 guard, and returns the reply with one `operator` source.
+  operator's decision: `approve` sends the draft as written; `reply` makes one structured call
+  (`OperatorReply`) to rephrase the answer and applies the hard-rule-4 guard, falling back to
+  the operator's literal text. The reply carries one `operator` source and goes on to `remember`.
 
-The nodes never touch the queue. The API does:
+The API owns the rest:
 
-- `/chat` invokes the graph. When the result carries `__interrupt__`, it records the case in the
-  queue with its thread id and returns `pending_human`.
 - Before invoking, `/chat` reads the thread state. A thread whose next node is `await_operator`
   has an open case, so it returns `pending_human` for that protocol without running the graph.
-- `/handoffs/{protocol}/resume` looks the protocol up in the queue (404 unknown, 409 resolved),
-  invokes the graph with `Command(resume=answer)` on that thread, marks the case resolved, and
-  returns the `ChatResponse`.
+- When a run ends in `interrupt()`, the result carries `__interrupt__` and the response is
+  `pending_human`.
+- `/handoffs/{protocol}/resume` looks the case up (404 unknown, 409 closed, 422 approve without a
+  draft), claims it with one conditional update so two operators cannot both resume it, invokes
+  the graph with `Command(resume=decision)` on the case's thread, and reopens the case if that
+  run fails.
 
 The queue is a table, not a scan of checkpoints: listing open cases must not read every thread.
-It lives at `STATE_DIR/handoffs.sqlite`, on the same volume as the checkpoints, and is accessed
-through plain functions over `aiosqlite`.
+It lives at `STATE_DIR/handoffs.sqlite`, on the same volume as the checkpoints, behind a small
+`HandoffQueue` over one `aiosqlite` connection.
 
 The bearer check compares with `secrets.compare_digest`. An unset `OPERATOR_TOKEN` disables the
 operator routes with a 503 rather than leaving them open.
@@ -209,7 +216,7 @@ operator routes with a 503 rather than leaving them open.
 
 Markdown files under `app/prompts/`, each with a `version` in front matter, loaded by id. No
 prompt literal appears in Python. v2 bumps `router` and adds `summary`, `handoff_draft`,
-`operator_reply`, `operator_verbatim`, `pending_human`, `compose`, `compose_fallback`,
+`operator_reply`, `pending_human`, `compose`, `compose_fallback`,
 `knowledge_web`, `web_unavailable` and `judge`. `out_of_domain` is removed with the outcome that
 used it.
 
@@ -271,9 +278,9 @@ response shape. The README carries the workflow badge.
   are recorded in `instrument_node`, which already wraps every node, so no agent can forget them.
 - **Tracing.** When `LANGSMITH_TRACING` is on, the graph runs with a LangChain tracer whose
   LangSmith client applies `mask_pii` to inputs and outputs before upload. Off by default.
-- **Evidence.** Each step records the text it answered from (chunks, tool result or snippets) in
-  the per-turn `evidence` field. It never reaches the response or the history; the judge grades
-  against it.
+- **Evidence.** Each specialist records the text it answered from or looked at (chunks, tool
+  result or snippets) in the per-turn `evidence` field, introduced with the handoff draft guard
+  in T-21. It never reaches the response or the history; the judge grades against it.
 
 ## 14. Deliberately not abstracted
 

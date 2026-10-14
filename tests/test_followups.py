@@ -102,7 +102,10 @@ def start(sample_chunks, fake_collection):
 
 async def send(graph, message: str) -> dict:
     config = {"configurable": {"thread_id": thread_id(CALLER, "c1")}}
-    return await graph.ainvoke(turn_input(message, CALLER, "trace", TODAY), config)
+    turn = turn_input(
+        message=message, user_id=CALLER, conversation_id="c1", trace_id="trace", today=TODAY
+    )
+    return await graph.ainvoke(turn, config)
 
 
 def question_shown_to_knowledge(model: Model, turn: int) -> str:

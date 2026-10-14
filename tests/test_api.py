@@ -8,12 +8,15 @@ import re
 
 import pytest
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.contracts import Intent, TargetAgent
+from app.graph.human_review import HandoffDraft
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.router import RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.main import app
+from app.settings import Settings
 
 CALLER = "cliente1988"
 
@@ -23,7 +26,8 @@ def client(build_test_graph):
     """A client whose graph is scripted per test."""
 
     def build(responses: dict, **overrides) -> TestClient:
-        app.state.graph = build_test_graph(responses, **overrides)
+        app.state.settings = Settings()
+        app.state.graph = build_test_graph(responses, checkpointer=InMemorySaver(), **overrides)
         return TestClient(app)
 
     return build
@@ -95,11 +99,17 @@ def test_support_answer_uses_the_tool_result(client) -> None:
 
 def test_low_router_confidence_escalates_without_naming_an_agent(client) -> None:
     """The confidence edge fires before any specialist, so none may be reported."""
-    http = client({RouterDecision: _router(TargetAgent.KNOWLEDGE, Intent.OTHER, confidence=0.2)})
+    http = client(
+        {
+            RouterDecision: _router(TargetAgent.KNOWLEDGE, Intent.OTHER, confidence=0.2),
+            HandoffDraft: HandoffDraft(draft="We are looking into it."),
+        }
+    )
 
     body = http.post("/chat", json={"message": "hmm, sei lá", "user_id": CALLER}).json()
 
     assert body["conversation_id"]
+    assert body["status"] == "pending_human"
     assert body["escalated"] is True
     assert body["target_agent"] is None
     assert body["escalation"]["reason"] == "low_router_confidence"

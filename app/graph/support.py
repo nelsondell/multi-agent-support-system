@@ -84,6 +84,7 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
         return {"handoff_reason": EscalationReason.REPEATED_MISROUTE.value}
 
     result = call_tool(plan.tool, plan.arguments(), state.user_id)
+    evidence = [*state.evidence, json.dumps(result, ensure_ascii=False)]
     try:
         generated = await provider.structured(
             system=load_prompt("support_answer").text,
@@ -95,6 +96,9 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
         )
     except LLMProviderError as exc:
         logger.warning("support generation failed: %s", exc)
-        return {"refusal_reason": EscalationReason.AGENT_NOT_IMPLEMENTED.value}
+        return {
+            "refusal_reason": EscalationReason.AGENT_NOT_IMPLEMENTED.value,
+            "evidence": evidence,
+        }
 
-    return {"answer": generated.answer, "sources": []}
+    return {"answer": generated.answer, "sources": [], "evidence": evidence}

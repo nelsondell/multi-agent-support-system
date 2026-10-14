@@ -43,7 +43,9 @@ def thread_id(user_id: str, conversation_id: str) -> str:
     return hashlib.sha256(pair.encode("utf-8")).hexdigest()
 
 
-def turn_input(message: str, user_id: str, trace_id: str, today: date) -> dict[str, Any]:
+def turn_input(
+    *, message: str, user_id: str, conversation_id: str, trace_id: str, today: date
+) -> dict[str, Any]:
     """The input of one turn, with every per-turn field explicitly back at its default.
 
     A checkpointed invocation merges its input into the stored state, so a field left out here
@@ -58,6 +60,7 @@ def turn_input(message: str, user_id: str, trace_id: str, today: date) -> dict[s
         **fresh,
         "message": message,
         "user_id": user_id,
+        "conversation_id": conversation_id,
         "trace_id": trace_id,
         "today": today,
     }
