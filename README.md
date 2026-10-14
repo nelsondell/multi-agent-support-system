@@ -179,7 +179,10 @@ Possessive phrasing decides nothing.
    calls at most one tool with the injected identity and the turn's date, and answers citing the
    account — or escalates an individual case. The mock records are written as of one day and read
    as of the turn's, so "ontem" and "amanhã" always land on the same entries, and every amount
-   leaves the tool as the merchant writes it ("R$ 1.240,00"), so the model never formats a float. Neither specialist ever sees the history. **Collect** records
+   leaves the tool as the merchant writes it ("R$ 1.240,00"), so the model never formats a float.
+   Settlements are filtered by the date the question is about: the sale date for "the money from
+   yesterday's sales", which credits today, or the credit date for "what lands tomorrow". The
+   status comes from the credit date against today, never from a stored flag. Neither specialist ever sees the history. **Collect** records
    each step's result and starts the next one; **compose** joins them: one answered step is
    copied as is, two are merged by one model call that may not add a number (otherwise the step
    answers are joined as written), and every source is kept. If one step answered and the other
@@ -382,7 +385,7 @@ mis-route.
 `args_schema` but not in `tool_call_schema` — the schema the model sees:
 
 ```
-get_settlement_schedule    model sees: ['date_from', 'date_to']
+get_settlement_schedule    model sees: ['date_from', 'date_to', 'date_field']
 get_transactions           model sees: ['limit', 'status']
 ```
 

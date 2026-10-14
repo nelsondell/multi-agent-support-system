@@ -5,8 +5,8 @@ reused and two tasks are never grouped in one commit.
 
 T-01 to T-06 are the core slice: a running graph with a real router and honest stubs. T-07 to
 T-14 replace the stubs with retrieval, tools and packaging. Together they are v1, frozen at the
-tag `v1`. T-15 to T-31 are v2: they close the gaps in the v1 evaluation, in an order that keeps
-the suite green after every commit. T-28 to T-31 are a fix pass from the first real run and land
+tag `v1`. T-15 to T-34 are v2: they close the gaps in the v1 evaluation, in an order that keeps
+the suite green after every commit. T-28 to T-34 are two fix passes from real runs and land
 before T-24.
 
 ## Core
@@ -263,6 +263,20 @@ developer's `.env` and exported settings, which made 49 tests fail under non-def
 phone still are; 30 ordered and 10 shuffled runs pass; the suite passes with hostile values for
 every setting exported in the shell.
 
+## Second fix pass
+
+The second real run found four more gaps, closed by T-32 to T-34, still before T-24.
+
+### T-32 — `fix(T-32): filter settlements by sale or credit date and derive their status`
+`get_settlement_schedule` takes `date_field` (`sale_date` or `credit_date`); the mock records
+carry both dates and no stored status, which the tool derives from the credit date against today.
+The planner filters "the money from yesterday's sales" by sale date and "what lands tomorrow" by
+credit date; a sale date after today is read as a credit date. The answer step receives today's
+date.
+**Done when:** with today 2026-10-14, yesterday's sales return R$ 231,26 crediting 2026-10-14 with
+status `previsto`; money credited before today is `liquidado` and nothing else; tomorrow's
+"sales" return what credits tomorrow; the answer prompt never calls a settled entry a forecast.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -270,7 +284,7 @@ every setting exported in the shell.
 | Memory / multi-turn (1.5) | T-19, T-20, T-24 |
 | Human-in-the-loop (5.8) | T-21, T-24 |
 | Infra / Docker (6.8) | T-16, T-17, T-18 |
-| Product / completeness (7.5) | T-23, T-27, T-30 |
+| Product / completeness (7.5) | T-23, T-27, T-30, T-32 |
 | Multi-agent / orchestration (8.8) | T-22 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |

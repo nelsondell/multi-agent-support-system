@@ -67,8 +67,8 @@ def test_settlement_schedule_filters_by_date_window() -> None:
         "get_settlement_schedule", {"date_from": "2026-09-01", "date_to": "2026-09-01"}, CALLER
     )
 
-    assert [entry["date"] for entry in result["entries"]] == ["2026-09-01"]
-    assert result["entries"][0]["reference_date"] == "2026-08-31"
+    assert [entry["credit_date"] for entry in result["entries"]] == ["2026-09-01"]
+    assert result["entries"][0]["sale_date"] == "2026-08-31"
 
 
 def test_card_numbers_are_masked_at_the_source() -> None:
@@ -85,17 +85,19 @@ def test_both_tools_are_registered() -> None:
 
 
 def test_records_are_read_as_of_the_turns_day() -> None:
-    """Yesterday, today and tomorrow keep landing on the same entries, whatever the real date."""
+    """Yesterday, today and tomorrow keep landing on the same entries, whatever the real date. The
+    status comes from the credit date against today, so money credited yesterday is "liquidado"
+    and money crediting today is still "previsto": nothing stored can contradict the date."""
     window = {"date_from": "2026-10-13", "date_to": "2026-10-15"}
 
     entries = call_tool("get_settlement_schedule", window, CALLER, TODAY)["entries"]
 
-    assert [(entry["date"], entry["status"]) for entry in entries] == [
+    assert [(entry["credit_date"], entry["status"]) for entry in entries] == [
         ("2026-10-13", "liquidado"),
         ("2026-10-14", "previsto"),
         ("2026-10-15", "previsto"),
     ]
-    assert entries[1]["reference_date"] == "2026-10-13"
+    assert entries[1]["sale_date"] == "2026-10-13"
 
 
 def test_an_id_moves_with_its_date() -> None:
@@ -125,3 +127,25 @@ def test_amounts_reach_the_model_in_the_merchants_notation() -> None:
 )
 def test_brl_groups_thousands_with_dots_and_decimals_with_a_comma(amount, written) -> None:
     assert brl(amount) == written
+
+
+def test_yesterdays_sales_are_found_by_sale_date_and_credit_today() -> None:
+    """S03: the money from yesterday's sales, not the money that landed yesterday."""
+    window = {"date_from": "2026-10-13", "date_to": "2026-10-13"}
+
+    by_sale = call_tool(
+        "get_settlement_schedule", {**window, "date_field": "sale_date"}, CALLER, TODAY
+    )
+    by_credit = call_tool("get_settlement_schedule", window, CALLER, TODAY)
+
+    assert by_sale["entries"] == [
+        {
+            "sale_date": "2026-10-13",
+            "credit_date": "2026-10-14",
+            "gross": "R$ 239,40",
+            "fees": "R$ 8,14",
+            "net": "R$ 231,26",
+            "status": "previsto",
+        }
+    ]
+    assert by_credit["entries"][0]["sale_date"] == "2026-10-10"

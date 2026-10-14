@@ -1,5 +1,8 @@
 """Support agent, hop budget and response consistency."""
 
+import json
+from datetime import date
+
 import pytest
 from pydantic import ValidationError
 
@@ -182,3 +185,61 @@ def test_router_level_escalation_cannot_name_a_specialist() -> None:
             escalated=True,
             escalation=_escalation(EscalationReason.LOW_ROUTER_CONFIDENCE),
         )
+
+
+TODAY = date(2026, 10, 14)
+
+
+def _today(state: GraphState) -> GraphState:
+    state.today = TODAY
+    return state
+
+
+async def test_yesterdays_sales_answer_with_the_money_crediting_today() -> None:
+    """S03: filtered by sale date, the answer step sees R$ 231,26 crediting today, and today."""
+    plan = SupportPlan(
+        action=SupportAction.CALL_TOOL,
+        tool="get_settlement_schedule",
+        date_from="2026-10-13",
+        date_to="2026-10-13",
+        date_field="sale_date",
+    )
+    provider = ScriptedProvider(plan, SupportAnswer(answer="Previsto para hoje."))
+
+    await answer(_today(_state("quando cai o dinheiro das vendas de ontem?")), provider)
+
+    shown = provider.calls[1]
+    entries = json.loads(shown.split("get_settlement_schedule:\n", 1)[1])["entries"]
+    assert shown.startswith("Hoje: 2026-10-14")
+    assert [(e["credit_date"], e["net"], e["status"]) for e in entries] == [
+        ("2026-10-14", "R$ 231,26", "previsto")
+    ]
+
+
+def test_tomorrows_sales_are_read_as_the_money_crediting_tomorrow() -> None:
+    """No sale has a date after today, so "the money from tomorrow's sales" is what credits then."""
+    plan = SupportPlan(
+        action=SupportAction.CALL_TOOL,
+        tool="get_settlement_schedule",
+        date_from="2026-10-15",
+        date_to="2026-10-15",
+        date_field="sale_date",
+    )
+
+    assert plan.arguments(TODAY)["date_field"] == "credit_date"
+    assert plan.arguments(date(2026, 10, 16))["date_field"] == "sale_date"
+
+
+def test_a_plan_without_a_date_field_filters_by_credit_date() -> None:
+    plan = SupportPlan(
+        action=SupportAction.CALL_TOOL,
+        tool="get_settlement_schedule",
+        date_from="2026-10-15",
+        date_to="2026-10-15",
+    )
+
+    assert plan.arguments(TODAY) == {
+        "date_from": "2026-10-15",
+        "date_to": "2026-10-15",
+        "date_field": "credit_date",
+    }

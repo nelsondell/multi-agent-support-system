@@ -202,7 +202,11 @@ hard rule 1 forbids, and it is never used for account data.
 
 Exactly two, both read-only:
 
-- `get_settlement_schedule` — settlement entries for the caller between two dates.
+- `get_settlement_schedule` — settlement entries for the caller between two dates, filtered by
+  the sale date ("the money from yesterday's sales") or by the credit date ("what lands
+  tomorrow"). Each entry carries both dates, and its status is derived from the credit date
+  against today — `liquidado` before today, `previsto` from today on — so it can never contradict
+  the date. A sale date after today is read as a credit date: no sale has happened yet.
 - `get_transactions` — the caller's most recent transactions, optionally filtered by status.
 
 Both take `user_id` from injected graph state. There is no identity parameter in either schema,

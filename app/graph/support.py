@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -17,7 +18,7 @@ from pydantic import BaseModel
 from app.contracts import EscalationReason, Source, SourceType
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
-from app.tools.account import call_tool
+from app.tools.account import DateField, call_tool
 
 if TYPE_CHECKING:
     from app.graph.state import GraphState
@@ -42,14 +43,24 @@ class SupportPlan(BaseModel):
     tool: ToolName | None = None
     date_from: str | None = None
     date_to: str | None = None
+    date_field: DateField | None = None
+    """For the settlement schedule: filter by the sale date or by the credit date."""
     status: str | None = None
     limit: int = 10
 
-    def arguments(self) -> dict[str, Any]:
-        """Only the fields the chosen tool accepts. `user_id` is not among them by construction."""
-        if self.tool == "get_settlement_schedule":
-            return {"date_from": self.date_from or "", "date_to": self.date_to or ""}
-        return {"status": self.status, "limit": self.limit}
+    def arguments(self, today: date | None = None) -> dict[str, Any]:
+        """Only the fields the chosen tool accepts. `user_id` is not among them by construction.
+
+        A sale date after today cannot have sales yet, so "the money from tomorrow's sales" is
+        read as the money crediting tomorrow.
+        """
+        if self.tool != "get_settlement_schedule":
+            return {"status": self.status, "limit": self.limit}
+        date_from, date_to = self.date_from or "", self.date_to or ""
+        field = self.date_field or "credit_date"
+        if field == "sale_date" and today is not None and date_from > today.isoformat():
+            field = "credit_date"
+        return {"date_from": date_from, "date_to": date_to, "date_field": field}
 
 
 class SupportAnswer(BaseModel):
@@ -83,13 +94,14 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     if plan.action is SupportAction.HANDOFF_TO_KNOWLEDGE or plan.tool is None:
         return {"handoff_reason": EscalationReason.REPEATED_MISROUTE.value}
 
-    result = call_tool(plan.tool, plan.arguments(), state.user_id, state.today)
+    result = call_tool(plan.tool, plan.arguments(state.today), state.user_id, state.today)
     evidence = [*state.evidence, json.dumps(result, ensure_ascii=False)]
+    today = state.today.isoformat() if state.today else "não informada"
     try:
         generated = await provider.structured(
             system=load_prompt("support_answer").text,
             user=(
-                f"Pergunta do cliente:\n{question}\n\n"
+                f"Hoje: {today}\n\nPergunta do cliente:\n{question}\n\n"
                 f"Resultado da consulta {plan.tool}:\n{json.dumps(result, ensure_ascii=False)}"
             ),
             schema=SupportAnswer,

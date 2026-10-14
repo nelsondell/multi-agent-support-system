@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
@@ -30,6 +30,8 @@ RECORDED_ON = date(2026, 9, 1)
 and the 31 August sales settle on it."""
 
 MONEY_FIELDS = {"amount", "gross", "fees", "net"}
+
+DateField = Literal["sale_date", "credit_date"]
 
 _DAY = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 """An ISO date, alone or heading a timestamp."""
@@ -84,11 +86,22 @@ def _with_money(entry: dict[str, Any]) -> dict[str, Any]:
     return {key: brl(value) if key in MONEY_FIELDS else value for key, value in entry.items()}
 
 
+def _settlement(entry: dict[str, Any], today: date) -> dict[str, Any]:
+    """A settlement entry as the model sees it, with its status derived from its credit date.
+
+    Never stored, so it cannot disagree with the date: money credited before today is
+    "liquidado", money crediting today or later is "previsto".
+    """
+    status = "liquidado" if entry["credit_date"] < today.isoformat() else "previsto"
+    return {**_with_money(entry), "status": status}
+
+
 @tool
 def get_settlement_schedule(
     date_from: str,
     date_to: str,
     user_id: Annotated[str, InjectedState("user_id")],
+    date_field: DateField = "credit_date",
     today: Annotated[date | None, InjectedState("today")] = None,
 ) -> dict[str, Any]:
     """Consulta a agenda de liquidação do cliente entre duas datas.
@@ -96,17 +109,22 @@ def get_settlement_schedule(
     Args:
         date_from: primeira data do intervalo, no formato AAAA-MM-DD.
         date_to: última data do intervalo, no formato AAAA-MM-DD.
+        date_field: qual data o intervalo filtra. "sale_date" é a data da venda: use para "o
+            dinheiro das vendas de ontem". "credit_date" é a data em que o dinheiro cai na conta:
+            use para "o que cai amanhã".
 
     Returns:
-        As parcelas previstas ou liquidadas no intervalo, com valor bruto, taxas, valor líquido,
-        situação e a data de referência do dado.
+        Os lançamentos do intervalo, cada um com a data da venda (sale_date), a data de crédito
+        (credit_date), valor bruto, taxas, valor líquido e a situação: "liquidado" quando o
+        crédito já aconteceu, "previsto" quando é hoje ou depois.
     """
     record = _record(user_id, today)
     if record is None:
         return {"found": False, "entries": []}
-    entries = [entry for entry in record["settlement"] if date_from <= entry["date"] <= date_to]
-    ordered = sorted(entries, key=lambda entry: entry["date"])
-    return {"found": True, "entries": [_with_money(entry) for entry in ordered]}
+    as_of = today or RECORDED_ON
+    entries = [e for e in record["settlement"] if date_from <= e[date_field] <= date_to]
+    ordered = sorted(entries, key=lambda entry: entry["credit_date"])
+    return {"found": True, "entries": [_settlement(entry, as_of) for entry in ordered]}
 
 
 @tool
