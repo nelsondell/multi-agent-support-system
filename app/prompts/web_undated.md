@@ -1,5 +1,5 @@
 ---
-version: 1
+version: 2
 ---
 
-Atenção: os sites consultados não mostram de que dia são esses dados, então não posso confirmar que valem para {asked}.
+Atenção: a fonte não informa a data de publicação, então não posso confirmar que o dado está atualizado.

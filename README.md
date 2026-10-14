@@ -14,7 +14,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
 | **Tests** | 265 offline tests; CI builds the image and smoke-tests the container |
-| **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.88, relevance 4.68 ([report](evals/report.md)) |
+| **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.88, relevance 4.67 ([report](evals/report.md)) |
 
 **Contents** — [Quick start](#1-quick-start) · [Configuration](#2-configuration) ·
 [Architecture](#3-architecture) · [Message workflow](#4-message-workflow) ·
@@ -183,9 +183,11 @@ own page.
 a product question the corpus can't answer. The query that leaves the process is masked and keeps
 no number the merchant didn't type in that message, so account data can't leak into it. Pages are
 untrusted data: the answer may carry no number they lack and no link of its own. A question about a
-day asks for pages from the last day first, cites the date of its data, and says plainly when that
-isn't the day asked about. No key, a timeout or a failed check degrade to a pt-BR message, never an
-exception.
+day asks for pages from the last day first, and its answer closes with the source's publication
+date: taken only from the search provider's structured field, never from page text the model reads,
+in the merchant's calendar and without a time of day. A source older than the day in question, or
+one with no publication date, gets a plain notice instead. No key, a timeout or a failed check
+degrade to a pt-BR message, never an exception.
 
 ## 6. Tools and how the LLM is used
 
@@ -549,14 +551,15 @@ The provider is scripted and the suite reads neither the developer's `.env` nor 
 passes the same anywhere; repeated runs, in order and shuffled, found no flaky test. Evals never
 run inside pytest: a statistical score that dips one row is a signal to read, not a red build.
 
-**Judge summary** (3 runs, every line run three times, no run chosen): groundedness **4.88** in each of the three runs; relevance
-**4.68 ± 0.08** (4.59 to 4.75), over 16 or 17 scored turns per run. Every line was answered in all
-three runs except two: the refund case, which pauses for a person by design, and S05, which
-abstained once and twice answered from the chip pages with what they cover. Below 4: S07 scored 3
-on groundedness in every run, because it tied the page's 17:17 timestamp, which belongs to the
-Ibovespa line, to the euro rate; S01 scored 3 on relevance in two runs, the judge wanting the Get
-Clássica's free-from-R$ 10 mil condition named; and the Payment Link's first turn scored 3 on
-relevance in two runs, for adding plan prices nobody asked for. S09 retrieved at 0.726 in every run.
+**Judge summary** (3 runs, every line run three times, no run chosen): groundedness **4.88** in
+each of the three runs; relevance **4.67 ± 0.09** (4.59 to 4.76), over 17 scored turns per run.
+Every line was answered in all three runs except the refund case, which pauses for a person by
+design. Below 4: S01 twice on relevance and once on groundedness, the judge wanting the Get
+Clássica's free-from-R$ 10 mil condition set against the Smart's R$ 60 mil; S02 and S07 once each,
+where the judge read a date in the page text and marked the "no publication date" notice wrong,
+which is the price of taking dates only from the provider's structured field; and the Payment
+Link's first turn once, for adding plan prices nobody asked for. S09 retrieved at 0.726 in every
+run.
 
 ## 11. Observability, guardrails and hard rules
 
@@ -664,10 +667,11 @@ merchant's data is unreachable through the graph.
 - **The retrieval threshold rests on 37 hand-written questions** and a 0.110 gap. S01 stays above it
   because the router names the product type in its searches; a phrasing without "maquininha" once
   scored 0.495 against 0.52.
-- **A web page's layout can mislead the date.** Asked to cite the date of its data, the euro answer
-  took a timestamp the page prints for another figure (the judge scored it 3 for groundedness in
-  every run). The rate itself was right; which line a time belongs to is not something the number
-  check can see.
+- **Most web pages carry no publication date.** The date stamp comes only from the search
+  provider's structured publication date, because a date the model read from page text once took
+  the timestamp of another figure on the page. The provider rarely fills that field for weather and
+  exchange-rate pages, so those answers usually close with "a fonte não informa a data de
+  publicação", and their freshness rests on the provider's last-day search filter.
 - **Some rules are prompt-only.** "The site doesn't say X" only when no excerpt treats X, and
   "a forecast is called a forecast", are instructions checked by the judge, not by code.
 - **Router confidence is self-reported**, and the benchmark measures routing, not whether that number

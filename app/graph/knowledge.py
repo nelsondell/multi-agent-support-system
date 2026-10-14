@@ -15,7 +15,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from dataclasses import asdict
 from datetime import date, timedelta
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -55,9 +54,6 @@ class KnowledgeAnswer(BaseModel):
     was found."""
     answer: str
     used_urls: list[str] = Field(default_factory=list)
-    data_date: str | None = None
-    """Web answers about a given day only: the day the data refers to, as the source shows it,
-    as AAAA-MM-DD; null when the source shows no date."""
 
 
 def format_context(hits: list[Hit]) -> str:
@@ -162,47 +158,34 @@ def trustworthy(answer: str, results: list[WebResult], state: GraphState) -> boo
     return bool(answer.strip()) and not adds_numbers(answer, allowed) and not _LINK.search(answer)
 
 
-def shown_in(day: date, results: list[WebResult]) -> bool:
-    """Whether the results write this day in one of the usual forms."""
-    text = " ".join(f"{r.title} {r.content} {r.published or ''}" for r in results).lower()
-    forms = {
-        f"{day:%d/%m}",
-        f"{day.day}/{day.month}",
-        day.isoformat(),
-        f"{day.day} de {PT_MONTHS[day.month - 1]}",
-        f"{day:%d %b %Y}".lower(),
-    }
-    return any(form in text for form in forms)
+def cited(results: list[WebResult], used_urls: list[str]) -> list[WebResult]:
+    """The results the answer drew on, or all of them when it named none it was given."""
+    used = [result for result in results if result.url in used_urls]
+    return used or results
 
 
-def _day(value: str | None) -> date | None:
-    try:
-        return date.fromisoformat(value) if value else None
-    except ValueError:
-        return None
+def stamped(answer: str, results: list[WebResult], fresh_from: date | None) -> str:
+    """The answer, closed by the publication date of its source: the provider's structured date
+    only, never one read from page text by the model, and never a time of day.
 
-
-def dated(generated: KnowledgeAnswer, results: list[WebResult], target: date | None) -> str:
-    """The answer, followed by a plain notice when its data is not shown to be from the day asked
-    about. A date the model reports is printed only if the results show it."""
-    if target is None:
-        return generated.answer
-    day = _day(generated.data_date)
-    if day == target and shown_in(target, results):
-        return generated.answer
-    asked = f"{target:%d/%m/%Y}"
-    if day is not None and day != target and shown_in(day, results):
-        notice = load_prompt("web_other_day").text.format(data_date=f"{day:%d/%m/%Y}", asked=asked)
+    `fresh_from` is the earliest day the data may come from: the day asked about, or today for a
+    question about tomorrow. A source published before it, or with no date, gets a plain notice.
+    """
+    if fresh_from is None:
+        return answer
+    days = [result.published_on for result in results if result.published_on is not None]
+    if not days:
+        notice = load_prompt("web_undated").text
+    elif max(days) < fresh_from:
+        notice = load_prompt("web_other_day").text.format(
+            published=f"{max(days):%d/%m/%Y}", asked=f"{fresh_from:%d/%m/%Y}"
+        )
     else:
-        notice = load_prompt("web_undated").text.format(asked=asked)
-    return f"{generated.answer}\n\n{notice}"
+        notice = load_prompt("web_published").text.format(published=f"{max(days):%d/%m/%Y}")
+    return f"{answer}\n\n{notice}"
 
 
 DAY_OFFSET = {"yesterday": -1, "today": 0, "tomorrow": 1}
-PT_MONTHS = (
-    "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-)  # fmt: skip
 
 
 def target_date(state: GraphState) -> date | None:
@@ -256,7 +239,10 @@ async def answer_from_web(
         "question": question,
         "today": state.today.isoformat() if state.today else None,
         "target_date": target.isoformat() if target else None,
-        "results": [asdict(result) for result in results],
+        "results": [
+            {"url": result.url, "title": result.title, "content": result.content}
+            for result in results
+        ],
     }
     try:
         generated = await provider.structured(
@@ -274,4 +260,6 @@ async def answer_from_web(
         logger.warning("web answer rejected: a number or a link not found in the results")
         return _web_unavailable(looked_at)
     sources = _web_sources(results, generated.used_urls)
-    return {"answer": dated(generated, results, target), "sources": sources, **looked_at}
+    fresh_from = min(target, state.today) if target and state.today else target
+    answer = stamped(generated.answer, cited(results, generated.used_urls), fresh_from)
+    return {"answer": answer, "sources": sources, **looked_at}

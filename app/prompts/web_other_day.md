@@ -1,5 +1,5 @@
 ---
-version: 1
+version: 2
 ---
 
-Atenção: os dados mais recentes que encontrei são de {data_date}, não de {asked}.
+Atenção: a fonte mais recente que encontrei foi publicada em {published}, antes de {asked}, então o dado pode estar desatualizado.

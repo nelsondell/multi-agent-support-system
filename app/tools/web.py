@@ -13,11 +13,13 @@ Every failure (no key, a timeout, an error status, an unreadable body) raises
 import logging
 import re
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from email.utils import parsedate_to_datetime
 
 import httpx
 
 from app.observability import mask_pii
-from app.settings import Settings
+from app.settings import MERCHANT_TIMEZONE, Settings
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +47,23 @@ class WebResult:
     content: str
     published: str | None = None
     """When the provider knows it, the page's publication date, as the provider writes it."""
+
+    @property
+    def published_on(self) -> date | None:
+        """The merchant's calendar day the page was published, from the provider's structured
+        field only; None when the provider gave none or wrote one that cannot be read."""
+        if not self.published:
+            return None
+        try:
+            moment = parsedate_to_datetime(self.published)
+        except (TypeError, ValueError):
+            try:
+                moment = datetime.fromisoformat(self.published)
+            except ValueError:
+                return None
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        return moment.astimezone(MERCHANT_TIMEZONE).date()
 
 
 def outbound_query(query: str, message: str) -> str:

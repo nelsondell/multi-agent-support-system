@@ -1,5 +1,6 @@
 """Application configuration, read once from the environment."""
 
+from datetime import timedelta, timezone
 from functools import lru_cache
 from typing import Literal
 
@@ -7,6 +8,10 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ReasoningEffort = Literal["none", "low", "medium", "high", "xhigh"]
+
+MERCHANT_TIMEZONE = timezone(timedelta(hours=-3), "America/Sao_Paulo")
+"""The merchants' calendar. Brazil has had no daylight saving time since 2019, so a fixed offset is
+exact and needs no timezone database in the image."""
 
 
 class Settings(BaseSettings):

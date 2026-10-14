@@ -195,8 +195,10 @@ hard rule 1 forbids, and it is never used for account data.
 - Web answers cite the pages they used, with `source_type = web`, url and title, and receive
   today's date so "today" and "tomorrow" mean something. Results are capped and the call has a
   timeout.
-- An answer that depends on the day prefers pages from the last day, cites the date its data is
-  from, and says plainly when that is not the day asked about or when the pages show no date.
+- An answer that depends on the day prefers pages from the last day and closes with the source's
+  publication date, taken only from the provider's structured field and never from page text,
+  without a time of day; a source older than the day in question, or one with no date, gets a
+  plain notice.
 - Without an API key, on timeout, on a provider error, or when the answer fails those checks, the
   agent says in pt-BR that it cannot look that up right now. This is a degraded answer, not an
   escalation.

@@ -357,6 +357,16 @@ of each run with their standard deviation, S09's retrieval confidence in every r
 below 4 with the answer the judge read. No run is chosen.
 **Done when:** the report aggregates three real runs and states the run-to-run spread.
 
+### T-40 — `fix(T-40): stamp web answers with the source's structured publication date only`
+The model no longer reports the date of its data (`data_date` is gone) and is told not to write
+publication dates or times. A time-sensitive web answer closes with a stamp built by code from
+the cited results' structured `published_date`, as a day in the merchant's calendar: the date when
+it is recent enough, a notice when it is older than the day in question, another when no result
+has one. The judge runs three more times and `evals/report.md` is refreshed in the same commit.
+**Done when:** the stamp comes from the structured date only, converted to Brazil's calendar, with
+no time of day; the model never sees that date; an undated source says so; the report reflects
+three runs on this code.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |

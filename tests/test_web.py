@@ -6,6 +6,7 @@ degrades into a message.
 """
 
 import json
+import re
 from collections.abc import Callable
 from datetime import date
 
@@ -43,13 +44,15 @@ DATED_WEATHER = {
     "url": "https://clima.example/porto-alegre-15-10",
     "title": "Previsão para 15/10/2026 em Porto Alegre",
     "content": "Quinta-feira, 15/10/2026: máxima de 24°C e mínima de 15°C, com chuva fraca.",
+    "published_date": "Wed, 14 Oct 2026 12:30:00 GMT",
 }
 EURO_YESTERDAY = {
     "url": "https://cambio.example/euro-fechamento",
     "title": "Euro fecha em alta",
-    "content": "Fechamento de 13/10/2026: euro comercial a R$ 6,10 na venda.",
-    "published_date": "Tue, 13 Oct 2026 21:00:00 GMT",
+    "content": "Fechamento de 14/10/2026: euro comercial a R$ 6,10 na venda.",
+    "published_date": "Wed, 14 Oct 2026 01:00:00 GMT",
 }
+"""Published at 22:00 on 13/10 in Brazil, although the page text says 14/10."""
 PLANTED = {
     "url": "https://golpe.example/euro",
     "title": "Euro hoje",
@@ -371,38 +374,37 @@ async def test_results_that_do_not_answer_degrade_instead_of_answering(run, web_
 
 async def test_results_that_answer_part_of_the_question_are_answered(run, web_search):
     web, _ = web_search([DATED_WEATHER])
-    reply = "Em 15/10/2026 a máxima é de 24°C. Os sites consultados não informam o vento."
-    partial = KnowledgeAnswer(
-        coverage="partial", answer=reply, used_urls=[DATED_WEATHER["url"]], data_date="2026-10-15"
-    )
+    reply = "Amanhã a máxima é de 24°C. Os sites consultados não informam o vento."
+    partial = KnowledgeAnswer(coverage="partial", answer=reply, used_urls=[DATED_WEATHER["url"]])
     model = Model(
         {RouterDecision: general("previsão do tempo amanhã", "tomorrow"), KnowledgeAnswer: partial}
     )
 
     response = to_response(await run(model, web, "Vai ventar amanhã em Porto Alegre?"), "c1")
 
-    assert response.answer == reply
+    assert response.answer.startswith(reply)
     assert response.status == "answered" and response.sources
 
 
-def euro(text: str, data_date: str | None) -> KnowledgeAnswer:
-    return KnowledgeAnswer(
-        coverage="full", answer=text, used_urls=[EURO_YESTERDAY["url"]], data_date=data_date
-    )
+def web_reply(text: str, *urls: str) -> KnowledgeAnswer:
+    return KnowledgeAnswer(coverage="full", answer=text, used_urls=list(urls))
 
 
 async def test_a_question_about_a_day_asks_for_pages_from_the_last_day_first(run, web_search):
+    """A forecast published today for tomorrow is fresh: it is stamped, with no warning."""
     web, sent = web_search([DATED_WEATHER])
-    reply = "Em 15/10/2026 a máxima é de 24°C."
-    dated = KnowledgeAnswer(coverage="full", answer=reply, used_urls=[], data_date="2026-10-15")
+    reply = "Amanhã a máxima é de 24°C."
     model = Model(
-        {RouterDecision: general("previsão do tempo amanhã", "tomorrow"), KnowledgeAnswer: dated}
+        {
+            RouterDecision: general("previsão do tempo amanhã", "tomorrow"),
+            KnowledgeAnswer: web_reply(reply, DATED_WEATHER["url"]),
+        }
     )
 
     response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
 
     assert [body.get("time_range") for body in sent] == ["day"]
-    assert response.answer == reply, "data from the day asked about needs no notice"
+    assert response.answer == f"{reply}\n\nData de publicação da fonte: 14/10/2026."
 
 
 async def test_with_no_page_from_the_last_day_any_page_is_searched(run, web_search):
@@ -414,7 +416,7 @@ async def test_with_no_page_from_the_last_day_any_page_is_searched(run, web_sear
     model = Model(
         {
             RouterDecision: general("cotação do euro hoje", "today"),
-            KnowledgeAnswer: euro("O euro fechou em R$ 6,10 em 13/10/2026.", "2026-10-13"),
+            KnowledgeAnswer: web_reply("O euro comercial está a R$ 6,10.", EURO_YESTERDAY["url"]),
         }
     )
 
@@ -423,42 +425,44 @@ async def test_with_no_page_from_the_last_day_any_page_is_searched(run, web_sear
     assert [body.get("time_range") for body in sent] == ["day", None]
 
 
-async def test_data_from_another_day_is_answered_with_a_plain_notice(run, web_search):
+async def test_the_stamp_is_the_published_date_in_brazil_never_the_page_text(run, web_search):
+    """The page says 14/10, but it was published at 22:00 on 13/10 in Brazil: that is the stamp,
+    with a warning, and no time of day."""
     web, _ = web_search([EURO_YESTERDAY])
-    reply = "O euro fechou em R$ 6,10 em 13/10/2026."
+    reply = "O euro comercial está a R$ 6,10."
     model = Model(
         {
             RouterDecision: general("cotação do euro hoje", "today"),
-            KnowledgeAnswer: euro(reply, "2026-10-13"),
+            KnowledgeAnswer: web_reply(reply, EURO_YESTERDAY["url"]),
         }
     )
 
     response = to_response(await run(model, web, "Qual a cotação do euro hoje?"), "c1")
     shown = json.loads(model.inputs("KnowledgeAnswer")[0])
+    stamp = response.answer.removeprefix(reply)
 
     assert response.answer.startswith(reply)
-    assert response.answer.endswith("são de 13/10/2026, não de 14/10/2026.")
-    assert shown["target_date"] == "2026-10-14"
-    assert shown["results"][0]["published"] == EURO_YESTERDAY["published_date"]
+    assert "publicada em 13/10/2026, antes de 14/10/2026" in stamp
+    assert not re.search(r"\d{1,2}:\d{2}|\d{1,2}h\b", stamp), "a stamp carries no time of day"
+    assert "published" not in shown["results"][0], "the model never sees the date it would cite"
 
 
-@pytest.mark.parametrize("data_date", [None, "2026-10-12"], ids=["undated", "date-not-in-pages"])
-async def test_a_date_the_pages_do_not_show_is_never_vouched_for(run, web_search, data_date):
+async def test_without_a_published_date_the_answer_says_so(run, web_search):
     web, _ = web_search([WEATHER])
     reply = "Amanhã em Porto Alegre a máxima é de 24°C."
     model = Model(
         {
             RouterDecision: general("previsão do tempo amanhã", "tomorrow"),
-            KnowledgeAnswer: KnowledgeAnswer(
-                coverage="full", answer=reply, used_urls=[], data_date=data_date
-            ),
+            KnowledgeAnswer: web_reply(reply, WEATHER["url"]),
         }
     )
 
     response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
 
-    assert response.answer.endswith("não posso confirmar que valem para 15/10/2026.")
-    assert "12/10" not in response.answer
+    assert response.answer.endswith(
+        "a fonte não informa a data de publicação, então não posso confirmar que o dado está "
+        "atualizado."
+    )
 
 
 async def test_a_question_that_does_not_depend_on_the_day_gets_no_filter_and_no_notice(
