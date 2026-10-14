@@ -16,7 +16,8 @@ import json
 import logging
 import re
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from datetime import timedelta
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -35,12 +36,17 @@ _LINK = re.compile(r"https?://|www\.|[\w.+-]+@[\w-]+\.\w", re.IGNORECASE)
 logger = logging.getLogger(__name__)
 
 
+Coverage = Literal["full", "partial", "none"]
+
+
 class KnowledgeAnswer(BaseModel):
     """The grounded answer, with the pages it was built from."""
 
-    sufficient: bool
-    """Whether the excerpts or results answer the question. When false the text is discarded:
-    a corpus step abstains and a web step degrades, instead of answering that nothing was found."""
+    coverage: Coverage
+    """How much of the question the excerpts or results answer. `full` and `partial` are
+    answered, a partial one saying plainly what the site does not cover; with `none` the text is
+    discarded: a corpus step abstains and a web step degrades, instead of answering that nothing
+    was found."""
     answer: str
     used_urls: list[str] = Field(default_factory=list)
 
@@ -115,7 +121,7 @@ async def answer(
     except LLMProviderError as exc:
         logger.warning("knowledge generation failed: %s", exc)
         return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE, looked_at)
-    if not generated.sufficient:
+    if generated.coverage == "none":
         logger.info("knowledge abstained: the excerpts do not answer the question")
         return _refusal(EscalationReason.INSUFFICIENT_SOURCES, looked_at)
 
@@ -147,15 +153,21 @@ def trustworthy(answer: str, results: list[WebResult], state: GraphState) -> boo
     return bool(answer.strip()) and not adds_numbers(answer, allowed) and not _LINK.search(answer)
 
 
-def web_query(state: GraphState) -> str:
-    """The masked query that leaves the process, dated when the answer depends on the day.
+DAY_OFFSET = {"yesterday": -1, "today": 0, "tomorrow": 1}
 
-    The date is added after masking: it is the system's own, never something the merchant typed.
+
+def web_query(state: GraphState) -> str:
+    """The masked query that leaves the process, carrying the date of the day it asks about.
+
+    A search engine cannot resolve "amanhã", and today's date pulls today's pages, so a forecast
+    for tomorrow is searched with tomorrow's date. The date is added after masking: it is the
+    system's own, never something the merchant typed.
     """
     query = outbound_query(state.current_query(), state.message)
     step = state.current_step()
-    if step is not None and step.time_sensitive and state.today is not None:
-        query = f"{query} {state.today:%d/%m/%Y}"
+    if step is not None and step.target_day is not None and state.today is not None:
+        day = state.today + timedelta(days=DAY_OFFSET[step.target_day])
+        query = f"{query} {day:%d/%m/%Y}"
     return query
 
 
@@ -189,7 +201,7 @@ async def answer_from_web(
     except LLMProviderError as exc:
         logger.warning("web answer generation failed: %s", exc)
         return _web_unavailable(looked_at)
-    if not generated.sufficient:
+    if generated.coverage == "none":
         logger.info("web answer withheld: the results do not answer the question")
         return _web_unavailable(looked_at)
     if not trustworthy(generated.answer, results, state):

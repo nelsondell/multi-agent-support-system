@@ -80,6 +80,12 @@ changes the index's embedder, so it needs a rebuild: `docker compose down`, then
 index volume (`docker volume ls` lists it as `<project>_index`); the next boot rebuilds it.
 `docker compose down -v` would drop both volumes, conversations included.
 
+The default embedder is OpenAI's, so the first boot needs `OPENAI_API_KEY`. Without it the index
+build stops before reading or writing anything, with the fix in one line
+(`docker compose logs api`): set the key, or set `EMBEDDING_BACKEND=local`. A key the API rejects
+stops it the same way, after dropping the half-created collection, so no boot ever finds half an
+index. The error is named, never echoed, because a vendor message can quote part of the key.
+
 Verified on Docker 29.5 (Colima, linux/arm64): the image builds with no key; from a clean state
 the first boot indexes 148 chunks from the snapshot and turns healthy in about 10 seconds; a
 second boot logs `index already present at data/processed/chroma; build skipped`.
@@ -283,6 +289,11 @@ before the parser was written:
   footer on these pages, which is why the selector is explicit. Meta descriptions are ignored
   everywhere: they repeat verbatim across pages.
 
+A document's title is its page's `<title>`, except where several pages share one: the site titles
+both the Get Clássica and the Get Smart pages "Getnet | Maquininha POS 3G + Wi-Fi | 4020-4011",
+so those pages take their `<h1>` instead and cite as two sources. The other headings stay out:
+most are slogans ("nós podemos te ajudar!"), worse names than the titles they would replace.
+
 **Chunk** (`app/rag/chunk.py`) — 600-token windows with 100 tokens of overlap, measured with
 `tiktoken` (`cl100k_base`). Each chunk keeps `url`, `title`, `section` and `route` so it can be
 cited.
@@ -322,21 +333,25 @@ one, keep 0.35 as a floor.
 
 **Generate** (`app/graph/knowledge.py`) — the prompt receives only the surviving chunks, each
 labelled with its URL, plus the financial hard rules. Sources are taken from what was retrieved,
-never from URLs the model claims to have used. The answer carries a structured `sufficient` flag:
-retrieved text can clear the threshold without answering the question, and then the model's "I did
-not find it" is discarded and the step goes to a human with a protocol, instead of reaching the
-merchant as an answer. If the embedding API is unreachable, the step abstains the same way.
+never from URLs the model claims to have used. The answer carries a structured `coverage`:
+`full`, `partial` or `none`, because retrieved text can clear the threshold without answering the
+question. A partial answer goes out with the supported part and a plain sentence on what the site
+does not cover ("O site não informa se…"). With `none` the model's "I did not find it" is
+discarded and the step goes to a human with a protocol, instead of reaching the merchant as an
+answer. If the embedding API is unreachable, the step abstains the same way.
 
 **Web search** (`app/tools/web.py`) — only for steps the router labels `general_info`, such as
 the weather or an exchange rate; never a fallback for a product question the corpus cannot
 answer, which still abstains, and never reachable from the support agent. What leaves the process
 is the step's question, PII-masked, with every token carrying a digit removed unless the merchant
 typed it in that very message, so an amount read from the account or the history cannot end up
-in a web query. One Tavily call, capped at `WEB_SEARCH_MAX_RESULTS` pages, with a timeout. A step the
-router marks `time_sensitive` (a forecast, a rate) carries today's date in the query, because a
-search engine cannot resolve "amanhã" and otherwise returns yesterday's page. The pages reach the
+in a web query. One Tavily call, capped at `WEB_SEARCH_MAX_RESULTS` pages, with a timeout. A step whose
+answer depends on the day (a forecast, a rate) carries the date of the day it asks about, set by
+the router as `target_day`: a search engine cannot resolve "amanhã", undated it returns
+yesterday's page, and dated with today it returns today's forecast. The pages reach the
 model as untrusted data in a JSON field, with today's date; results that do not answer the
-question are reported as such and degrade like a failed search. The answer must
+question are reported as such (`coverage: none`) and degrade like a failed search; results that
+answer part of it are answered as far as they go. The answer must
 carry only numbers found in the pages (hard rule 4) and no link or e-mail of its own, which is how
 a planted instruction usually shows; otherwise, and when there is no key, the call times out or
 the provider fails, the merchant gets a pt-BR "cannot look this up right now" message instead.

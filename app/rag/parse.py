@@ -52,6 +52,12 @@ def _page_title(soup: BeautifulSoup) -> str:
     return _clean(heading.get_text()) if heading else ""
 
 
+def page_heading(html: str) -> str:
+    """The page's first `<h1>`: the most specific name it gives itself, often a slogan."""
+    heading = BeautifulSoup(html, "html.parser").find("h1")
+    return _clean(heading.get_text(" ", strip=True)) if heading else ""
+
+
 def detect_route(soup: BeautifulSoup) -> Route | None:
     """Pick the parser for a page, or None when neither route applies."""
     if soup.select("a.c-all-faq__question"):

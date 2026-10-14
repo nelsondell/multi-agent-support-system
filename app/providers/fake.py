@@ -57,8 +57,7 @@ def _type_value(annotation: Any, metadata: list[Any]) -> Any:
     if isinstance(annotation, type) and issubclass(annotation, BaseModel):
         return build_instance(annotation)
     if annotation is bool:
-        # True keeps a turn on its answered path, which is the path the smoke test exercises.
-        return True
+        return False
     if annotation in (int, float):
         return annotation(_bound(metadata))
     return FAKE_TEXT

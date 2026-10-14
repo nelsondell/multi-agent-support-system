@@ -71,7 +71,7 @@ def model(**overrides) -> Model:
         SupportPlan: SupportPlan(action=SupportAction.ESCALATE_INDIVIDUAL_CASE),
         SupportAnswer: SupportAnswer(answer="Forecast found in the account."),
         KnowledgeAnswer: KnowledgeAnswer(
-            sufficient=True, answer="It takes cards and Pix.", used_urls=[]
+            coverage="full", answer="It takes cards and Pix.", used_urls=[]
         ),
         HandoffDraft: HandoffDraft(draft=DRAFT),
         OperatorReply: lambda user: OperatorReply(answer=json.loads(user)["operator_answer"]),
@@ -348,7 +348,7 @@ async def test_resuming_a_closed_case_is_409(stack):
 async def test_a_product_question_the_excerpts_do_not_answer_goes_to_a_human(stack):
     """The model's "not found" never reaches the merchant as an answer; a protocol does."""
     unanswered = KnowledgeAnswer(
-        sufficient=False, answer="Não encontrei isso nos trechos.", used_urls=[]
+        coverage="none", answer="Não encontrei isso nos trechos.", used_urls=[]
     )
     async with AsyncExitStack() as exits:
         http = await stack(exits, model(KnowledgeAnswer=unanswered))

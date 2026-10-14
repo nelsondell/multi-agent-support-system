@@ -74,14 +74,14 @@ def decide(intent: Intent, agent: TargetAgent, query: str) -> RouterDecision:
     )
 
 
-def general(query: str, time_sensitive: bool = False) -> RouterDecision:
+def general(query: str, target_day: str | None = None) -> RouterDecision:
     decision = decide(Intent.GENERAL_INFO, TargetAgent.KNOWLEDGE, query)
-    step = decision.steps[0].model_copy(update={"time_sensitive": time_sensitive})
+    step = decision.steps[0].model_copy(update={"target_day": target_day})
     return decision.model_copy(update={"steps": [step]})
 
 
 def web_answer(text: str, *urls: str) -> KnowledgeAnswer:
-    return KnowledgeAnswer(sufficient=True, answer=text, used_urls=list(urls))
+    return KnowledgeAnswer(coverage="full", answer=text, used_urls=list(urls))
 
 
 @pytest.fixture
@@ -316,32 +316,57 @@ async def test_results_are_capped_at_the_configured_maximum(run, web_search):
     assert len(json.loads(model.inputs("KnowledgeAnswer")[0])["results"]) == 3
 
 
-async def test_a_time_sensitive_query_carries_todays_date(run, web_search):
-    """A search engine cannot resolve "amanhã"; a dated query finds the page for the right day."""
+@pytest.mark.parametrize(
+    ("target_day", "dated"),
+    [
+        ("tomorrow", " 15/10/2026"),
+        ("today", " 14/10/2026"),
+        ("yesterday", " 13/10/2026"),
+        (None, ""),
+    ],
+)
+async def test_a_query_carries_the_date_of_the_day_it_asks_about(
+    run, web_search, target_day, dated
+):
+    """A search engine cannot resolve "amanhã", and today's date pulls today's pages."""
     web, sent = web_search([WEATHER])
     reply = "Segundo o site consultado, amanhã Porto Alegre terá máxima de 24°C e mínima de 15°C."
     model = Model(
         {
-            RouterDecision: general("previsão do tempo em Porto Alegre amanhã", True),
+            RouterDecision: general("previsão do tempo em Porto Alegre amanhã", target_day),
             KnowledgeAnswer: web_answer(reply, WEATHER["url"]),
         }
     )
 
     await run(model, web, "What's the weather forecast in Porto Alegre tomorrow?")
 
-    assert sent[0]["query"] == "previsão do tempo em Porto Alegre amanhã 14/10/2026"
+    assert sent[0]["query"] == f"previsão do tempo em Porto Alegre amanhã{dated}"
 
 
 async def test_results_that_do_not_answer_degrade_instead_of_answering(run, web_search):
     web, _ = web_search([WEATHER])
     stale = KnowledgeAnswer(
-        sufficient=False, answer="A página é de outro dia.", used_urls=[WEATHER["url"]]
+        coverage="none", answer="A página é de outro dia.", used_urls=[WEATHER["url"]]
     )
     model = Model(
-        {RouterDecision: general("previsão do tempo amanhã", True), KnowledgeAnswer: stale}
+        {RouterDecision: general("previsão do tempo amanhã", "tomorrow"), KnowledgeAnswer: stale}
     )
 
     response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
 
     assert response.answer == UNAVAILABLE
     assert response.sources == [] and not response.escalated
+
+
+async def test_results_that_answer_part_of_the_question_are_answered(run, web_search):
+    web, _ = web_search([WEATHER])
+    reply = "Amanhã a máxima é de 24°C. Os sites consultados não informam o vento."
+    partial = KnowledgeAnswer(coverage="partial", answer=reply, used_urls=[WEATHER["url"]])
+    model = Model(
+        {RouterDecision: general("previsão do tempo amanhã", "tomorrow"), KnowledgeAnswer: partial}
+    )
+
+    response = to_response(await run(model, web, "Vai ventar amanhã em Porto Alegre?"), "c1")
+
+    assert response.answer == reply
+    assert response.status == "answered" and response.sources

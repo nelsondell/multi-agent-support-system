@@ -56,7 +56,7 @@ async def test_answer_cites_only_retrieved_urls(sample_chunks) -> None:
     chunks = sample_chunks[:2]
     provider = StubProvider(
         KnowledgeAnswer(
-            sufficient=True,
+            coverage="full",
             answer="A antecipação adianta o valor das suas vendas a prazo.",
             used_urls=[chunks[0].url, "https://exemplo-inventado.com/"],
         )
@@ -73,7 +73,7 @@ async def test_answer_cites_only_retrieved_urls(sample_chunks) -> None:
 async def test_below_threshold_refuses_without_calling_the_model(sample_chunks) -> None:
     """No retrieval confidence means no generation at all, not a hedged answer."""
     provider = StubProvider(
-        KnowledgeAnswer(sufficient=True, answer="não deveria ser gerado", used_urls=[])
+        KnowledgeAnswer(coverage="full", answer="não deveria ser gerado", used_urls=[])
     )
 
     update = await answer(
@@ -106,7 +106,7 @@ def test_context_labels_every_chunk_with_its_url(sample_chunks) -> None:
 @pytest.mark.parametrize("threshold", [0.35, 0.9])
 async def test_retrieved_query_is_the_routers_portuguese_query(sample_chunks, threshold) -> None:
     """Retrieval and generation run on query_pt, not on the raw English message."""
-    provider = StubProvider(KnowledgeAnswer(sufficient=True, answer="ok", used_urls=[]))
+    provider = StubProvider(KnowledgeAnswer(coverage="full", answer="ok", used_urls=[]))
     state = _state()
     step = PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt="antecipação de recebíveis")
     state.route = state.route.model_copy(update={"steps": [step]})
@@ -119,7 +119,7 @@ async def test_retrieved_query_is_the_routers_portuguese_query(sample_chunks, th
 async def test_excerpts_that_do_not_answer_abstain_instead_of_saying_so(sample_chunks) -> None:
     """ "Not found in the excerpts" is not an answer: the step goes to a human instead."""
     provider = StubProvider(
-        KnowledgeAnswer(sufficient=False, answer="Não encontrei isso nos trechos.", used_urls=[])
+        KnowledgeAnswer(coverage="none", answer="Não encontrei isso nos trechos.", used_urls=[])
     )
 
     update = await answer(_state(), provider, _result(sample_chunks[:2], 0.8), threshold=0.35)
@@ -150,3 +150,21 @@ def test_an_unreachable_embedder_reads_as_nothing_retrieved(sample_chunks) -> No
 def test_the_prompt_no_longer_asks_for_source_lines() -> None:
     """Sources travel in `used_urls` and the response's `sources`, not inside the text."""
     assert "Fonte: " not in load_prompt("knowledge").text
+
+
+async def test_excerpts_that_answer_part_of_the_question_are_answered(sample_chunks) -> None:
+    """S04: the supported part goes out, with what the site does not cover said plainly."""
+    reply = (
+        "Para receber pelo Pix é preciso cadastrar uma chave vinculada à conta de recebimento. "
+        "O site não informa se essa conta precisa ser de um banco tradicional."
+    )
+    chunks = sample_chunks[:2]
+    provider = StubProvider(
+        KnowledgeAnswer(coverage="partial", answer=reply, used_urls=[chunks[0].url])
+    )
+
+    update = await answer(_state(), provider, _result(chunks, 0.8), threshold=0.35)
+
+    assert update["answer"] == reply
+    assert "refusal_reason" not in update
+    assert [source.url for source in update["sources"]] == [chunks[0].url]

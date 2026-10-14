@@ -39,9 +39,9 @@ class PlanStep(BaseModel):
     search_queries: list[str] = Field(default_factory=list, max_length=3)
     """For a knowledge step that compares or combines products: one short search per item, such
     as "maquininha Get Smart". Retrieval runs them beside `query_pt`. Empty otherwise."""
-    time_sensitive: bool = False
+    target_day: Literal["yesterday", "today", "tomorrow"] | None = None
     """For a general-information step whose answer depends on the day, such as a forecast or an
-    exchange rate: the web query then carries today's date."""
+    exchange rate: the day asked about. The web query then carries that day's date."""
 
 
 class RouterDecision(BaseModel):

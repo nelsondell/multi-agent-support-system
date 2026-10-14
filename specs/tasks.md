@@ -277,20 +277,31 @@ date.
 status `previsto`; money credited before today is `liquidado` and nothing else; tomorrow's
 "sales" return what credits tomorrow; the answer prompt never calls a settled entry a forecast.
 
+### T-33 — `fix(T-33): answer partial coverage, date web queries by target day and keep boots whole`
+`KnowledgeAnswer.coverage` (`full`, `partial`, `none`) replaces the yes/no flag: a partial answer
+gives the supported part and says plainly what the site does not cover; `none` abstains and
+escalates, and degrades on the web. `PlanStep.target_day` replaces `time_sensitive`, and the web
+query carries that day's date. Pages that share a `<title>` take their `<h1>`, and the snapshot,
+the fixture and the index are rebuilt. Ingestion checks the embedder before reading anything and
+keeps both halves of the index or neither.
+**Done when:** S04 is answered in part again; a "tomorrow" forecast query carries tomorrow's date;
+the two product pages cite with distinct titles; a keyless first boot stops with a one-line fix
+and writes nothing, and a rejected key leaves no collection and no BM25 corpus.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
 | Memory / multi-turn (1.5) | T-19, T-20, T-24 |
 | Human-in-the-loop (5.8) | T-21, T-24 |
-| Infra / Docker (6.8) | T-16, T-17, T-18 |
+| Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32 |
 | Multi-agent / orchestration (8.8) | T-22 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
 | Security / isolation (9.5) | T-19, T-21, T-23 |
-| RAG / knowledge (9.8) | T-16, T-23, T-29 |
+| RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
 | Trade-offs / engineering (10.0) | T-27, T-28 |
 
 Outside the task list: the pull request that merges v2 into `main` after T-27 (plan §15), and,

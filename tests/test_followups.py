@@ -87,7 +87,7 @@ def answers(**overrides: Callable[[str], object]) -> Model:
         "SupportPlan": planner,
         "SupportAnswer": lambda user: SupportAnswer(answer="Forecast found in the account."),
         "KnowledgeAnswer": lambda user: KnowledgeAnswer(
-            sufficient=True, answer="It takes Pix.", used_urls=[]
+            coverage="full", answer="It takes Pix.", used_urls=[]
         ),
     }
     return Model(**{**defaults, **overrides})

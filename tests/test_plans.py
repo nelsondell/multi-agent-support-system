@@ -73,7 +73,7 @@ def model(**overrides) -> Model:
             date_to="2026-08-31",
         ),
         SupportAnswer: SupportAnswer(answer=SETTLEMENT_A),
-        KnowledgeAnswer: KnowledgeAnswer(sufficient=True, answer=ADVANCE_A, used_urls=[]),
+        KnowledgeAnswer: KnowledgeAnswer(coverage="full", answer=ADVANCE_A, used_urls=[]),
         ComposedAnswer: ComposedAnswer(answer=f"{SETTLEMENT_A} Sobre a antecipação: {ADVANCE_A}"),
         HandoffDraft: HandoffDraft(draft="Nossa equipe está verificando."),
         OperatorReply: lambda user: OperatorReply(answer=json.loads(user)["operator_answer"]),

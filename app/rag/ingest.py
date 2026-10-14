@@ -15,13 +15,15 @@ second run rewrites the same rows instead of duplicating them. The container run
 
 import argparse
 import json
-from dataclasses import asdict
+from collections import defaultdict
+from contextlib import suppress
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
 
 from app.rag.chunk import Chunk, chunk_documents, tokenize
-from app.rag.parse import Document, Route, parse_page
+from app.rag.parse import Document, Route, page_heading, parse_page
 from app.settings import Settings, get_settings
 
 RAW_DIR = Path("data/raw")
@@ -65,18 +67,39 @@ def extract_corpus(
     """Parse every fetched page, reporting the ones neither route can read."""
     urls = read_manifest(manifest)
     documents: list[Document] = []
+    headings: dict[str, str] = {}
     skipped: list[str] = []
     for path in sorted(raw_dir.glob("*.html")):
         url = urls.get(path.name)
         if url is None:
             skipped.append(f"{path.name} (absent from manifest)")
             continue
-        page_documents = parse_page(path.read_text(encoding="utf-8"), url)
+        html = path.read_text(encoding="utf-8")
+        page_documents = parse_page(html, url)
         if not page_documents:
             skipped.append(f"{path.name} (no route matched)")
             continue
         documents.extend(page_documents)
-    return documents, skipped
+        headings[url] = page_heading(html)
+    return distinct_titles(documents, headings), skipped
+
+
+def distinct_titles(documents: list[Document], headings: dict[str, str]) -> list[Document]:
+    """Give each page its own heading where several pages share one `<title>`.
+
+    The site titles both product pages "Getnet | Maquininha POS 3G + Wi-Fi | 4020-4011", so two
+    sources read as one. Every other page keeps its `<title>`: the headings are mostly slogans
+    ("nós podemos te ajudar!"), worse names than the titles they would replace.
+    """
+    pages_per_title: dict[str, set[str]] = defaultdict(set)
+    for document in documents:
+        pages_per_title[document.title].add(document.url)
+    return [
+        replace(document, title=headings.get(document.url) or document.title)
+        if len(pages_per_title[document.title]) > 1
+        else document
+        for document in documents
+    ]
 
 
 def write_snapshot(documents: list[Document], path: Path = SNAPSHOT) -> None:
@@ -172,6 +195,49 @@ def index_chunks(chunks: list[Chunk], settings: Settings) -> None:
     )
 
 
+def require_embedder(settings: Settings) -> None:
+    """Stop before anything is read or written when the configured embedder cannot be built,
+    such as `EMBEDDING_BACKEND=openai` on a fresh clone with no key yet."""
+    from app.providers.embeddings import build_embedding_function
+
+    try:
+        build_embedding_function(settings)
+    except ValueError as exc:
+        raise SystemExit(
+            f"cannot build the index: {exc}. Set OPENAI_API_KEY in .env, or set "
+            "EMBEDDING_BACKEND=local to build without a key, at the cost of weaker retrieval "
+            "(evals/retrieval_calibration.md). Nothing was written."
+        ) from exc
+
+
+def drop_collection(settings: Settings) -> None:
+    """Remove the collection a failed build may have left behind, if there is one."""
+    import chromadb
+    from chromadb.errors import NotFoundError
+
+    client = chromadb.PersistentClient(path=settings.index_path)
+    with suppress(NotFoundError):
+        client.delete_collection(settings.collection_name)
+
+
+def build_index(chunks: list[Chunk], settings: Settings) -> None:
+    """Both halves of the index or neither: the vectors first, the BM25 corpus only after them.
+
+    `index_exists` needs both, so a build that fails halfway, say on a rejected key, leaves
+    nothing a later boot could mistake for an index. The error is named, never echoed: a vendor
+    message may quote part of the key.
+    """
+    try:
+        index_chunks(chunks, settings)
+    except Exception as exc:  # the embedder may be a remote API with its own error types
+        drop_collection(settings)
+        raise SystemExit(
+            f"cannot build the index ({type(exc).__name__}); nothing was kept. Check "
+            "OPENAI_API_KEY, or set EMBEDDING_BACKEND=local to build without a key."
+        ) from exc
+    write_chunks(chunks, chunks_path(settings))
+
+
 def build_fixture(chunks: list[Chunk], path: Path = FIXTURE) -> int:
     """Pick the chunks the offline tests run against: the top lexical matches per scenario.
 
@@ -210,6 +276,7 @@ def main(argv: list[str] | None = None) -> None:
     if arguments.if_missing and index_exists(settings):
         print(f"index already present at {settings.index_path}; build skipped")
         return
+    require_embedder(settings)
     documents, source, skipped = load_documents()
     chunks, stats = chunk_documents(documents)
 
@@ -219,8 +286,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  skipped: {entry}")
     print(stats.summary())
 
-    write_chunks(chunks, chunks_path(settings))
-    index_chunks(chunks, settings)
+    build_index(chunks, settings)
     print(f"indexed into {settings.index_path} (collection {settings.collection_name})")
     if arguments.refresh_fixture:
         print(f"fixture chunks written to {FIXTURE}: {build_fixture(chunks)}")

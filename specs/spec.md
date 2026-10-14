@@ -178,8 +178,9 @@ page is retrieved.
 
 If the best dense similarity is below the retrieval threshold, calibrated per embedder, the
 knowledge agent **generates nothing**. It states in pt-BR that the answer is not in its base and
-the case goes to a human. The same happens when the model reports, in a structured flag, that the
-retrieved text does not answer the question: "not found" is never returned as an answer.
+the case goes to a human. The same happens when the model reports, in a structured field, that the
+retrieved text does not answer the question: "not found" is never returned as an answer. When it
+answers only part of the question, that part is answered and the rest is named as not covered.
 
 Web search answers **general-purpose questions only**: those the router labels `general_info`,
 such as weather and exchange rates. It is never a fallback for a product question the corpus
@@ -295,7 +296,8 @@ is why user-facing message templates live under `app/prompts/` rather than inlin
 
 **Run from a clean clone.** `cp .env.example .env && docker compose up` serves the API. The image
 needs no API key at build time. On first boot the container builds the index from the committed
-snapshot into a named volume and skips that step when the index exists. Conversation state lives
+snapshot into a named volume and skips that step when the index exists. Without the key the
+default embedder needs, the first boot stops with a one-line fix and builds nothing. Conversation state lives
 in a second named volume, so rebuilding the index never deletes a conversation. A `Makefile`
 wraps up, test, eval and demo.
 

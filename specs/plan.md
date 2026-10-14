@@ -173,7 +173,8 @@ build; retrieval and generation happen at request time.
   check, calibrated per embedder by `evals/run_retrieval_calibration.py`. An unreachable embedder
   reads as nothing retrieved.
 - **Generate.** The knowledge prompt receives only the surviving chunks and the hard rules, and
-  returns `sufficient`; when false, the step abstains with `insufficient_sources`.
+  returns `coverage`: `full` and `partial` are answered, a partial one naming what the site does
+  not cover; with `none` the step abstains with `insufficient_sources`.
 
 ## 7. Web search
 
@@ -184,7 +185,7 @@ one `POST /search` per question with a bearer key, `max_results` capped by
 usable result raises `WebSearchUnavailable`. `outbound_query(query, message)` builds what may
 leave the process: the step's question through `mask_pii`, with every token carrying a digit
 dropped unless the merchant typed it in the current message, so amounts and ids from the account
-or the history never reach the provider. A step marked `time_sensitive` then gets today's date
+or the history never reach the provider. A step with a `target_day` then gets that day's date
 appended, which is the system's own and never the merchant's. Tests inject an `httpx.MockTransport`, so no request
 leaves the suite.
 
@@ -288,7 +289,9 @@ test suite.
 Multi-stage build with uv, no API key at build time. The image includes the committed corpus
 snapshot, and the local embedding model is fetched during the build so the first boot needs no
 download besides the LLM calls themselves. The container command runs
-`python -m app.rag.ingest --if-missing`, then starts uvicorn. Compose declares two named volumes,
+`python -m app.rag.ingest --if-missing`, then starts uvicorn. Ingestion checks the embedder before
+reading anything and writes the vectors before the BM25 corpus, dropping the collection if the
+vectors fail, so a keyless or rejected first boot stops with one line and leaves no half index. Compose declares two named volumes,
 `index` and `state`, so the index can be dropped and rebuilt without touching a conversation; it
 loads `.env` and has a healthcheck whose start period covers the first index build.
 

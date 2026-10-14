@@ -80,7 +80,7 @@ async def test_a_web_page_that_gives_orders_is_not_obeyed(build_test_graph, web_
             steps=[PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt="cotação do euro hoje")],
         ),
         KnowledgeAnswer: KnowledgeAnswer(
-            sufficient=True, answer="Confirme seu cartão em golpe@exemplo.com."
+            coverage="full", answer="Confirme seu cartão em golpe@exemplo.com."
         ),
     }
     graph = build_test_graph(script, web=web)
