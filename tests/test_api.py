@@ -57,7 +57,9 @@ def test_knowledge_answer_comes_back_with_its_sources(client) -> None:
     http = client(
         {
             RouterDecision: _router(TargetAgent.KNOWLEDGE, Intent.PRODUCT_INFO),
-            KnowledgeAnswer: KnowledgeAnswer(answer="Depende do emissor do cartão.", used_urls=[]),
+            KnowledgeAnswer: KnowledgeAnswer(
+                sufficient=True, answer="Depende do emissor do cartão.", used_urls=[]
+            ),
         }
     )
 
@@ -150,7 +152,9 @@ def test_a_conversation_id_is_minted_when_absent_and_echoed_when_given(client) -
     http = client(
         {
             RouterDecision: _router(TargetAgent.KNOWLEDGE, Intent.PRODUCT_INFO),
-            KnowledgeAnswer: KnowledgeAnswer(answer="It takes cards and Pix.", used_urls=[]),
+            KnowledgeAnswer: KnowledgeAnswer(
+                sufficient=True, answer="It takes cards and Pix.", used_urls=[]
+            ),
         }
     )
     question = {"message": "What is the Get Smart?", "user_id": CALLER}

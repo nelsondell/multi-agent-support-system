@@ -38,10 +38,10 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | `LLM_MODEL` | `gpt-6-luna` | Chat model, chosen in [`evals/router_benchmark.md`](evals/router_benchmark.md). |
 | `LLM_REASONING_EFFORT` | `low` | For reasoning models. Left unset when a temperature is set. |
 | `LLM_TEMPERATURE` | unset | For models without reasoning only, e.g. `gpt-4o-mini` with `0`. Setting both fails at start-up. |
-| `EMBEDDING_BACKEND` | `auto` | `auto` follows the key, `local` uses Chroma's bundled model, `openai` requires the key. |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Used when the backend is `openai`. |
+| `EMBEDDING_BACKEND` | `auto` | `auto` follows the key, `local` uses Chroma's bundled model, `openai` requires the key. `.env.example` pins `openai`; CI uses `local`. |
+| `EMBEDDING_MODEL` | `text-embedding-3-large` | Used when the backend is `openai`. Chosen in [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md). |
 | `ROUTER_CONFIDENCE_THRESHOLD` | `0.6` | Below this, the request escalates without reaching a specialist. |
-| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.35` | Below this, the knowledge agent abstains. Not calibrated — see §9. |
+| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.52` | Below this, the knowledge agent abstains without a model call. Calibrated for `text-embedding-3-large`. |
 | `MAX_HOPS` | `2` | Router passes allowed per request; bounds the single hand-back. |
 | `INDEX_PATH` | `data/processed/chroma` | Persisted Chroma directory. |
 | `COLLECTION_NAME` | `getnet_kb` | Chroma collection. |
@@ -171,8 +171,10 @@ Possessive phrasing decides nothing.
    message. Both versions are logged, masked.
 5. The **conditional edge** sends the turn to the first step's specialist, or straight to
    `escalate`.
-6. **Knowledge** retrieves on its step's `query_pt`, and either answers citing the retrieved URLs
-   or abstains with `low_retrieval_confidence`. **Support** plans an action from its step's
+6. **Knowledge** retrieves on its step's `query_pt`, plus one search per item when the step
+   compares products, and either answers citing the retrieved URLs or abstains: with
+   `low_retrieval_confidence` when nothing retrieved is close enough, or `insufficient_sources`
+   when the model reports that the excerpts do not answer the question. **Support** plans an action from its step's
    `query_pt` and the turn's date (Brazil time, so "ontem" and "amanhã" become date ranges),
    calls at most one tool with the injected identity, and answers citing the account — or
    escalates an individual case. Neither specialist ever sees the history. **Collect** records
@@ -293,21 +295,40 @@ blur near-identical marketing copy. Both lists are fused with hand-written Recip
 at `k = 60`; only positions enter the fusion, never raw BM25 or cosine values, which live on
 incomparable scales.
 
+A comparison ("Get Clássica or Get Smart?") also carries one short search per item, written by
+the router. Each query's two lists are fused on their own and the per-query rankings are then
+interleaved, best hit of each first. Fusing every list at once was tried and rejected: RRF rewards
+consensus, so the generic offer pages that rank fairly well for every query crowded out the one
+page each item is about.
+
 Abstention keys off **dense similarity, not the RRF score**. RRF is a ranking signal: a document
 that tops both lists scores the same whether the corpus answers the question or not. The absolute
-similarity is what can say "this is not in the base".
+similarity is what can say "this is not in the base". The threshold is calibrated in
+[`evals/retrieval_calibration.md`](evals/retrieval_calibration.md) (`uv run python -m
+evals.run_retrieval_calibration`): 22 questions the corpus answers against 15 it does not, through
+three embedders. The local model separates nothing (gap −0.100); `text-embedding-3-small` and
+`text-embedding-3-large` separate both groups completely, the large one with the wider gap (+0.110,
+from 0.464 to 0.574) for the same latency and a negligible cost, so it is the default and the
+threshold is the middle of its gap, 0.52. The threshold belongs to the embedder: with the local
+one, keep 0.35 as a floor.
 
 **Generate** (`app/graph/knowledge.py`) — the prompt receives only the surviving chunks, each
 labelled with its URL, plus the financial hard rules. Sources are taken from what was retrieved,
-never from URLs the model claims to have used.
+never from URLs the model claims to have used. The answer carries a structured `sufficient` flag:
+retrieved text can clear the threshold without answering the question, and then the model's "I did
+not find it" is discarded and the step goes to a human with a protocol, instead of reaching the
+merchant as an answer. If the embedding API is unreachable, the step abstains the same way.
 
 **Web search** (`app/tools/web.py`) — only for steps the router labels `general_info`, such as
 the weather or an exchange rate; never a fallback for a product question the corpus cannot
 answer, which still abstains, and never reachable from the support agent. What leaves the process
 is the step's question, PII-masked, with every token carrying a digit removed unless the merchant
 typed it in that very message, so an amount read from the account or the history cannot end up
-in a web query. One Tavily call, capped at `WEB_SEARCH_MAX_RESULTS` pages, with a timeout. The
-pages reach the model as untrusted data in a JSON field, with today's date. The answer must
+in a web query. One Tavily call, capped at `WEB_SEARCH_MAX_RESULTS` pages, with a timeout. A step the
+router marks `time_sensitive` (a forecast, a rate) carries today's date in the query, because a
+search engine cannot resolve "amanhã" and otherwise returns yesterday's page. The pages reach the
+model as untrusted data in a JSON field, with today's date; results that do not answer the
+question are reported as such and degrade like a failed search. The answer must
 carry only numbers found in the pages (hard rule 4) and no link or e-mail of its own, which is how
 a planted instruction usually shows; otherwise, and when there is no key, the call times out or
 the provider fails, the merchant gets a pt-BR "cannot look this up right now" message instead.
@@ -426,9 +447,10 @@ that proves the runner end to end and measures nothing about routing quality.
 **Router accuracy against a real model** is in
 [`evals/router_benchmark.md`](evals/router_benchmark.md), written by
 `uv run python -m evals.run_model_benchmark`: the golden set routed twice through five candidate
-models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort matches
-`gpt-6-sol` (26/30) at about an eighteenth of the cost, and beats `gpt-4o-mini` (24/30) while
-costing less, for about half a second more per call; medium effort adds latency and no accuracy.
+models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort routes as
+well as `gpt-6-sol` (26/30 against 25/30 on router prompt v5, 26/30 each on v4) at about an
+eighteenth of the cost, and beats `gpt-4o-mini` (24/30) while costing less, for under a second
+more per call; medium effort adds tokens and no accuracy.
 That is the default. Every candidate splits A03 into two steps, because the row is a compound
 request labelled as a single one. Thirty calls per candidate is a small sample, and one or two rows
 apart is within noise, so the choice rests as much on the twentyfold cost gap as on accuracy.
@@ -500,11 +522,10 @@ part a queue would consume.
 
 ## 9. Limitations and next steps
 
-**The retrieval threshold is not calibrated.** Measured on the local fallback embedder, in-domain
-queries score 0.59–0.70 and out-of-domain ones 0.50–0.55 — a separation of about 0.05. The default
-of 0.35 therefore catches almost nothing, and no threshold on this signal can tell a general
-question from a product one; the router's `general_info` label does. With `text-embedding-3-small` the numbers change entirely and must
-be re-measured: **[preencher]**.
+**The retrieval threshold rests on 37 questions.** The calibration set was written by hand: 22
+questions the corpus answers and 15 it does not. With `text-embedding-3-large` the gap is 0.110,
+so a question close to either edge could still land on the wrong side. The sufficiency flag
+catches what passes the threshold without being answered, at the cost of one model call.
 
 **`query_pt` is load-bearing.** A raw English question scores 0.375 against this corpus, below an
 off-topic Portuguese one. Retrieval works because the router rewrites the query into Portuguese
@@ -525,12 +546,9 @@ wrong in the same way and the suite still passes. Hand-curating the sampled chun
 that circularity.
 
 **Router confidence is self-reported.** The escalation gate keys off a number the model produces
-about itself, which is a weak signal. The golden set exists to calibrate or discredit it and has
-not yet been run against a real model.
+about itself, which is a weak signal. The model benchmark measures routing accuracy, not whether
+that number is calibrated.
 
-**Not exercised:** the router half of the golden set never ran, and no request has ever been served by a real model. Everything reported here that involves the
-model came from scripted providers.
-
-**Next, in order:** run the golden set against a real model and calibrate both thresholds; switch
+**Next, in order:** calibrate the router confidence threshold against the golden set; switch
 the article route to structural chunking; expose terminal status,
 which exists in `data/customers.json` but no tool reads; then revisit the scope check.

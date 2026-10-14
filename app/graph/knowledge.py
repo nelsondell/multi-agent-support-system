@@ -1,8 +1,10 @@
 """The knowledge agent: answer from the corpus or, for general-purpose questions, from the web.
 
 For anything about the acquirer there is no third option: without retrieved text above the
-confidence threshold the agent produces nothing, because letting the model answer from memory
-about rates and settlement dates is exactly the failure this system exists to avoid. The web is
+confidence threshold, or when the model reports that the retrieved text does not answer the
+question, the agent produces nothing and the step goes to a human, because letting the model
+answer from memory about rates and settlement dates is exactly the failure this system exists to
+avoid, and "I found nothing" is not an answer. The web is
 never that fallback. It answers only steps the router labelled `general_info`, such as the weather
 or an exchange rate, and its pages are untrusted data: the answer may not carry a number they lack
 or a link of its own, whatever a page tells the model to do.
@@ -22,7 +24,7 @@ from app.contracts import EscalationReason, Source, SourceType
 from app.graph.numbers import adds_numbers
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
-from app.rag.retrieve import Hit, RetrievalResult
+from app.rag.retrieve import Hit, HybridRetriever, RetrievalResult, RetrievalUnavailable
 from app.tools.web import WebResult, WebSearch, WebSearchUnavailable, outbound_query
 
 if TYPE_CHECKING:
@@ -36,6 +38,9 @@ logger = logging.getLogger(__name__)
 class KnowledgeAnswer(BaseModel):
     """The grounded answer, with the pages it was built from."""
 
+    sufficient: bool
+    """Whether the excerpts or results answer the question. When false the text is discarded:
+    a corpus step abstains and a web step degrades, instead of answering that nothing was found."""
     answer: str
     used_urls: list[str] = Field(default_factory=list)
 
@@ -69,6 +74,19 @@ def _refusal(reason: EscalationReason, looked_at: dict[str, Any]) -> dict[str, A
     }
 
 
+def retrieve(state: GraphState, retriever: HybridRetriever) -> RetrievalResult:
+    """Search the corpus for the step's question and its per-item searches.
+
+    An unreachable embedder reads as nothing retrieved, so the step abstains instead of raising.
+    """
+    step = state.current_step()
+    try:
+        return retriever.search(state.current_query(), step.search_queries if step else ())
+    except RetrievalUnavailable as exc:
+        logger.warning("retrieval unavailable, abstaining: %s", exc)
+        return RetrievalResult(hits=[], confidence=0.0)
+
+
 async def answer(
     state: GraphState, provider: LLMProvider, result: RetrievalResult, threshold: float
 ) -> dict[str, Any]:
@@ -97,6 +115,9 @@ async def answer(
     except LLMProviderError as exc:
         logger.warning("knowledge generation failed: %s", exc)
         return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE, looked_at)
+    if not generated.sufficient:
+        logger.info("knowledge abstained: the excerpts do not answer the question")
+        return _refusal(EscalationReason.INSUFFICIENT_SOURCES, looked_at)
 
     return {
         "answer": generated.answer,
@@ -126,6 +147,18 @@ def trustworthy(answer: str, results: list[WebResult], state: GraphState) -> boo
     return bool(answer.strip()) and not adds_numbers(answer, allowed) and not _LINK.search(answer)
 
 
+def web_query(state: GraphState) -> str:
+    """The masked query that leaves the process, dated when the answer depends on the day.
+
+    The date is added after masking: it is the system's own, never something the merchant typed.
+    """
+    query = outbound_query(state.current_query(), state.message)
+    step = state.current_step()
+    if step is not None and step.time_sensitive and state.today is not None:
+        query = f"{query} {state.today:%d/%m/%Y}"
+    return query
+
+
 async def answer_from_web(
     state: GraphState, provider: LLMProvider, web: WebSearch | None
 ) -> dict[str, Any]:
@@ -134,7 +167,7 @@ async def answer_from_web(
     try:
         if web is None:
             raise WebSearchUnavailable("web search is not configured")
-        results = await web.search(outbound_query(question, state.message))
+        results = await web.search(web_query(state))
     except WebSearchUnavailable as exc:
         logger.warning("web search unavailable: %s", exc)
         return _web_unavailable()
@@ -155,6 +188,9 @@ async def answer_from_web(
         )
     except LLMProviderError as exc:
         logger.warning("web answer generation failed: %s", exc)
+        return _web_unavailable(looked_at)
+    if not generated.sufficient:
+        logger.info("web answer withheld: the results do not answer the question")
         return _web_unavailable(looked_at)
     if not trustworthy(generated.answer, results, state):
         logger.warning("web answer rejected: a number or a link not found in the results")

@@ -24,11 +24,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # Exactly the documented setup, with the deterministic backend instead of a real key.
-      - name: Configure the fake LLM backend
+      # Exactly the documented setup, with no key: the deterministic LLM backend, the local
+      # embedder, and the retrieval floor that goes with it, since the documented threshold is
+      # calibrated for the OpenAI embedder (evals/retrieval_calibration.md).
+      - name: Configure the keyless backends
         run: |
           cp .env.example .env
           sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=fake/' .env
+          sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
+          sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
 
       - name: Build the image
         run: docker compose build

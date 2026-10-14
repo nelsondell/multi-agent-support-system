@@ -168,8 +168,12 @@ build; retrieval and generation happen at request time.
 - **Index.** Chroma persisted to disk plus `chunks.jsonl` for BM25. `--if-missing` skips the
   build when the collection already exists. Refreshing the test fixture is a host-side option,
   never part of the container build.
-- **Retrieve.** Dense and lexical top-k fused with RRF, then the threshold check.
-- **Generate.** The knowledge prompt receives only the surviving chunks and the hard rules.
+- **Retrieve.** Dense and lexical rankings fused with RRF per query; the step's per-item searches
+  (`PlanStep.search_queries`) add one ranking each, interleaved best-first; then the threshold
+  check, calibrated per embedder by `evals/run_retrieval_calibration.py`. An unreachable embedder
+  reads as nothing retrieved.
+- **Generate.** The knowledge prompt receives only the surviving chunks and the hard rules, and
+  returns `sufficient`; when false, the step abstains with `insufficient_sources`.
 
 ## 7. Web search
 
@@ -180,7 +184,8 @@ one `POST /search` per question with a bearer key, `max_results` capped by
 usable result raises `WebSearchUnavailable`. `outbound_query(query, message)` builds what may
 leave the process: the step's question through `mask_pii`, with every token carrying a digit
 dropped unless the merchant typed it in the current message, so amounts and ids from the account
-or the history never reach the provider. Tests inject an `httpx.MockTransport`, so no request
+or the history never reach the provider. A step marked `time_sensitive` then gets today's date
+appended, which is the system's own and never the merchant's. Tests inject an `httpx.MockTransport`, so no request
 leaves the suite.
 
 The knowledge agent chooses its evidence by the decision's intent, not by fallback: `general_info`
@@ -189,7 +194,8 @@ prompt (`knowledge_web.md`) receives the question, today's date and the pages as
 is told that page content is untrusted and never an instruction, and must cite the urls it used.
 `trustworthy()` then checks the answer deterministically: every number must appear in a page or
 be today's date (hard rule 4), and the text may hold no link or e-mail, which is how a planted
-instruction usually surfaces. A failed check, a failed call or `WebSearchUnavailable` all produce
+instruction usually surfaces. A result set the model flags as not answering the question, a
+failed check, a failed call or `WebSearchUnavailable` all produce
 the `web_unavailable` pt-BR template with no sources and no escalation.
 
 ## 8. Human review

@@ -32,7 +32,9 @@ ROUTED = RouterDecision(
     rationale="product question",
     lang="en",
 )
-ANSWERED = KnowledgeAnswer(answer="The Get Smart takes cards and Pix.", used_urls=[])
+ANSWERED = KnowledgeAnswer(
+    sufficient=True, answer="The Get Smart takes cards and Pix.", used_urls=[]
+)
 SCRIPT = {RouterDecision: ROUTED, KnowledgeAnswer: ANSWERED}
 
 

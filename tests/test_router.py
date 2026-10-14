@@ -87,3 +87,25 @@ def test_confidence_outside_the_unit_interval_is_rejected() -> None:
             confidence=1.4,
             rationale="fora do intervalo",
         )
+
+
+async def test_a_search_that_invents_an_identifier_is_dropped() -> None:
+    """Per-item searches get the same check as the rewrite: no number the merchant never wrote."""
+    step = PlanStep(
+        agent=TargetAgent.KNOWLEDGE,
+        query_pt="diferença entre a Get Clássica e a Get Smart",
+        search_queries=["maquininha Get Clássica", "maquininha Get Smart 2025"],
+    )
+    decision = RouterDecision(
+        intent=Intent.PRODUCT_INFO, steps=[step], confidence=0.9, rationale="comparação"
+    )
+    state = GraphState(message="Get Clássica ou Get Smart?", user_id="cliente1988")
+
+    update = await route(state, StubProvider(decision), window=6)
+
+    assert update["route"].steps[0].search_queries == ["maquininha Get Clássica"]
+
+
+def test_a_plan_step_takes_at_most_three_searches() -> None:
+    with pytest.raises(ValueError):
+        PlanStep(agent=TargetAgent.KNOWLEDGE, search_queries=["a", "b", "c", "d"])

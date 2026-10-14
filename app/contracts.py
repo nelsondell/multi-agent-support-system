@@ -43,6 +43,7 @@ class EscalationReason(StrEnum):
     LOW_ROUTER_CONFIDENCE = "low_router_confidence"
     REPEATED_MISROUTE = "repeated_misroute"
     LOW_RETRIEVAL_CONFIDENCE = "low_retrieval_confidence"
+    INSUFFICIENT_SOURCES = "insufficient_sources"
     INDIVIDUAL_CASE = "individual_case"
     AGENT_NOT_IMPLEMENTED = "agent_not_implemented"
 

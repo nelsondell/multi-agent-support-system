@@ -20,7 +20,7 @@ from app.graph.guardrail import after_guardrail
 from app.graph.guardrail import inspect as guardrail_inspect
 from app.graph.human_review import await_operator, prepare_handoff
 from app.graph.knowledge import answer as knowledge_answer
-from app.graph.knowledge import answer_from_web
+from app.graph.knowledge import answer_from_web, retrieve
 from app.graph.memory import remember
 from app.graph.router import route
 from app.graph.state import GraphState, StepResult
@@ -55,8 +55,7 @@ async def knowledge(
     """
     if state.route is not None and state.route.intent is Intent.GENERAL_INFO:
         return await answer_from_web(state, provider, web)
-    query = state.current_query()
-    return await knowledge_answer(state, provider, retriever.search(query), threshold)
+    return await knowledge_answer(state, provider, retrieve(state, retriever), threshold)
 
 
 def after_specialist(state: GraphState, max_hops: int) -> Literal["router", "collect"]:

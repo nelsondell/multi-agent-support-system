@@ -74,12 +74,14 @@ def decide(intent: Intent, agent: TargetAgent, query: str) -> RouterDecision:
     )
 
 
-def general(query: str) -> RouterDecision:
-    return decide(Intent.GENERAL_INFO, TargetAgent.KNOWLEDGE, query)
+def general(query: str, time_sensitive: bool = False) -> RouterDecision:
+    decision = decide(Intent.GENERAL_INFO, TargetAgent.KNOWLEDGE, query)
+    step = decision.steps[0].model_copy(update={"time_sensitive": time_sensitive})
+    return decision.model_copy(update={"steps": [step]})
 
 
 def web_answer(text: str, *urls: str) -> KnowledgeAnswer:
-    return KnowledgeAnswer(answer=text, used_urls=list(urls))
+    return KnowledgeAnswer(sufficient=True, answer=text, used_urls=list(urls))
 
 
 @pytest.fixture
@@ -312,3 +314,34 @@ async def test_results_are_capped_at_the_configured_maximum(run, web_search):
 
     assert sent[0]["max_results"] == Settings().web_search_max_results == 3
     assert len(json.loads(model.inputs("KnowledgeAnswer")[0])["results"]) == 3
+
+
+async def test_a_time_sensitive_query_carries_todays_date(run, web_search):
+    """A search engine cannot resolve "amanhã"; a dated query finds the page for the right day."""
+    web, sent = web_search([WEATHER])
+    reply = "Segundo o site consultado, amanhã Porto Alegre terá máxima de 24°C e mínima de 15°C."
+    model = Model(
+        {
+            RouterDecision: general("previsão do tempo em Porto Alegre amanhã", True),
+            KnowledgeAnswer: web_answer(reply, WEATHER["url"]),
+        }
+    )
+
+    await run(model, web, "What's the weather forecast in Porto Alegre tomorrow?")
+
+    assert sent[0]["query"] == "previsão do tempo em Porto Alegre amanhã 14/10/2026"
+
+
+async def test_results_that_do_not_answer_degrade_instead_of_answering(run, web_search):
+    web, _ = web_search([WEATHER])
+    stale = KnowledgeAnswer(
+        sufficient=False, answer="A página é de outro dia.", used_urls=[WEATHER["url"]]
+    )
+    model = Model(
+        {RouterDecision: general("previsão do tempo amanhã", True), KnowledgeAnswer: stale}
+    )
+
+    response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
+
+    assert response.answer == UNAVAILABLE
+    assert response.sources == [] and not response.escalated

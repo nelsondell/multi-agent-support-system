@@ -1,0 +1,37 @@
+{"id": "I01", "group": "in_domain", "query": "Qual é a diferença entre a maquininha Get Clássica e a Get Smart?"}
+{"id": "I02", "group": "in_domain", "query": "É necessário ter uma conta bancária para receber as vendas via Pix?"}
+{"id": "I03", "group": "in_domain", "query": "Como funciona a antecipação de recebíveis na Getnet?"}
+{"id": "I04", "group": "in_domain", "query": "Em quantas parcelas posso dividir uma venda no crediário?"}
+{"id": "I05", "group": "in_domain", "query": "É possível vender pelo WhatsApp usando o Link de Pagamento?"}
+{"id": "I06", "group": "in_domain", "query": "Até quantas parcelas posso fazer e como sei os juros para informar ao cliente?"}
+{"id": "I07", "group": "in_domain", "query": "O que é o chip Algar?"}
+{"id": "I08", "group": "in_domain", "query": "Como coloco o chip na maquininha?"}
+{"id": "I09", "group": "in_domain", "query": "Quem pode abrir uma Get Conta?"}
+{"id": "I10", "group": "in_domain", "query": "Quais modalidades de crédito parcelado estão disponíveis?"}
+{"id": "I11", "group": "in_domain", "query": "Como fazer um Pix pela Get Conta?"}
+{"id": "I12", "group": "in_domain", "query": "O que é chargeback?"}
+{"id": "I13", "group": "in_domain", "query": "Como faço uma venda digitada?"}
+{"id": "I14", "group": "in_domain", "query": "Como funciona a pré-autorização?"}
+{"id": "I15", "group": "in_domain", "query": "Por quanto tempo ainda posso usar a máquina depois de pedir o cancelamento?"}
+{"id": "I16", "group": "in_domain", "query": "Como o aluguel é cobrado depois do cancelamento da máquina?"}
+{"id": "I17", "group": "in_domain", "query": "O que é NFC e por que preciso dele no celular?"}
+{"id": "I18", "group": "in_domain", "query": "Qual é a mensalidade da Get Smart?"}
+{"id": "I19", "group": "in_domain", "query": "Como cuidar da bateria da Get Smart para durar mais?"}
+{"id": "I20", "group": "in_domain", "query": "O que é cessão de recebíveis?"}
+{"id": "I21", "group": "in_domain", "query": "O cliente do Link de Pagamento pode receber em D+2?"}
+{"id": "I22", "group": "in_domain", "query": "Quais formas de pagamento são aceitas na solução de dívidas?"}
+{"id": "O01", "group": "out_of_domain", "query": "Qual é a previsão do tempo em Porto Alegre amanhã?"}
+{"id": "O02", "group": "out_of_domain", "query": "Qual foi o resultado do jogo do Grêmio ontem?"}
+{"id": "O03", "group": "out_of_domain", "query": "Como trocar o óleo do carro?"}
+{"id": "O04", "group": "out_of_domain", "query": "Qual é a capital da Austrália?"}
+{"id": "O05", "group": "out_of_domain", "query": "Você pode indicar um bom contador em Porto Alegre?"}
+{"id": "O06", "group": "out_of_domain", "query": "Qual é a cotação do euro hoje?"}
+{"id": "O07", "group": "out_of_domain", "query": "Como fazer um bolo de cenoura?"}
+{"id": "O08", "group": "out_of_domain", "query": "Quem ganhou a Copa do Mundo de 2002?"}
+{"id": "O09", "group": "out_of_domain", "query": "Qual foi o melhor filme de 2025?"}
+{"id": "O10", "group": "out_of_domain", "query": "Como declarar o imposto de renda de pessoa física?"}
+{"id": "O11", "group": "out_of_domain", "query": "Qual é o horário de funcionamento dos Correios?"}
+{"id": "O12", "group": "out_of_domain", "query": "Como emitir a segunda via da conta de luz?"}
+{"id": "O13", "group": "out_of_domain", "query": "Qual é a taxa Selic atual?"}
+{"id": "O14", "group": "out_of_domain", "query": "Quanto custa uma passagem de ônibus em São Paulo?"}
+{"id": "O15", "group": "out_of_domain", "query": "Qual é a distância da Terra até a Lua?"}

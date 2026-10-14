@@ -36,6 +36,12 @@ class PlanStep(BaseModel):
     query_pt: str = ""
     """That part as a standalone Portuguese question: translated when needed, with references
     to earlier turns resolved. The specialist sees this, never the history."""
+    search_queries: list[str] = Field(default_factory=list, max_length=3)
+    """For a knowledge step that compares or combines products: one short search per item, such
+    as "maquininha Get Smart". Retrieval runs them beside `query_pt`. Empty otherwise."""
+    time_sensitive: bool = False
+    """For a general-information step whose answer depends on the day, such as a forecast or an
+    exchange rate: the web query then carries today's date."""
 
 
 class RouterDecision(BaseModel):
@@ -87,18 +93,20 @@ def invented_identifiers(rewrite: str, conversation: str) -> set[str]:
 
 
 def _grounded_step(step: PlanStep, message: str, conversation: str) -> PlanStep:
-    """Keep a step's rewrite only if every identifier in it came from the conversation.
+    """Keep a step's rewrite and searches only where every identifier came from the conversation.
 
     A rewrite that introduces a number, date, protocol or merchant id is the model inventing
-    one; the original message is the safer query.
+    one; the original message is the safer query, and such a search is simply dropped.
     """
-    if not step.query_pt:
-        return step.model_copy(update={"query_pt": message})
-    invented = invented_identifiers(step.query_pt, conversation)
-    if not invented:
-        return step
-    events.warning("router.rewrite_rejected", invented_count=len(invented))
-    return step.model_copy(update={"query_pt": message})
+    query = step.query_pt or message
+    invented = invented_identifiers(query, conversation)
+    if invented:
+        events.warning("router.rewrite_rejected", invented_count=len(invented))
+        query = message
+    searches = [
+        search for search in step.search_queries if not invented_identifiers(search, conversation)
+    ]
+    return step.model_copy(update={"query_pt": query, "search_queries": searches})
 
 
 def _grounded(decision: RouterDecision, state: GraphState, window: int) -> RouterDecision:
@@ -130,6 +138,7 @@ async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[s
         "router.rewrite",
         message=state.masked_message or state.message,
         standalone_query=" | ".join(step.query_pt for step in decision.steps),
+        searches=" | ".join(search for step in decision.steps for search in step.search_queries),
     )
     return {
         "route": decision,

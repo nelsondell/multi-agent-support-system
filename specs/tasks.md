@@ -229,6 +229,21 @@ without reasoning reject an effort. The effort defaults to `low` unless a temper
 with `LLM_TEMPERATURE=0` sends a temperature and no effort; setting both fails at start-up; an
 empty value in `.env` counts as unset; the benchmark table is committed.
 
+### T-29 — `fix(T-29): gate knowledge answers on sufficiency and calibrate the threshold`
+`PlanStep.search_queries` carries one search per compared item; each query's lists are fused with
+RRF and the per-query rankings interleaved. `KnowledgeAnswer.sufficient` makes "the excerpts do
+not answer" a refusal (`insufficient_sources`), so it reaches a human with a protocol instead of
+the merchant as an answer; web results flagged the same way degrade. An unreachable embedder
+abstains. `evals/run_retrieval_calibration.py` measures in-domain against out-of-domain confidence
+for the local model, `text-embedding-3-small` and `text-embedding-3-large`, and writes
+`evals/retrieval_calibration.md`; the embedder and threshold defaults follow from it. The knowledge
+prompt drops the "Fonte:" lines. `PlanStep.time_sensitive` web queries carry today's date.
+**Done when:** a comparison retrieves each item's page where the question alone does not; an
+insufficient answer escalates with a protocol and its text never reaches the merchant; an
+unreachable embedder abstains instead of raising; the calibration report is committed and the
+README states whether the chosen embedder separates the groups; a time-sensitive web query ends
+with today's date; CI still runs keyless on the local embedder.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -242,7 +257,7 @@ empty value in `.env` counts as unset; the benchmark table is committed.
 | Tests / quality (9.2) | T-24, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
 | Security / isolation (9.5) | T-19, T-21, T-23 |
-| RAG / knowledge (9.8) | T-16, T-23 |
+| RAG / knowledge (9.8) | T-16, T-23, T-29 |
 | Trade-offs / engineering (10.0) | T-27, T-28 |
 
 Outside the task list: the pull request that merges v2 into `main` after T-27 (plan §15), and,

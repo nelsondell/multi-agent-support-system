@@ -3,11 +3,16 @@
 import pytest
 
 from app.contracts import EscalationReason, Intent, TargetAgent
-from app.graph.knowledge import KnowledgeAnswer, answer, format_context
+from app.graph.knowledge import KnowledgeAnswer, answer, format_context, retrieve
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
+from app.prompts import load_prompt
 from app.providers.llm import LLMProviderError
-from app.rag.retrieve import Hit, RetrievalResult
+from app.rag.retrieve import Hit, HybridRetriever, RetrievalResult
+from tests.conftest import UnreachableCollection
+
+CREDIARIO = "https://site.getnet.com.br/crediario/"
+GET_TAP = "https://site.getnet.com.br/get-tap/"
 
 
 class StubProvider:
@@ -51,6 +56,7 @@ async def test_answer_cites_only_retrieved_urls(sample_chunks) -> None:
     chunks = sample_chunks[:2]
     provider = StubProvider(
         KnowledgeAnswer(
+            sufficient=True,
             answer="A antecipação adianta o valor das suas vendas a prazo.",
             used_urls=[chunks[0].url, "https://exemplo-inventado.com/"],
         )
@@ -66,7 +72,9 @@ async def test_answer_cites_only_retrieved_urls(sample_chunks) -> None:
 
 async def test_below_threshold_refuses_without_calling_the_model(sample_chunks) -> None:
     """No retrieval confidence means no generation at all, not a hedged answer."""
-    provider = StubProvider(KnowledgeAnswer(answer="não deveria ser gerado", used_urls=[]))
+    provider = StubProvider(
+        KnowledgeAnswer(sufficient=True, answer="não deveria ser gerado", used_urls=[])
+    )
 
     update = await answer(
         _state("cotação do euro"), provider, _result(sample_chunks[:1], 0.05), 0.35
@@ -98,7 +106,7 @@ def test_context_labels_every_chunk_with_its_url(sample_chunks) -> None:
 @pytest.mark.parametrize("threshold", [0.35, 0.9])
 async def test_retrieved_query_is_the_routers_portuguese_query(sample_chunks, threshold) -> None:
     """Retrieval and generation run on query_pt, not on the raw English message."""
-    provider = StubProvider(KnowledgeAnswer(answer="ok", used_urls=[]))
+    provider = StubProvider(KnowledgeAnswer(sufficient=True, answer="ok", used_urls=[]))
     state = _state()
     step = PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt="antecipação de recebíveis")
     state.route = state.route.model_copy(update={"steps": [step]})
@@ -106,3 +114,39 @@ async def test_retrieved_query_is_the_routers_portuguese_query(sample_chunks, th
     await answer(state, provider, _result(sample_chunks[:1], 0.95), threshold)
 
     assert "antecipação de recebíveis" in provider.calls[0]
+
+
+async def test_excerpts_that_do_not_answer_abstain_instead_of_saying_so(sample_chunks) -> None:
+    """ "Not found in the excerpts" is not an answer: the step goes to a human instead."""
+    provider = StubProvider(
+        KnowledgeAnswer(sufficient=False, answer="Não encontrei isso nos trechos.", used_urls=[])
+    )
+
+    update = await answer(_state(), provider, _result(sample_chunks[:2], 0.8), threshold=0.35)
+
+    assert update["refusal_reason"] == EscalationReason.INSUFFICIENT_SOURCES.value
+    assert update["answer"] == load_prompt("no_knowledge").text
+    assert update["sources"] == []
+    assert update["consulted"], "the operator still sees what was looked at"
+
+
+def test_the_steps_item_searches_reach_the_retriever(sample_chunks, fake_collection) -> None:
+    state = _state("qual a diferença entre o crediário e o get tap?")
+    step = state.route.steps[0].model_copy(update={"search_queries": ["crediário", "get tap"]})
+    state.route = state.route.model_copy(update={"steps": [step]})
+
+    result = retrieve(state, HybridRetriever(sample_chunks, fake_collection(), top_k=3))
+
+    assert {CREDIARIO, GET_TAP} <= {hit.chunk.url for hit in result.hits}
+
+
+def test_an_unreachable_embedder_reads_as_nothing_retrieved(sample_chunks) -> None:
+    """The step then abstains below any threshold, instead of raising out of the graph."""
+    result = retrieve(_state(), HybridRetriever(sample_chunks, UnreachableCollection(), top_k=5))
+
+    assert result.hits == [] and result.confidence == 0.0
+
+
+def test_the_prompt_no_longer_asks_for_source_lines() -> None:
+    """Sources travel in `used_urls` and the response's `sources`, not inside the text."""
+    assert "Fonte: " not in load_prompt("knowledge").text

@@ -34,6 +34,7 @@ STOPPED_BECAUSE = {
     EscalationReason.LOW_ROUTER_CONFIDENCE: "router confidence was below the threshold",
     EscalationReason.REPEATED_MISROUTE: "both specialists declined the request",
     EscalationReason.LOW_RETRIEVAL_CONFIDENCE: "no retrieved passage was close enough to answer",
+    EscalationReason.INSUFFICIENT_SOURCES: "the retrieved passages do not answer the question",
     EscalationReason.INDIVIDUAL_CASE: "an individual case, which only a person may decide",
     EscalationReason.AGENT_NOT_IMPLEMENTED: "a model call failed before the specialist finished",
 }

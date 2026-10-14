@@ -70,7 +70,9 @@ def model(**overrides) -> Model:
         RouterDecision: routed,
         SupportPlan: SupportPlan(action=SupportAction.ESCALATE_INDIVIDUAL_CASE),
         SupportAnswer: SupportAnswer(answer="Forecast found in the account."),
-        KnowledgeAnswer: KnowledgeAnswer(answer="It takes cards and Pix.", used_urls=[]),
+        KnowledgeAnswer: KnowledgeAnswer(
+            sufficient=True, answer="It takes cards and Pix.", used_urls=[]
+        ),
         HandoffDraft: HandoffDraft(draft=DRAFT),
         OperatorReply: lambda user: OperatorReply(answer=json.loads(user)["operator_answer"]),
     }
@@ -341,3 +343,20 @@ async def test_resuming_a_closed_case_is_409(stack):
         second = await http.post(route, json={"action": "approve"}, headers=OPERATOR)
 
     assert second.status_code == 409
+
+
+async def test_a_product_question_the_excerpts_do_not_answer_goes_to_a_human(stack):
+    """The model's "not found" never reaches the merchant as an answer; a protocol does."""
+    unanswered = KnowledgeAnswer(
+        sufficient=False, answer="Não encontrei isso nos trechos.", used_urls=[]
+    )
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model(KnowledgeAnswer=unanswered))
+        paused = await chat(http, "A Get Smart funciona sem internet?")
+        listed = (await http.get("/handoffs", headers=OPERATOR)).json()
+
+    assert paused["status"] == "pending_human"
+    assert paused["escalation"]["reason"] == "insufficient_sources"
+    assert PROTOCOL in paused["answer"]
+    assert "Não encontrei isso nos trechos" not in paused["answer"]
+    assert [case["case"]["protocol"] for case in listed] == [PROTOCOL]

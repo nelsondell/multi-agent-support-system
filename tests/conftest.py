@@ -50,6 +50,13 @@ class FakeCollection:
         return len(terms & chunk_terms) / len(terms)
 
 
+class UnreachableCollection:
+    """A dense side whose embedder cannot be reached, as when its API is down."""
+
+    def query(self, query_texts: list[str], n_results: int) -> dict:
+        raise ConnectionError("embedding api unreachable")
+
+
 @pytest.fixture
 def fake_collection(sample_chunks):
     """Factory for a dense side with controllable similarities."""

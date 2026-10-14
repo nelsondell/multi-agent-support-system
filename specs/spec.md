@@ -173,10 +173,13 @@ Portuguese query.
 
 Retrieval is hybrid: dense (Chroma) crosses an English question into the Portuguese corpus, BM25
 pins exact product names such as "Get Smart" versus "Get Mini". Results are fused with
-Reciprocal Rank Fusion.
+Reciprocal Rank Fusion. A comparison also runs one short search per item, so each product's own
+page is retrieved.
 
-If the fused top score is below the retrieval threshold, the knowledge agent **generates
-nothing**. It states in pt-BR that the answer is not in its base and the case goes to a human.
+If the best dense similarity is below the retrieval threshold, calibrated per embedder, the
+knowledge agent **generates nothing**. It states in pt-BR that the answer is not in its base and
+the case goes to a human. The same happens when the model reports, in a structured flag, that the
+retrieved text does not answer the question: "not found" is never returned as an answer.
 
 Web search answers **general-purpose questions only**: those the router labels `general_info`,
 such as weather and exchange rates. It is never a fallback for a product question the corpus
@@ -247,7 +250,7 @@ exchange-rate questions now have an answer (§7).
 summary, and writes one structured log line. The typed reason doubles as the operational metric.
 
 Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`,
-`individual_case`, `agent_not_implemented`.
+`insufficient_sources`, `individual_case`, `agent_not_implemented`.
 
 **human_review** takes every escalated turn:
 

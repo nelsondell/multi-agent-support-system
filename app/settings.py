@@ -26,7 +26,8 @@ class Settings(BaseSettings):
     llm_reasoning_effort: ReasoningEffort | None = None
     """Sent only to reasoning models. Resolves to `low` unless a temperature is set, because a
     temperature means a model without reasoning, which rejects this parameter."""
-    embedding_model: str = "text-embedding-3-small"
+    embedding_model: str = "text-embedding-3-large"
+    """Chosen by measurement: `evals/retrieval_calibration.md`."""
     embedding_backend: Literal["auto", "local", "openai"] = "auto"
     """Which embedder the index is built and queried with.
 
@@ -34,12 +35,11 @@ class Settings(BaseSettings):
     identity, so adding an API key must not silently change it under a built index."""
 
     router_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
-    retrieval_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
-    """Not yet calibrated. Measured on the local fallback embedder, in-domain queries score
-    0.59-0.70 and out-of-domain ones 0.50-0.55, so this signal cannot carry out-of-domain
-    rejection: that is the guardrail's job. This threshold only catches in-domain questions
-    the corpus does not cover, and it must be re-measured against whichever embedder is
-    configured."""
+    retrieval_confidence_threshold: float = Field(default=0.52, ge=0.0, le=1.0)
+    """Calibrated for text-embedding-3-large in `evals/retrieval_calibration.md`: the midpoint of
+    the gap between the highest out-of-domain score (0.464) and the lowest in-domain one (0.574).
+    It belongs to that embedder. The local fallback embedder separates nothing, so with it no
+    threshold can do this job and the knowledge answer's sufficiency flag is the only gate."""
     max_hops: int = Field(default=2, ge=1)
 
     index_path: str = "data/processed/chroma"
