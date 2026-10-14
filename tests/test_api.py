@@ -4,6 +4,8 @@ TestClient is used without its context manager on purpose, so the lifespan does 
 graph is injected instead of built from a real key and a real index.
 """
 
+import re
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -57,6 +59,7 @@ def test_knowledge_answer_comes_back_with_its_sources(client) -> None:
         json={"message": "How many installments with the crediário?", "user_id": CALLER},
     ).json()
 
+    assert body["conversation_id"]
     assert body["escalated"] is False
     assert body["target_agent"] == "knowledge"
     assert body["sources"] and body["sources"][0]["url"].startswith("https://")
@@ -83,6 +86,7 @@ def test_support_answer_uses_the_tool_result(client) -> None:
         json={"message": "When will yesterday's sales be deposited?", "user_id": CALLER},
     ).json()
 
+    assert body["conversation_id"]
     assert body["escalated"] is False
     assert body["target_agent"] == "support"
     assert body["sources"] == []
@@ -95,6 +99,7 @@ def test_low_router_confidence_escalates_without_naming_an_agent(client) -> None
 
     body = http.post("/chat", json={"message": "hmm, sei lá", "user_id": CALLER}).json()
 
+    assert body["conversation_id"]
     assert body["escalated"] is True
     assert body["target_agent"] is None
     assert body["escalation"]["reason"] == "low_router_confidence"
@@ -109,6 +114,7 @@ def test_guardrail_refusal_is_a_complete_response(client) -> None:
         "/chat", json={"message": "What's the weather forecast tomorrow?", "user_id": CALLER}
     ).json()
 
+    assert body["conversation_id"]
     assert body["escalated"] is False
     assert body["target_agent"] is None
     assert body["sources"] == []
@@ -118,3 +124,28 @@ def test_guardrail_refusal_is_a_complete_response(client) -> None:
 def test_malformed_payload_is_rejected() -> None:
     """The contract is enforced at the door."""
     assert TestClient(app).post("/chat", json={"message": "", "user_id": ""}).status_code == 422
+
+
+def test_a_conversation_id_is_minted_when_absent_and_echoed_when_given(client) -> None:
+    """The caller continues a conversation by sending back the id the first answer carried."""
+    http = client(
+        {
+            RouterDecision: _router(TargetAgent.KNOWLEDGE, Intent.PRODUCT_INFO),
+            KnowledgeAnswer: KnowledgeAnswer(answer="It takes cards and Pix.", used_urls=[]),
+        }
+    )
+    question = {"message": "What is the Get Smart?", "user_id": CALLER}
+
+    minted = http.post("/chat", json=question).json()["conversation_id"]
+    echoed = http.post("/chat", json={**question, "conversation_id": "order-42"}).json()
+
+    assert re.fullmatch(r"[0-9a-f]{32}", minted)
+    assert echoed["conversation_id"] == "order-42"
+
+
+@pytest.mark.parametrize("conversation_id", ["", "../other", "x" * 65, "has space"])
+def test_a_malformed_conversation_id_is_rejected(conversation_id: str) -> None:
+    """Only short ids of letters, digits, dash and underscore name a conversation."""
+    payload = {"message": "oi", "user_id": CALLER, "conversation_id": conversation_id}
+
+    assert TestClient(app).post("/chat", json=payload).status_code == 422

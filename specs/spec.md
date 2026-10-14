@@ -266,7 +266,8 @@ is why user-facing message templates live under `app/prompts/` rather than inlin
 **Run from a clean clone.** `cp .env.example .env && docker compose up` serves the API. The image
 needs no API key at build time. On first boot the container builds the index from the committed
 snapshot into a named volume and skips that step when the index exists. Conversation state lives
-in a second named volume. A `Makefile` wraps up, test, eval and demo.
+in a second named volume, so rebuilding the index never deletes a conversation. A `Makefile`
+wraps up, test, eval and demo.
 
 **CI.** A GitHub Actions workflow runs ruff, pytest, a docker build, then starts the container
 with a fake LLM backend and smoke-tests `/health` and one `/chat`.

@@ -7,9 +7,12 @@ services:
     # Every setting is documented in .env.example; `cp .env.example .env` is the whole setup.
     env_file: .env
     volumes:
-      # Built by the container on first boot from the committed corpus snapshot, reused after.
-      # Read-write because Chroma opens its SQLite store read-write even to serve queries.
+      # The index: built on first boot from the committed corpus snapshot, reused after. Read-write
+      # because Chroma opens its SQLite store read-write even to serve queries.
       - index:/app/data/processed
+      # The conversation checkpoints. A volume of their own, so dropping the index to rebuild it
+      # never deletes a conversation.
+      - state:/app/data/state
     healthcheck:
       test:
         - CMD
@@ -25,3 +28,4 @@ services:
 
 volumes:
   index:
+  state:

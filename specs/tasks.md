@@ -128,7 +128,7 @@ requests; the workflow passes on GitHub; the badge is green.
 Optional `conversation_id` on the request, returned in every response. `app/graph/memory.py`
 with the thread key, `turn_input()`, the `remember` node, the history window and the summary
 fold. `messages` and `summary` in state. `AsyncSqliteSaver` opened in the lifespan at
-`STATE_DIR`; compose gains the state volume.
+`STATE_DIR`; compose gains a `state` volume, separate from the index.
 **Done when:** offline tests show a second turn finds the first in `messages`; a graph rebuilt
 over the same SQLite file continues the conversation; the same `conversation_id` under another
 `user_id` starts empty; per-turn fields do not leak into the next turn; a guardrail-blocked turn

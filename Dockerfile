@@ -32,9 +32,10 @@ COPY --from=builder --chown=appuser:appuser /app/.venv /app/.venv
 COPY --from=builder --chown=appuser:appuser /app/app /app/app
 COPY --from=builder --chown=appuser:appuser /app/data /app/data
 
-# The index volume mounts here. Creating the directory owned by appuser makes Docker initialise a
-# fresh named volume with that ownership, so the non-root process can write the first build.
-RUN mkdir -p /app/data/processed && chown appuser:appuser /app/data/processed
+# The index and state volumes mount here. Creating the directories owned by appuser makes Docker
+# initialise fresh named volumes with that ownership, so the non-root process can write to them.
+RUN mkdir -p /app/data/processed /app/data/state \
+    && chown appuser:appuser /app/data/processed /app/data/state
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

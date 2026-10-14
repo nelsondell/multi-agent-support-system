@@ -1,18 +1,22 @@
 """Graph assembly.
 
 Routing policy is readable here rather than hidden inside nodes: the confidence threshold is the
-conditional edge out of the router, and the specialists are separate destinations.
+conditional edge out of the router, and the specialists are separate destinations. Persistence is
+attached here too, and only here: the checkpointer arrives from the caller and no node sees it.
 """
 
+from collections.abc import Callable
 from functools import partial
 from typing import Any, Literal
 
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.escalation import escalate
 from app.graph.guardrail import after_guardrail
 from app.graph.guardrail import inspect as guardrail_inspect
 from app.graph.knowledge import answer as knowledge_answer
+from app.graph.memory import remember
 from app.graph.router import route
 from app.graph.state import GraphState
 from app.graph.support import answer as support_answer
@@ -61,10 +65,11 @@ async def support(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     return await support_answer(state, provider)
 
 
-def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetriever):
-    """Compile the orchestration graph."""
-    graph = StateGraph(GraphState)
-    nodes = {
+def graph_nodes(
+    provider: LLMProvider, settings: Settings, retriever: HybridRetriever
+) -> dict[str, Callable]:
+    """Every node of the graph, with its dependencies bound."""
+    return {
         "guardrail": guardrail_inspect,
         "router": partial(route, provider=provider),
         "knowledge": partial(
@@ -75,8 +80,24 @@ def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetr
         ),
         "support": partial(support, provider=provider),
         "escalate": escalate,
+        "remember": partial(
+            remember,
+            provider=provider,
+            window=settings.history_window,
+            limit=settings.history_max_messages,
+        ),
     }
-    for name, node in nodes.items():
+
+
+def build_graph(
+    provider: LLMProvider,
+    settings: Settings,
+    retriever: HybridRetriever,
+    checkpointer: BaseCheckpointSaver | None = None,
+):
+    """Compile the orchestration graph, persisting each thread when a checkpointer is given."""
+    graph = StateGraph(GraphState)
+    for name, node in graph_nodes(provider, settings, retriever).items():
         graph.add_node(name, instrument_node(name, node))
 
     graph.add_edge(START, "guardrail")
@@ -87,8 +108,10 @@ def build_graph(provider: LLMProvider, settings: Settings, retriever: HybridRetr
         {"knowledge": "knowledge", "support": "support", "escalate": "escalate"},
     )
     outcome = partial(after_specialist, max_hops=settings.max_hops)
-    destinations = {"router": "router", "escalate": "escalate", "done": END}
+    destinations = {"router": "router", "escalate": "escalate", "done": "remember"}
     graph.add_conditional_edges("knowledge", outcome, destinations)
     graph.add_conditional_edges("support", outcome, destinations)
-    graph.add_edge("escalate", END)
-    return graph.compile()
+    # A guardrail block goes straight to END above, so a refused message is never remembered.
+    graph.add_edge("escalate", "remember")
+    graph.add_edge("remember", END)
+    return graph.compile(checkpointer=checkpointer)

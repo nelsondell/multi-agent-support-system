@@ -7,8 +7,10 @@ from uuid import uuid4
 import structlog
 from fastapi import FastAPI
 
+from app.checkpoints import open_checkpointer
 from app.contracts import ChatRequest, ChatResponse, EscalationReason, Intent
 from app.graph.build import build_graph
+from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
 from app.observability import configure_logging
 from app.providers.llm import build_provider
@@ -18,21 +20,24 @@ from app.settings import get_settings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Build the provider and compile the graph once, failing fast on bad configuration.
+    """Build the provider, open the conversation store and compile the graph once, failing fast
+    on bad configuration.
 
     The index is never built here: a missing one raises with the command that creates it.
     """
     configure_logging()
     settings = get_settings()
     retriever = HybridRetriever.from_settings(settings)
-    app.state.graph = build_graph(build_provider(settings), settings, retriever)
-    yield
+    provider = build_provider(settings)
+    async with open_checkpointer(settings) as checkpointer:
+        app.state.graph = build_graph(provider, settings, retriever, checkpointer)
+        yield
 
 
 app = FastAPI(title="Multi-agent support system", lifespan=lifespan)
 
 
-def to_response(final: dict[str, Any]) -> ChatResponse:
+def to_response(final: dict[str, Any], conversation_id: str) -> ChatResponse:
     """Project the terminal graph state onto the public contract."""
     state = GraphState.model_validate(final)
     decision = state.route
@@ -40,6 +45,7 @@ def to_response(final: dict[str, Any]) -> ChatResponse:
         state.escalation.reason is not EscalationReason.LOW_ROUTER_CONFIDENCE
     )
     return ChatResponse(
+        conversation_id=conversation_id,
         answer=state.answer or "",
         intent=decision.intent if decision else Intent.OTHER,
         target_agent=decision.target_agent if decision and reached_specialist else None,
@@ -52,12 +58,18 @@ def to_response(final: dict[str, Any]) -> ChatResponse:
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
-    """Answer a merchant message, or hand the case to a human."""
+    """Answer a merchant message inside its conversation, or hand the case to a human.
+
+    The thread is keyed by the authenticated `user_id` together with the conversation id, so a
+    conversation id alone never reaches another merchant's history.
+    """
     trace_id = uuid4().hex
-    structlog.contextvars.bind_contextvars(trace_id=trace_id)
+    conversation_id = request.conversation_id or uuid4().hex
+    structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
+    config = {"configurable": {"thread_id": thread_id(request.user_id, conversation_id)}}
     try:
-        initial = GraphState(message=request.message, user_id=request.user_id, trace_id=trace_id)
-        return to_response(await app.state.graph.ainvoke(initial))
+        turn = turn_input(request.message, request.user_id, trace_id)
+        return to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
     finally:
         structlog.contextvars.clear_contextvars()
 

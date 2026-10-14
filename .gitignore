@@ -2,6 +2,7 @@ docs/_local/
 .env
 data/raw/
 data/processed/
+data/state/
 __pycache__/
 .venv/
 .pytest_cache/

@@ -59,16 +59,23 @@ class Escalation(BaseModel):
     summary: str
 
 
+CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
+
+
 class ChatRequest(BaseModel):
     """Inbound payload. `user_id` is taken as already authenticated."""
 
     message: str = Field(min_length=1)
     user_id: str = Field(min_length=1)
+    conversation_id: str | None = Field(default=None, pattern=CONVERSATION_ID_PATTERN)
+    """Continues a conversation when given; the server starts a new one when absent. It only
+    names a thread together with `user_id`, never on its own."""
 
 
 class ChatResponse(BaseModel):
     """Outbound payload. `answer` is always Brazilian Portuguese."""
 
+    conversation_id: str
     answer: str
     intent: Intent
     target_agent: TargetAgent | None = None

@@ -8,6 +8,7 @@ app/
   contracts.py         API and cross-node Pydantic models, typed enums
   main.py              FastAPI: POST /chat, GET /health, GET /metrics; lifespan wiring
   operator.py          GET /handoffs, POST /handoffs/{protocol}/resume, bearer check
+  checkpoints.py       the conversation store: SQLite saver with a restricted deserializer
   handoffs.py          the handoff queue: one SQLite table, plain functions
   graph/
     state.py           GraphState — conversation fields and per-turn fields
@@ -29,8 +30,9 @@ evals/                 routing golden set + runner, LLM-as-judge runner, committ
 tests/                 offline suite, mocked provider
 ```
 
-Dependencies added in v2: `langgraph-checkpoint-sqlite` (T-19), `aiosqlite` (T-21, used directly
-by the queue), `prometheus-client` and `langsmith` (T-26, imported directly). Web search calls the
+Dependencies added in v2: `langgraph-checkpoint-sqlite` and `aiosqlite` (T-19; `aiosqlite` is
+used directly by the store and later by the queue), `prometheus-client` and `langsmith` (T-26,
+imported directly). Web search calls the
 provider's REST API over `httpx`, which is already a dependency. No new framework.
 
 ## 2. Graph
@@ -92,10 +94,14 @@ decision.
 - **Checkpointer.** `AsyncSqliteSaver` opened in the API lifespan at `STATE_DIR/checkpoints.sqlite`
   and passed to `build_graph`, which passes it to `compile()`. Tests pass `InMemorySaver`, or a
   SQLite file under `tmp_path` for the restart case.
+- **Restricted decoding.** LangGraph's checkpoint decoder imports any type a checkpoint names
+  unless told otherwise. `app/checkpoints.py` gives the saver a serializer that allows only
+  LangGraph's safe set plus the application types the state holds, so a tampered checkpoint is
+  read back as plain data. A test keeps the allowlist equal to the types reachable from
+  `GraphState`.
 - **Thread key.** `memory.thread_id(user_id, conversation_id)` returns the SHA-256 hex digest of
-  both values joined by a separator byte that neither may contain. The separator prevents
-  `("ab", "c")` and `("a", "bc")` from colliding; the hash keeps the raw identifier out of the
-  checkpoint keys.
+  the pair encoded as a JSON array. The encoding keeps `("ab", "c")` and `("a", "bc")` from
+  colliding; the hash keeps the raw identifier out of the checkpoint keys.
 - **Remember.** The `remember` node appends the masked merchant turn and the reply to `messages`.
   It runs at the end of every answered or resumed turn, never after a guardrail block.
 - **Window and summary.** The router renders `summary` plus the last `HISTORY_WINDOW` messages
@@ -240,9 +246,9 @@ test suite.
 Multi-stage build with uv, no API key at build time. The image includes the committed corpus
 snapshot, and the local embedding model is fetched during the build so the first boot needs no
 download besides the LLM calls themselves. The container command runs
-`python -m app.rag.ingest --if-missing`, then starts uvicorn. Compose declares two named volumes
-(index, state), loads `.env`, and has a healthcheck whose start period covers the first index
-build.
+`python -m app.rag.ingest --if-missing`, then starts uvicorn. Compose declares two named volumes,
+`index` and `state`, so the index can be dropped and rebuilt without touching a conversation; it
+loads `.env` and has a healthcheck whose start period covers the first index build.
 
 `.github/workflows/ci.yml`, on push and pull request: `uv sync`, ruff, pytest, `docker build`,
 `docker run` with `LLM_BACKEND=fake`, wait for `/health`, post one `/chat` and validate the

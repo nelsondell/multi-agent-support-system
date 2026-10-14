@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,21 @@ class Settings(BaseSettings):
     index_path: str = "data/processed/chroma"
     collection_name: str = "getnet_kb"
     retrieval_top_k: int = 5
+
+    state_dir: str = "data/state"
+    """Conversation checkpoints. Apart from the index on purpose: in the container this is its own
+    named volume, so a restart keeps conversations and rebuilding the index never deletes them."""
+    history_window: int = Field(default=6, ge=2)
+    """Most recent messages kept verbatim. Older ones are folded into the rolling summary."""
+    history_max_messages: int = Field(default=12, ge=3)
+    """Once the history would pass this length, everything before the window is summarised."""
+
+    @model_validator(mode="after")
+    def check_history_bounds(self) -> "Settings":
+        """A window as large as the limit would never fold anything."""
+        if self.history_max_messages <= self.history_window:
+            raise ValueError("history_max_messages must be larger than history_window")
+        return self
 
 
 @lru_cache(maxsize=1)

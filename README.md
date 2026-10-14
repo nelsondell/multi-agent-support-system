@@ -45,6 +45,9 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | `INDEX_PATH` | `data/processed/chroma` | Persisted Chroma directory. |
 | `COLLECTION_NAME` | `getnet_kb` | Chroma collection. |
 | `RETRIEVAL_TOP_K` | `5` | Chunks passed to generation. |
+| `STATE_DIR` | `data/state` | Conversation checkpoints (SQLite); the `state` named volume in Docker. |
+| `HISTORY_WINDOW` | `6` | Most recent messages kept verbatim. |
+| `HISTORY_MAX_MESSAGES` | `12` | Past this length, older messages are folded into a rolling summary. |
 
 The embedder is deliberately configurable apart from the chat key: it is part of the index's
 identity, and adding a key must not silently change it under an index built without one.
@@ -64,9 +67,13 @@ the committed snapshot into the named volume `index`, then starts the API; every
 the index and goes straight to the API. The chunker's tokenizer and the local embedding model are
 fetched at build time, so that first build downloads nothing. The compose healthcheck polls
 `/health` with a start period that covers the first build. The image runs as a non-root user.
+Conversation checkpoints live in a second named volume, `state`, so a restart keeps every
+conversation and rebuilding the index never deletes one.
 
 `API_PORT` in `.env` changes the host port when 8000 is taken. Changing `EMBEDDING_BACKEND`
-changes the index's embedder, so it needs a rebuild: `docker compose down -v` drops the volume.
+changes the index's embedder, so it needs a rebuild: `docker compose down`, then remove only the
+index volume (`docker volume ls` lists it as `<project>_index`); the next boot rebuilds it.
+`docker compose down -v` would drop both volumes, conversations included.
 
 Verified on Docker 29.5 (Colima, linux/arm64): the image builds with no key; from a clean state
 the first boot indexes 148 chunks from the snapshot and turns healthy in about 10 seconds; a
@@ -134,9 +141,12 @@ Possessive phrasing decides nothing.
 
 ## 3. Message flow, from POST to response
 
-1. `POST /chat` validates `{message, user_id}`. `user_id` comes from the request envelope and is
-   treated as already authenticated.
-2. A `trace_id` is minted and bound to the logging context for the whole request.
+1. `POST /chat` validates `{message, user_id, conversation_id?}`. `user_id` comes from the
+   request envelope and is treated as already authenticated. Without a `conversation_id` the
+   server starts a new conversation and mints one.
+2. A `trace_id` is minted and bound to the logging context for the whole request. The thread key
+   is the SHA-256 of the `(user_id, conversation_id)` pair, so the same conversation id sent with
+   another `user_id` opens a different, empty thread. The turn input resets every per-turn field.
 3. **Guardrail** masks PII into `masked_message`, then classifies. `out_of_domain` and
    `identity_swap` are answered on the spot and never routed.
 4. **Router** emits a validated `RouterDecision` — `intent`, `target_agent`, `confidence`,
@@ -147,7 +157,11 @@ Possessive phrasing decides nothing.
    injected identity, and answers from the result — or escalates an individual case.
 7. **Escalate** is deterministic and model-free: it mints a protocol, attaches a typed reason and a
    masked summary, and composes the handoff message.
-8. The terminal state is projected onto `ChatResponse`, which validates its own consistency: the
+8. **Remember** appends the masked merchant turn and the reply to the thread's `messages`. A
+   message the guardrail refused never gets here. Once the history passes
+   `HISTORY_MAX_MESSAGES`, everything before the last `HISTORY_WINDOW` messages is folded into a
+   rolling `summary` by one structured call; if that call fails, nothing is dropped.
+9. The terminal state is projected onto `ChatResponse`, which validates its own consistency: the
    `escalated` flag must match the payload, an escalated response cites no sources, a
    non-escalated one must carry an answer, and a router-level escalation may not name a specialist.
 
@@ -155,6 +169,7 @@ Response shape:
 
 ```json
 {
+  "conversation_id": "9f2c4e1ab3d84f0e8a7c6b5d4e3f2a1b",
   "answer": "...",
   "intent": "product_info",
   "target_agent": "knowledge",
@@ -164,6 +179,14 @@ Response shape:
   "escalation": null
 }
 ```
+
+**Memory without coupling.** The checkpointer (`AsyncSqliteSaver`) is opened in the API lifespan
+and attached when the graph is compiled; no node imports it, and a test enforces that. Only
+`messages` and `summary` outlive a turn. The history stores the masked text, because a
+checkpoint is a persistent store and gets the same treatment as a log. Its decoder is restricted
+(`app/checkpoints.py`): LangGraph would otherwise import any type a checkpoint names, so only its
+safe built-ins and the application types the state holds are rebuilt; anything else comes back
+as plain data.
 
 ## 4. RAG pipeline
 

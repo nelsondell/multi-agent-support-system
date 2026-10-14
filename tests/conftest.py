@@ -81,13 +81,18 @@ class ScriptedProvider:
 def build_test_graph(sample_chunks, fake_collection):
     """Compile the real graph over the sampled corpus and a scripted model."""
 
-    def build(responses: dict | None = None, similarities: dict | None = None, **overrides):
+    def build(
+        responses: dict | None = None,
+        similarities: dict | None = None,
+        checkpointer=None,
+        **overrides,
+    ):
         from app.graph.build import build_graph
         from app.rag.retrieve import HybridRetriever
         from app.settings import Settings
 
         settings = Settings(**overrides)
         retriever = HybridRetriever(sample_chunks, fake_collection(similarities), top_k=5)
-        return build_graph(ScriptedProvider(responses), settings, retriever)
+        return build_graph(ScriptedProvider(responses), settings, retriever, checkpointer)
 
     return build

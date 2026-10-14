@@ -4,6 +4,10 @@ The state carries only what has to cross a node boundary. Retrieved chunks stay 
 knowledge agent; only the sources that actually back an answer are promoted here.
 """
 
+from typing import Annotated
+
+from langchain_core.messages import AnyMessage
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel, Field
 
 from app.contracts import Escalation, GuardrailOutcome, Source
@@ -11,7 +15,12 @@ from app.graph.router import RouterDecision
 
 
 class GraphState(BaseModel):
-    """Per-request state. One request, one answer: there is no conversation history."""
+    """The state of one conversation thread.
+
+    `messages` and `summary` belong to the conversation and persist across turns in the
+    checkpoint. Every other field belongs to the current turn and is reset when the next one
+    starts, by `memory.turn_input`.
+    """
 
     message: str
     user_id: str
@@ -21,7 +30,7 @@ class GraphState(BaseModel):
     """Correlates every log line of one request."""
 
     masked_message: str = ""
-    """Filled by the guardrail; this is the only form that reaches a log."""
+    """Filled by the guardrail; this is the only form that reaches a log or the history."""
 
     guardrail_outcome: GuardrailOutcome | None = None
     route: RouterDecision | None = None
@@ -38,3 +47,9 @@ class GraphState(BaseModel):
     answer: str | None = None
     sources: list[Source] = Field(default_factory=list)
     escalation: Escalation | None = None
+
+    messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
+    """Completed exchanges, oldest first: the masked merchant turn and the reply."""
+
+    summary: str = ""
+    """Rolling summary of the exchanges that left the history window."""

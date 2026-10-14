@@ -4,6 +4,7 @@ import pytest
 
 from app.graph.build import build_graph
 from app.graph.knowledge import KnowledgeAnswer
+from app.graph.memory import ConversationSummary
 from app.graph.router import RouterDecision
 from app.graph.state import GraphState
 from app.graph.support import SupportAnswer, SupportPlan
@@ -14,7 +15,7 @@ from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 
 # Every `schema=` passed to `provider.structured` under app/graph/.
-GRAPH_SCHEMAS = [RouterDecision, KnowledgeAnswer, SupportPlan, SupportAnswer]
+GRAPH_SCHEMAS = [RouterDecision, KnowledgeAnswer, SupportPlan, SupportAnswer, ConversationSummary]
 
 
 @pytest.mark.parametrize("schema", GRAPH_SCHEMAS, ids=lambda schema: schema.__name__)
@@ -47,8 +48,9 @@ async def test_drives_a_knowledge_question_to_a_sourced_answer(sample_chunks, fa
     graph = build_graph(FakeProvider(), Settings(llm_backend="fake"), retriever)
 
     final = await graph.ainvoke(GraphState(message="What is the Get Smart?", user_id="cliente1988"))
-    response = to_response(final)
+    response = to_response(final, "c1")
 
+    assert response.conversation_id == "c1"
     assert response.escalated is False
     assert response.target_agent is not None
     assert response.sources
