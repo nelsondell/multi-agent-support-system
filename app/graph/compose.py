@@ -8,17 +8,22 @@ something the merge chose.
 
 When a step needs a human, the answered part goes out now and the turn escalates with the
 refused step's reason, so the rest reaches `human_review` in the same turn under one protocol.
+
+Only an escalation may promise a person, because only an escalation opens a protocol. Any sentence
+in the answered part that mentions an agent, a team or a human is dropped here, whatever a prompt
+said; an answer that was nothing but such a promise escalates instead, so the promise comes true.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from app.contracts import Source
+from app.contracts import EscalationReason, Source
 from app.graph.numbers import adds_numbers
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
@@ -28,11 +33,22 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_PERSON = re.compile(
+    r"\batendente|\batendimento humano|\bhumanos?\b|\bnossa equipe|\bequipe de atendimento"
+    r"|\bespecialistas?\b",
+    re.IGNORECASE,
+)
+_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
+
 
 class ComposedAnswer(BaseModel):
     """Two step answers, merged into one reply."""
 
     answer: str
+
+
+_UNKEPT_PROMISE = EscalationReason.INSUFFICIENT_SOURCES.value
+"""What an answer that only promised a person escalates as: its sources did not answer it."""
 
 
 def every_source(results: list[StepResult]) -> list[Source]:
@@ -70,6 +86,15 @@ async def _merge(state: GraphState, answered: list[StepResult], provider: LLMPro
     return text
 
 
+def without_promised_people(text: str) -> str:
+    """The text minus every sentence that mentions an agent, a team or a human, line by line."""
+    lines = []
+    for line in text.split("\n"):
+        sentences = _SENTENCE_BREAK.split(line)
+        lines.append(" ".join(item for item in sentences if not _PERSON.search(item)).rstrip())
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
+
+
 async def compose(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     """Turn the step results into the turn's answer, or into an answered part and a handoff."""
     answered = [result for result in state.step_results if not result.refusal_reason]
@@ -78,6 +103,15 @@ async def compose(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
         text = await _merge(state, answered, provider)
     else:
         text = answered[0].answer if answered else None
+    if text:
+        kept = without_promised_people(text)
+        if kept != text:
+            logger.warning("answer mentioned a person without a protocol; sentence dropped")
+        text = kept or None
+    if answered and not text and not refused:
+        # Nothing but a promise of a person was left: open the protocol that keeps it.
+        unkept = {"refusal_reason": _UNKEPT_PROMISE, "answer": None}
+        answered, refused = [], [answered[0].model_copy(update=unkept)]
     update: dict[str, Any] = {"sources": every_source(answered), "answer": text}
     if refused:
         update["refusal_reason"] = refused[0].refusal_reason

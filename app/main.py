@@ -1,7 +1,7 @@
 """HTTP surface: the conversational endpoint, the operator endpoints and a liveness probe."""
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 
 import httpx
@@ -24,6 +24,12 @@ from app.tools.web import WebSearch
 MERCHANT_TIMEZONE = timezone(timedelta(hours=-3), "America/Sao_Paulo")
 """Brazil has had no daylight saving time since 2019, so a fixed offset is exact and needs no
 timezone database in the image."""
+
+
+def merchant_today() -> date:
+    """The merchant's calendar day: what "ontem" and "amanhã" are relative to, and the day the
+    account records are read as of."""
+    return datetime.now(MERCHANT_TIMEZONE).date()
 
 
 @asynccontextmanager
@@ -74,7 +80,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
             user_id=request.user_id,
             conversation_id=conversation_id,
             trace_id=trace_id,
-            today=datetime.now(MERCHANT_TIMEZONE).date(),
+            today=merchant_today(),
         )
         return to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
     finally:

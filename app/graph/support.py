@@ -83,7 +83,7 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     if plan.action is SupportAction.HANDOFF_TO_KNOWLEDGE or plan.tool is None:
         return {"handoff_reason": EscalationReason.REPEATED_MISROUTE.value}
 
-    result = call_tool(plan.tool, plan.arguments(), state.user_id)
+    result = call_tool(plan.tool, plan.arguments(), state.user_id, state.today)
     evidence = [*state.evidence, json.dumps(result, ensure_ascii=False)]
     try:
         generated = await provider.structured(

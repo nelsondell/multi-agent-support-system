@@ -64,7 +64,7 @@ async def test_tool_result_reaches_the_answer_step() -> None:
     assert update["sources"] == [
         Source(source_type=SourceType.ACCOUNT, title="get_settlement_schedule")
     ]
-    assert "231.26" in provider.calls[1]
+    assert "R$ 231,26" in provider.calls[1]
 
 
 async def test_individual_case_escalates_even_though_the_data_exists() -> None:

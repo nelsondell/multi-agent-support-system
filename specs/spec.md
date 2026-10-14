@@ -229,6 +229,13 @@ These are testable statements, not prompt suggestions.
    so "R$ 1.234,56" and "1234.56" are the same value. A token whose separator is ambiguous
    ("1.234") matches under either reading.
 
+5. **A person is promised only with a protocol.** An answer that did not open a case never
+   mentions an agent, a team or a human; such a sentence is dropped, and an answer made only of
+   it escalates instead.
+
+Amounts reach the model already written as the merchant reads them ("R$ 1.240,00"), and the mock
+account records are read as of the turn's date, so "yesterday" and "tomorrow" always find data.
+
 Feature-by-feature product comparison remains allowed: it is what the corpus documents.
 
 ## 10. Guardrail

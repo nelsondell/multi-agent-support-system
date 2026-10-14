@@ -12,7 +12,7 @@ from pydantic import ValidationError
 
 from app.contracts import Intent, Source, SourceType, TargetAgent
 from app.graph.build import build_graph
-from app.graph.compose import ComposedAnswer
+from app.graph.compose import ComposedAnswer, without_promised_people
 from app.graph.human_review import HandoffDraft, OperatorReply
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import thread_id, turn_input
@@ -216,3 +216,41 @@ async def test_the_hop_budget_holds_across_the_plan(graph_for):
     assert final.escalation.reason.value == "repeated_misroute"
     assert final.answer.startswith(ADVANCE_A)
     assert final.agents == [TargetAgent.SUPPORT, TargetAgent.KNOWLEDGE]
+
+
+def test_only_the_sentences_promising_a_person_are_dropped():
+    text = (
+        f"{SETTLEMENT_A} Se quiser, um atendente pode verificar.\n\n{ADVANCE_A} Nossa equipe ajuda."
+    )
+
+    assert without_promised_people(text) == f"{SETTLEMENT_A}\n\n{ADVANCE_A}"
+    assert without_promised_people(ADVANCE_A) == ADVANCE_A
+
+
+async def test_an_answer_never_promises_a_person_when_no_protocol_opens(graph_for):
+    promising = model(
+        RouterDecision=plan((TargetAgent.SUPPORT, SETTLEMENT_Q)),
+        SupportAnswer=SupportAnswer(answer=f"{SETTLEMENT_A} Um atendente pode verificar isso."),
+    )
+
+    response = to_response(await send(graph_for(promising)), "c1")
+
+    assert response.answer == SETTLEMENT_A
+    assert response.status == "answered" and not response.escalated
+
+
+async def test_an_answer_that_only_promises_a_person_opens_the_protocol(graph_for):
+    promising = model(
+        RouterDecision=plan((TargetAgent.SUPPORT, SETTLEMENT_Q)),
+        SupportAnswer=SupportAnswer(answer="Um atendente vai verificar isso para você."),
+    )
+
+    response = to_response(await send(graph_for(promising)), "c1")
+
+    assert response.status == "pending_human"
+    assert response.escalation.reason.value == "insufficient_sources"
+    assert response.escalation.protocol in response.answer
+    assert "Um atendente vai verificar" not in response.answer
+    assert [case.case.protocol for case in await graph_for.queue.list_open()] == [
+        response.escalation.protocol
+    ]

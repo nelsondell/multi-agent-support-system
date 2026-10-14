@@ -176,12 +176,17 @@ Possessive phrasing decides nothing.
    `low_retrieval_confidence` when nothing retrieved is close enough, or `insufficient_sources`
    when the model reports that the excerpts do not answer the question. **Support** plans an action from its step's
    `query_pt` and the turn's date (Brazil time, so "ontem" and "amanhã" become date ranges),
-   calls at most one tool with the injected identity, and answers citing the account — or
-   escalates an individual case. Neither specialist ever sees the history. **Collect** records
+   calls at most one tool with the injected identity and the turn's date, and answers citing the
+   account — or escalates an individual case. The mock records are written as of one day and read
+   as of the turn's, so "ontem" and "amanhã" always land on the same entries, and every amount
+   leaves the tool as the merchant writes it ("R$ 1.240,00"), so the model never formats a float. Neither specialist ever sees the history. **Collect** records
    each step's result and starts the next one; **compose** joins them: one answered step is
    copied as is, two are merged by one model call that may not add a number (otherwise the step
    answers are joined as written), and every source is kept. If one step answered and the other
-   needs a human, the answered part goes out now and the rest escalates under one protocol.
+   needs a human, the answered part goes out now and the rest escalates under one protocol. Only
+   an escalation opens a protocol, so only an escalation may promise a person: compose drops any
+   sentence of an answered part that mentions an agent, a team or a human, and an answer that was
+   nothing but that promise escalates, so the promise comes true.
 7. **Escalate** is deterministic and model-free: it mints a protocol, attaches a typed reason and a
    masked summary, and composes the handoff notice. **Human review** takes over from there (see
    below): the turn pauses until an operator answers, then continues with the operator's reply.
@@ -491,6 +496,9 @@ routed to a cited web search.
    date of the data.
 3. No verdict on an individual case — declined transactions, chargebacks, blocks, fraud, pending
    registration — even when the data exists. Those escalate.
+4. Rephrasing adds nothing: a composed answer or an operator reply carrying a number its source
+   lacks is replaced by that source, with numbers compared by value ("R$ 1.234,56" = "1234.56").
+5. No mention of a human agent unless the turn opened a protocol.
 
 ## 8. Process
 

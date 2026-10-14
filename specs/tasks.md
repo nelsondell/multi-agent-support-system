@@ -244,6 +244,16 @@ unreachable embedder abstains instead of raising; the calibration report is comm
 README states whether the chosen embedder separates the groups; a time-sensitive web query ends
 with today's date; CI still runs keyless on the local embedder.
 
+### T-30 — `fix(T-30): date account records to the turn, format amounts and drop unkept promises`
+The support tools take the turn's `today` through `InjectedState` and read the mock records
+shifted from the day they describe (`RECORDED_ON`) to it, ids included; every amount leaves the
+tool as `brl()` writes it. `/chat` reads the date through `merchant_today()`, which the suite pins.
+`compose` drops any answered sentence that mentions an agent, a team or a human; an answer made
+only of that escalates with `insufficient_sources`. The prompts stop offering a human.
+**Done when:** with today 2026-10-14, yesterday, today and tomorrow each return a settlement
+entry; the model receives "R$ 1.240,00", never `1240.0`; an answered turn never mentions a person
+and a turn that only promised one opens a protocol; the suite never reads the wall clock.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -251,7 +261,7 @@ with today's date; CI still runs keyless on the local embedder.
 | Memory / multi-turn (1.5) | T-19, T-20, T-24 |
 | Human-in-the-loop (5.8) | T-21, T-24 |
 | Infra / Docker (6.8) | T-16, T-17, T-18 |
-| Product / completeness (7.5) | T-23, T-27 |
+| Product / completeness (7.5) | T-23, T-27, T-30 |
 | Multi-agent / orchestration (8.8) | T-22 |
 | Observability / evals (9.1) | T-25, T-26 |
 | Tests / quality (9.2) | T-24, plus the tests inside every task |

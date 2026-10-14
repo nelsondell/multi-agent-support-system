@@ -12,6 +12,15 @@ from app.rag.chunk import Chunk
 FIXTURE = Path(__file__).parent / "fixtures" / "kb_sample.jsonl"
 
 
+@pytest.fixture(autouse=True)
+def pinned_today(monkeypatch):
+    """The suite never reads the wall clock: `/chat` turns happen on the day the mock account
+    records describe, so their dates are read as written."""
+    from app.tools.account import RECORDED_ON
+
+    monkeypatch.setattr("app.main.merchant_today", lambda: RECORDED_ON)
+
+
 @pytest.fixture
 def sample_chunks() -> list[Chunk]:
     """The sampled knowledge base, never the full corpus."""

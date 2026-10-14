@@ -134,7 +134,7 @@ async def test_a_settlement_follow_up_goes_to_support_for_tomorrow(start):
         "today": "2026-09-01",
         "question": "Quando cai o dinheiro das vendas de amanhã?",
     }
-    assert "2026-09-02" in tool_result and "60.18" in tool_result
+    assert "2026-09-02" in tool_result and "R$ 60,18" in tool_result
     assert "2026-08-31" not in tool_result
 
 
@@ -192,8 +192,8 @@ async def test_an_injection_planted_in_turn_one_has_no_effect_on_turn_two(start)
     tool_result = model.inputs["SupportAnswer"][-1]
     assert shown_to_router["message"] == "Quando cai o dinheiro das vendas de amanhã?"
     assert planted in shown_to_router["history"][0]["content"]
-    assert "231.26" in tool_result
-    assert "202.86" not in tool_result
+    assert "R$ 231,26" in tool_result
+    assert "R$ 202,86" not in tool_result
 
 
 async def test_a_rewrite_that_invents_an_identifier_is_dropped(start):
