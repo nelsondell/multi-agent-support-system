@@ -279,8 +279,10 @@ Three levels, deliberately separate.
 - `uv run python -m evals.run_model_benchmark` — the golden set routed through each candidate chat
   model, with accuracy, latency, tokens and cost, written to `evals/router_benchmark.md`. The
   default `LLM_MODEL` and `LLM_REASONING_EFFORT` are chosen from it.
-- `uv run python -m evals.run_judge` — the ten challenge scenarios through the real graph, scored
-  by a judge model for groundedness and answer relevance, written to `evals/report.md`.
+- `uv run python -m evals.run_judge` — the ten challenge scenarios, two follow-ups, a compound
+  request and the human-review loop through the real graph, every answered turn scored by
+  `JUDGE_MODEL` (a tier above the chat model) for groundedness against that turn's `evidence` and
+  for relevance, written to `evals/report.md` with the retrieval calibration numbers.
 
 No eval runs inside pytest: a statistical measure that dips one case in thirty is not a red
 test suite.

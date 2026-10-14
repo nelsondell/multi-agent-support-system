@@ -221,3 +221,17 @@ async def test_an_unreadable_account_escalates_instead_of_failing_the_request(st
 
     assert reply["status"] == "pending_human"
     assert reply["escalation"]["reason"] == "tool_unavailable"
+
+
+async def test_the_evidence_never_reaches_the_response_or_the_history(stack):
+    """The judge reads a turn's evidence; the merchant and the next turn never do."""
+    model = Model()
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model)
+        reply = await chat(http, "Quando cai o dinheiro das vendas de ontem?")
+        await chat(http, "E o de amanhã?")
+
+    remembered = json.dumps(model.router_inputs()[1]["history"], ensure_ascii=False)
+    assert "evidence" not in reply
+    assert '"entries"' not in json.dumps(reply, ensure_ascii=False)
+    assert '"entries"' not in remembered and "sale_date" not in remembered

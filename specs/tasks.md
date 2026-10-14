@@ -196,9 +196,13 @@ check invariants, never exact model text.
 ### T-25 — `feat(T-25): add the llm judge eval and commit its report`
 Per-turn `evidence` in state. `evals/run_judge.py` runs the ten challenge scenarios through the
 real graph and scores groundedness and answer relevance with `JUDGE_MODEL` against that evidence.
+The run also covers two follow-ups, a compound request and the human-review loop (pause, the
+operator's reply, the next turn), each answered turn judged against its own evidence, and the
+report carries the retrieval calibration numbers. The mock records gain the refunded duplicate of
+a sale, so that line's refund has data behind it.
 **Done when:** a real run writes `evals/report.md` (per-scenario scores, means, models, commit)
 and the report is committed; `evidence` never reaches the response or the history; the judge
-never runs inside pytest.
+never runs inside pytest. S09 (crediário) answers with sources using the real router; if retrieval confidence is still below the threshold, the threshold is re-calibrated from measured in-domain and out-of-domain scores and the numbers go in the README.
 
 ### T-26 — `feat(T-26): add escalation and latency counters and optional tracing`
 `/metrics` with `support_escalations_total{reason}` and `support_node_latency_seconds{node}`,

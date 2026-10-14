@@ -17,7 +17,9 @@
        "card": "**** **** **** 1102", "installments": 6, "status": "negada",
        "decline_reason": "saldo ou limite insuficiente no cartão, segundo o banco emissor"},
       {"id": "TX-20260830-0007", "date": "2026-08-30", "amount": 62.30, "brand": "Elo",
-       "card": "**** **** **** 5540", "installments": 1, "status": "aprovada"}
+       "card": "**** **** **** 5540", "installments": 1, "status": "aprovada"},
+      {"id": "TX-20260831-0004", "date": "2026-08-31", "amount": 89.50, "brand": "Mastercard",
+       "card": "**** **** **** 7788", "installments": 1, "status": "estornada"}
     ],
     "settlement": [
       {"sale_date": "2026-08-31", "credit_date": "2026-09-01", "gross": 239.40, "fees": 8.14,

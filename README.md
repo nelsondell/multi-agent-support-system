@@ -38,6 +38,7 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | `LLM_MODEL` | `gpt-6-luna` | Chat model, chosen in [`evals/router_benchmark.md`](evals/router_benchmark.md). |
 | `LLM_REASONING_EFFORT` | `low` | For reasoning models. Left unset when a temperature is set. |
 | `LLM_TEMPERATURE` | unset | For models without reasoning only, e.g. `gpt-4o-mini` with `0`. Setting both fails at start-up. |
+| `JUDGE_MODEL` | `gpt-6-sol` | Scores the LLM-as-judge eval only; never answers a merchant. |
 | `EMBEDDING_BACKEND` | `auto` | `auto` follows the key, `local` uses Chroma's bundled model, `openai` requires the key. `.env.example` pins `openai`; CI uses `local`. |
 | `EMBEDDING_MODEL` | `text-embedding-3-large` | Used when the backend is `openai`. Chosen in [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md). |
 | `ROUTER_CONFIDENCE_THRESHOLD` | `0.6` | Below this, the request escalates without reaching a specialist. |
@@ -500,6 +501,18 @@ router prompt v6, before the rule that resolves "dessa venda" to the entity of t
 low, losing the sale an operator had just named in 5 runs out of 5. Two runs per row is a small
 sample, and one row apart is within noise, so the model choice rests as much on the twentyfold
 cost gap as on accuracy.
+
+**LLM-as-judge** — [`evals/report.md`](evals/report.md), written by
+`uv run python -m evals.run_judge`: the ten scenarios, two follow-ups, a compound request and the
+human-review loop (the pause, the operator's reply, the turn after it) through the real graph.
+`gpt-6-sol` scores every answered turn 1 to 5 against the evidence that turn had, the excerpts,
+account data, web pages or operator reply, for groundedness and for relevance; a pause for a
+human is listed, not scored. The committed run: groundedness 4.87 and relevance 4.73 over 15
+scored turns. The report names its own weak spots: S07 quoted a stale euro rate, and S01 abstained
+in that run, with a retrieval confidence of 0.495 against 0.52, when the router wrote its
+per-item searches without the word "maquininha". S09 retrieved at 0.726, well above the
+threshold. The judge's scores move from run to run with live web results and sampling, so one run
+is a reading, not a benchmark.
 
 ## 7. Observability and guardrails
 

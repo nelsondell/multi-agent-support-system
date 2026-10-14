@@ -312,8 +312,8 @@ and node latency. LangSmith tracing is optional, off by default, and when on it 
 inputs and outputs.
 
 **Evals.** The routing golden set gains multi-turn, human-review and compound cases. An
-LLM-as-judge run scores groundedness and answer relevance over the ten challenge scenarios and
-its report is committed. Neither runs inside pytest.
+LLM-as-judge run scores groundedness and answer relevance over the ten challenge scenarios, two
+follow-ups, a compound request and the human-review loop, and its report is committed. Neither runs inside pytest.
 
 ## 14. Non-functional
 
