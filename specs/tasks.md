@@ -298,6 +298,11 @@ low and medium on those rows.
 on them; a per-node effort exists only if medium wins by at least 10 points; the README states
 the result and the prompt-only comparison.
 
+### T-36 — `chore(T-36): ignore every env file but the example`
+`.gitignore` ignores `.env.*` and re-includes `.env.example`, so a backup such as `.env.bak` with
+real keys can never be staged.
+**Done when:** `git status` does not list `.env.bak`, and `.env.example` is still tracked.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
