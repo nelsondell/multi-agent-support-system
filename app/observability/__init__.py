@@ -1,4 +1,4 @@
-"""Observability: masking and structured logs."""
+"""Observability: masking, structured logs, metrics and optional tracing."""
 
 from app.observability.logging import (
     configure_logging,

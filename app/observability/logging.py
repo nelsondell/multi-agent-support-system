@@ -14,6 +14,8 @@ from typing import Any
 
 import structlog
 
+from app.observability.metrics import record
+
 PSEUDONYM_PREFIX = "u_"
 
 TECHNICAL_FIELDS = frozenset({"trace_id", "protocol", "timestamp"})
@@ -66,18 +68,20 @@ def instrument_node(name: str, node: Callable[[Any], Awaitable[dict]]) -> Callab
     """Wrap a graph node so every one of them emits the same event, with the same fields.
 
     Timing, agent name, routing decision and outcome are recorded here rather than inside the
-    nodes: an agent that forgets to log cannot exist.
+    nodes, in the log and in the metrics: an agent that forgets to log cannot exist.
     """
     logger = get_logger("graph")
 
     async def instrumented(state: Any) -> dict:
         started = perf_counter()
         update = await node(state)
+        seconds = perf_counter() - started
+        record(name, seconds, update)
         decision = update.get("route") or getattr(state, "route", None)
         logger.info(
             "node.completed",
             agent=name,
-            latency_ms=round((perf_counter() - started) * 1000, 2),
+            latency_ms=round(seconds * 1000, 2),
             trace_id=getattr(state, "trace_id", None),
             user_id=getattr(state, "user_id", None),
             intent=decision.intent.value if decision else None,

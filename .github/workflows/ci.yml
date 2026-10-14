@@ -43,6 +43,9 @@ jobs:
       - name: Smoke-test /health
         run: curl -fsS localhost:8000/health | jq -e '.status == "ok"'
 
+      - name: Smoke-test /metrics
+        run: curl -fsS localhost:8000/metrics | grep -q '^# TYPE support_escalations_total counter'
+
       # The fake router sends the question to the knowledge agent as written, so this one is
       # chosen to clear the retrieval threshold with the local embedder by a wide margin.
       - name: Smoke-test /chat

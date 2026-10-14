@@ -50,6 +50,9 @@ every one of them; `cp .env.example .env` and an `OPENAI_API_KEY` are the whole 
 | `STATE_DIR` | `data/state` | Conversation checkpoints (SQLite); the `state` named volume in Docker. |
 | `HISTORY_WINDOW` | `6` | Most recent messages kept verbatim. |
 | `HISTORY_MAX_MESSAGES` | `12` | Past this length, older messages are folded into a rolling summary. |
+| `LANGSMITH_TRACING` | `false` | Masked LangSmith tracing. On without `LANGSMITH_API_KEY`, it stays off. |
+| `LANGSMITH_API_KEY` | unset | LangSmith credential. |
+| `LANGSMITH_PROJECT` | `getnet-support` | LangSmith project the traces go to. |
 | `OPERATOR_TOKEN` | unset | Bearer token for `/handoffs`. Unset, those endpoints answer 503. |
 | `TAVILY_API_KEY` | unset | Web search for general questions. Unset, they get a "cannot look this up now" message. |
 | `WEB_SEARCH_MAX_RESULTS` | `3` | Pages per web search. |
@@ -537,8 +540,19 @@ carrying the identifier. `escalation.reason` is a typed enum and doubles as the 
 `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`, `insufficient_sources`,
 `individual_case`, `tool_unavailable`, `agent_not_implemented`.
 
-Production latency and escalation rates: **[preencher]** — the figures above come from runs with a
-stubbed model and say nothing about real inference time.
+**Metrics.** `GET /metrics` serves two Prometheus families, both recorded in `instrument_node`
+so no node can skip them: `support_escalations_total{reason}`, the typed reasons above as
+counters, and `support_node_latency_seconds{node}`, a histogram per graph node. In the last real
+run in Docker (`gpt-6-luna` at low effort, `text-embedding-3-large`), a turn took 4 to 6.5
+seconds, and 8.9 for the compound request; the router is about half of a single-step turn.
+
+**Tracing.** Optional LangSmith tracing, off by default (`LANGSMITH_TRACING`,
+`LANGSMITH_API_KEY`, `LANGSMITH_PROJECT`). LangSmith's switch is global, set once at start-up
+(`app/observability/tracing.py`). On, every trace goes through one client whose inputs and
+outputs pass through `mask_pii` before upload, so a CPF leaves as `[CPF]`. Off, the switch is set
+to off rather than left alone: LangChain would otherwise start its own tracer, unmasked, from a
+`LANGSMITH_TRACING=true` it finds in the environment. Off costs nothing per request, and on, an
+upload error stays in LangSmith's background thread: tracing cannot fail a request.
 
 **Guardrail.** Deterministic patterns, before any model call: prompt injection and identity-swap
 attempts get a short refusal, and PII is masked. It is defence in depth for identity, since

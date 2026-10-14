@@ -6,7 +6,8 @@ from uuid import uuid4
 
 import httpx
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.checkpoints import open_checkpointer
 from app.contracts import ChatRequest, ChatResponse
@@ -14,6 +15,7 @@ from app.graph.build import build_graph
 from app.graph.memory import thread_id, turn_input
 from app.handoffs import open_handoff_queue
 from app.observability import configure_logging
+from app.observability.tracing import configure_tracing
 from app.operator import router as operator_router
 from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
@@ -41,6 +43,7 @@ async def lifespan(app: FastAPI):
     """
     configure_logging()
     settings = get_settings()
+    configure_tracing(settings)
     retriever = HybridRetriever.from_settings(settings)
     provider = build_provider(settings)
     async with (
@@ -85,6 +88,12 @@ async def chat(request: ChatRequest) -> ChatResponse:
         return to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
     finally:
         structlog.contextvars.clear_contextvars()
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    """Escalations by reason and node latency, in the Prometheus text format."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.get("/health")

@@ -27,6 +27,14 @@ def isolated_settings(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def no_tracing():
+    """No test uploads a trace, whatever the developer's environment says."""
+    import langsmith
+
+    langsmith.configure(enabled=False)
+
+
+@pytest.fixture(autouse=True)
 def pinned_today(monkeypatch):
     """The suite never reads the wall clock: `/chat` turns happen on the day the mock account
     records describe, so their dates are read as written."""

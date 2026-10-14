@@ -207,10 +207,13 @@ never runs inside pytest. S09 (crediário) answers with sources using the real r
 ### T-26 — `feat(T-26): add escalation and latency counters and optional tracing`
 `/metrics` with `support_escalations_total{reason}` and `support_node_latency_seconds{node}`,
 both recorded in `instrument_node`. Optional LangSmith tracing, off by default, with masked
-inputs and outputs.
+inputs and outputs: LangSmith's global switch is set once at start-up, on through a client that
+masks, or off, which also overrides a `LANGSMITH_TRACING=true` LangChain would otherwise act on,
+unmasked. CI smoke-tests `/metrics`.
 **Done when:** an offline test shows an escalation incrementing its counter and `/metrics`
 exposing both families; an offline test shows the tracing hook masks a CPF before upload; with
-tracing off no tracer is attached.
+tracing off no tracer is attached, even when the environment asks for one; a tracer that fails
+never fails a turn.
 
 ### T-27 — `docs(T-27): rewrite the readme for v2 with real outputs`
 `scripts/demo.sh` covers the ten scenarios, a multi-turn exchange, the human-review loop and a

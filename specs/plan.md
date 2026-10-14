@@ -346,8 +346,11 @@ response shape. The README carries the workflow badge.
 - **Metrics.** `app/observability/metrics.py` defines two families with `prometheus-client`:
   `support_escalations_total{reason}` and `support_node_latency_seconds{node}` (histogram). Both
   are recorded in `instrument_node`, which already wraps every node, so no agent can forget them.
-- **Tracing.** When `LANGSMITH_TRACING` is on, the graph runs with a LangChain tracer whose
-  LangSmith client applies `mask_pii` to inputs and outputs before upload. Off by default.
+- **Tracing.** `app/observability/tracing.py` sets LangSmith's global switch once in the
+  lifespan. With `LANGSMITH_TRACING` on and a key, it points every trace at one client whose
+  `hide_inputs` and `hide_outputs` apply `mask_pii`; otherwise it sets the switch off, which also
+  overrides LangChain's own, unmasked, environment-driven tracer. Off by default, no per-request
+  cost, and an upload error stays in LangSmith's background thread.
 - **Evidence.** Each specialist records the text it answered from or looked at (chunks, tool
   result or snippets) in the per-turn `evidence` field, introduced with the handoff draft guard
   in T-21. It never reaches the response or the history; the judge grades against it.

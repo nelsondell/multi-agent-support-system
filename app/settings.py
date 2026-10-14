@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     web_search_max_results: int = Field(default=3, ge=1, le=10)
     web_search_timeout_s: float = Field(default=8.0, gt=0)
 
+    langsmith_tracing: bool = False
+    """Uploads masked traces to LangSmith. Off by default; on without a key, it stays off."""
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "getnet-support"
+
     operator_token: str | None = None
     """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
 
