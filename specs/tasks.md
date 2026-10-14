@@ -288,11 +288,21 @@ keeps both halves of the index or neither.
 the two product pages cite with distinct titles; a keyless first boot stops with a one-line fix
 and writes nothing, and a rejected key leaves no collection and no BM25 corpus.
 
+### T-34 — `fix(T-34): resolve follow-up references to the last reply and measure router effort`
+Router prompt v7 resolves demonstratives ("dessa venda", "esse valor") to the entity of the last
+assistant or operator message, with an example. The golden set gains eight `multi_turn` rows,
+the post-operator case among them, with `history` and `expected_mentions`; both runners score a
+follow-up as a hit only when the rewrite keeps its referent. The benchmark compares router effort
+low and medium on those rows.
+**Done when:** the follow-up rows are committed and the benchmark report shows low against medium
+on them; a per-node effort exists only if medium wins by at least 10 points; the README states
+the result and the prompt-only comparison.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
-| Memory / multi-turn (1.5) | T-19, T-20, T-24 |
+| Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
 | Human-in-the-loop (5.8) | T-21, T-24 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32 |

@@ -5,6 +5,9 @@ one case in fifteen is a signal to read, not a red build.
 
     uv run python -m evals.run_routing_eval
 
+Rows may carry earlier turns (`history`) and words the rewrite must keep (`expected_mentions`),
+which is how follow-ups are scored: the right agent with a query that lost its referent is a miss.
+
 The guardrail half is deterministic and always runs. The router half calls the configured model:
 with `LLM_BACKEND=openai` it needs a key and costs money; with `LLM_BACKEND=fake` it runs offline,
 which proves the runner end to end but measures nothing about routing quality.
@@ -17,8 +20,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from langchain_core.messages import AIMessage, HumanMessage
+
 from app.graph.guardrail import classify
-from app.graph.router import route
+from app.graph.router import RouterDecision, route
 from app.graph.state import GraphState
 from app.providers.llm import build_provider
 from app.settings import get_settings
@@ -60,6 +65,26 @@ def evaluate_guardrail(rows: list[dict]) -> list[Outcome]:
     ]
 
 
+def row_state(row: dict) -> GraphState:
+    """The turn a row describes: its message, after its earlier turns when it has any."""
+    kinds = {"human": HumanMessage, "ai": AIMessage}
+    history = [kinds[item["role"]](content=item["content"]) for item in row.get("history", [])]
+    return GraphState(message=row["message"], user_id="eval", messages=history)
+
+
+def routed_as(row: dict, decision: RouterDecision) -> str:
+    """What the router made of a row, in the label's terms: the plan's agents, plus any expected
+    mention the rewrite lost. A mention lists its accepted spellings separated by "|"."""
+    agents = ",".join(step.agent.value for step in decision.steps)
+    rewrite = " ".join(step.query_pt for step in decision.steps).lower()
+    lost = [
+        mention
+        for mention in row.get("expected_mentions", [])
+        if not any(spelling.lower() in rewrite for spelling in mention.split("|"))
+    ]
+    return agents + (f" (lost {', '.join(lost)})" if lost else "")
+
+
 async def evaluate_router(rows: list[dict]) -> list[Outcome]:
     """Score the model stage on the rows the guardrail is supposed to let through."""
     provider = build_provider(get_settings())
@@ -67,15 +92,13 @@ async def evaluate_router(rows: list[dict]) -> list[Outcome]:
     for row in rows:
         if row["expected_guardrail"] != "allow":
             continue
-        state = GraphState(message=row["message"], user_id="eval")
-        update = await route(state, provider, window=get_settings().history_window)
-        agents = [step.agent.value for step in update["route"].steps]
+        update = await route(row_state(row), provider, window=get_settings().history_window)
         outcomes.append(
             Outcome(
                 row_id=row["id"],
                 group=row["group"],
                 expected=row["expected_agent"],
-                actual=",".join(agents),
+                actual=routed_as(row, update["route"]),
             )
         )
     return outcomes

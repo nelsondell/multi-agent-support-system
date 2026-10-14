@@ -446,22 +446,26 @@ instance of any schema from its declaration, so the smoke test proves the image,
 on first boot and the graph work together without a vendor account. It asserts the response
 contract, never the content.
 
-**Routing golden set** — 15 labelled rows (the 10 challenge scenarios, 3 ambiguous, 2 general
-questions unrelated to the acquirer). It is a measurement, not a test: a score that dips one row in fifteen is a signal to read,
-not a red build, so it never runs inside pytest.
+**Routing golden set** — 23 labelled rows: the 10 challenge scenarios, 3 ambiguous, 2 general
+questions unrelated to the acquirer, and 8 follow-ups. A follow-up row carries its earlier turns,
+the post-operator case among them, and the words its rewrite must keep ("dessa venda" has to come
+out naming the sale), so the right agent with a query that lost its referent is a miss. It is a
+measurement, not a test: a score that dips one row is a signal to read, not a red build, so it
+never runs inside pytest.
 
 ```
 $ uv run python -m evals.run_routing_eval --guardrail-only
-golden set: 15 rows from evals/routing_golden_set.jsonl
+golden set: 23 rows from evals/routing_golden_set.jsonl
 
 guardrail (deterministic)
-  overall: 100.0%  (15/15)
+  overall: 100.0%  (23/23)
   by expected class:
-    allow            100.0%  (15/15)
+    allow            100.0%  (23/23)
   by group:
     ambiguous        100.0%  (3/3)
     challenge        100.0%  (10/10)
     general          100.0%  (2/2)
+    multi_turn       100.0%  (8/8)
 ```
 
 The guardrail now judges only injection and identity, so every labelled row passes it; whether a
@@ -472,11 +476,17 @@ that proves the runner end to end and measures nothing about routing quality.
 **Router accuracy against a real model** is in
 [`evals/router_benchmark.md`](evals/router_benchmark.md), written by
 `uv run python -m evals.run_model_benchmark`: the golden set routed twice through five candidate
-models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort routes as
-well as `gpt-6-sol` (26/30 against 25/30 on router prompt v5, 26/30 each on v4) at about an
-eighteenth of the cost, and beats `gpt-4o-mini` (24/30) while costing less, for under a second
-more per call; medium effort adds tokens and no accuracy.
-That is the default. Every candidate splits A03 into two steps, because the row is a compound
+models, with accuracy, latency, tokens and cost. `gpt-6-luna` at low reasoning effort routes
+within one row of `gpt-6-sol` (41/46 against 42/46 on router prompt v7; 26/30 against 25/30 on
+v5) at about an eighteenth of the cost, and beats `gpt-4o-mini` (38/46) while costing less, for
+under a second more per call. That is the default.
+
+Effort was measured where it could pay, the follow-ups, whose rewrite has to carry a referent
+across turns: 8 rows, 5 runs each. Low and medium both score 40/40, medium 0.4 s slower, so the
+router stays on low and no per-node setting was added; the bar set before measuring was a
+10-point win. What fixed follow-ups was the prompt, not the effort: the same rows through router
+prompt v6, before the rule that resolves "dessa venda" to the entity of the last reply, scored
+28/40 on low, losing the sale an operator had just named in 5 runs out of 5. Every candidate splits A03 into two steps, because the row is a compound
 request labelled as a single one. Thirty calls per candidate is a small sample, and one or two rows
 apart is within noise, so the choice rests as much on the twentyfold cost gap as on accuracy.
 

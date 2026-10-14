@@ -274,7 +274,8 @@ Three levels, deliberately separate.
   Tests assert invariants — route, plan, sources, status, masking, isolation — never exact model
   text.
 - `uv run python -m evals.run_routing_eval` — the routing golden set against a real model, now
-  with optional prior turns per row and expected plans.
+  with optional prior turns per row (`history`), words the rewrite must keep
+  (`expected_mentions`), and expected plans.
 - `uv run python -m evals.run_model_benchmark` — the golden set routed through each candidate chat
   model, with accuracy, latency, tokens and cost, written to `evals/router_benchmark.md`. The
   default `LLM_MODEL` and `LLM_REASONING_EFFORT` are chosen from it.

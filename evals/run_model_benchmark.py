@@ -18,11 +18,10 @@ from pathlib import Path
 from langchain_core.callbacks import get_usage_metadata_callback
 
 from app.graph.router import route
-from app.graph.state import GraphState
 from app.prompts import load_prompt
 from app.providers.llm import OpenAIProvider
 from app.settings import get_settings
-from evals.run_routing_eval import GOLDEN_SET, load_rows
+from evals.run_routing_eval import GOLDEN_SET, load_rows, routed_as, row_state
 
 REPORT = Path(__file__).parent / "router_benchmark.md"
 RUNS = 2
@@ -57,6 +56,15 @@ CANDIDATES = [
     Candidate("gpt-6-luna", effort="medium"),
     Candidate("gpt-6-sol", effort="none"),
 ]
+
+FOLLOW_UP_GROUP = "multi_turn"
+FOLLOW_UP_RUNS = 5
+FOLLOW_UP_CANDIDATES = [
+    Candidate("gpt-6-luna", effort="low"),
+    Candidate("gpt-6-luna", effort="medium"),
+]
+"""Follow-ups are where effort could pay: the rewrite has to carry a referent across turns. They
+get more runs, on the two efforts the router could use."""
 
 
 class TimedProvider:
@@ -97,18 +105,18 @@ class Result:
         return per_call * 1000
 
 
-async def measure(candidate: Candidate, rows: list[dict]) -> Result:
-    """Route every row `RUNS` times and count agreement with the label."""
+async def measure(candidate: Candidate, rows: list[dict], runs: int = RUNS) -> Result:
+    """Route every row `runs` times and count agreement with the label."""
     provider = TimedProvider(candidate)
     gate = asyncio.Semaphore(CONCURRENCY)
 
     async def one(row: dict) -> tuple[dict, str]:
         async with gate:
-            update = await route(GraphState(message=row["message"], user_id="eval"), provider, 6)
-        return row, ",".join(step.agent.value for step in update["route"].steps)
+            update = await route(row_state(row), provider, 6)
+        return row, routed_as(row, update["route"])
 
     with get_usage_metadata_callback() as usage:
-        outcomes = await asyncio.gather(*(one(row) for row in rows for _ in range(RUNS)))
+        outcomes = await asyncio.gather(*(one(row) for row in rows for _ in range(runs)))
     misses = Counter(
         f"{row['id']} (expected {row['expected_agent']}, got {got})"
         for row, got in outcomes
@@ -125,16 +133,9 @@ async def measure(candidate: Candidate, rows: list[dict]) -> Result:
     )
 
 
-def render(results: list[Result], rows: int) -> str:
-    """The committed report."""
+def table(results: list[Result]) -> list[str]:
+    """One line per candidate, then the rows each one missed."""
     lines = [
-        "# Router model benchmark",
-        "",
-        f"Every row of `{GOLDEN_SET.relative_to(Path.cwd())}` ({rows} rows) routed {RUNS} times "
-        f"per candidate through router prompt v{load_prompt('router').version}, {CONCURRENCY} "
-        f"calls at a time. Written by `uv run python -m evals.run_model_benchmark` on "
-        f"{date.today().isoformat()}.",
-        "",
         "| Candidate | Accuracy | p50 latency | p90 latency | Tokens in / out per call "
         "| USD per 1k router calls |",
         "| --- | --- | --- | --- | --- | --- |",
@@ -151,7 +152,28 @@ def render(results: list[Result], rows: int) -> str:
     for result in results:
         missed = ", ".join(f"{row} ×{count}" for row, count in sorted(result.misses.items()))
         lines.append(f"- {result.candidate.label}: {missed or 'none'}")
-    lines += [
+    return lines
+
+
+def render(results: list[Result], follow_ups: list[Result], rows: int, turns: int) -> str:
+    """The committed report."""
+    lines = [
+        "# Router model benchmark",
+        "",
+        f"Every row of `{GOLDEN_SET.relative_to(Path.cwd())}` ({rows} rows) routed {RUNS} times "
+        f"per candidate through router prompt v{load_prompt('router').version}, {CONCURRENCY} "
+        f"calls at a time. A follow-up row counts as a hit only when the rewrite also keeps its "
+        f"referent. Written by `uv run python -m evals.run_model_benchmark` on "
+        f"{date.today().isoformat()}.",
+        "",
+        *table(results),
+        "",
+        "## Follow-up resolution",
+        "",
+        f"The {turns} `{FOLLOW_UP_GROUP}` rows, {FOLLOW_UP_RUNS} runs each, on the two efforts the "
+        "router could use.",
+        "",
+        *table(follow_ups),
         "",
         "Prices are USD per million tokens, input / output, OpenAI list prices on 2026-10-14: "
         + "; ".join(f"`{model}` {i:.2f} / {o:.2f}" for model, (i, o) in PRICES.items())
@@ -163,8 +185,12 @@ def render(results: list[Result], rows: int) -> str:
 
 async def main() -> None:
     rows = [row for row in load_rows() if row["expected_guardrail"] == "allow"]
+    turns = [row for row in rows if row["group"] == FOLLOW_UP_GROUP]
     results = [await measure(candidate, rows) for candidate in CANDIDATES]
-    REPORT.write_text(render(results, len(rows)), encoding="utf-8")
+    follow_ups = [
+        await measure(candidate, turns, FOLLOW_UP_RUNS) for candidate in FOLLOW_UP_CANDIDATES
+    ]
+    REPORT.write_text(render(results, follow_ups, len(rows), len(turns)), encoding="utf-8")
     print(REPORT.read_text(encoding="utf-8"))
 
 
