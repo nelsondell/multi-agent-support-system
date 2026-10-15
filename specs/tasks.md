@@ -415,6 +415,23 @@ in the history, while two conversations run at once; "user_id: <own id>" passes 
 another id does not; injection reports `prompt_injection`; a router failure escalates as
 `model_unavailable`; a flipped status in a merge or a rephrasing is rejected.
 
+### T-45 — `docs(T-45): rerun the evals with the turn's day for the judge and cut the readme`
+The router benchmark reruns on the current router prompt (v9). The README's follow-up claim is
+corrected: v6 to v7 went from 28/40 to 40/40 on the 8 follow-up rows of the time, and today's 9
+rows score 45/45 at low and at medium effort. The README becomes what a reviewer reads in five
+minutes (under 350 lines): what it is, how to run it, the architecture, the flow, the human loop,
+the demo table, the evals, the hard rules, what changed since v1, design decisions, limits and
+process. The detail moves to `docs/`: `architecture.md` (workflow, layout, tools, memory, failure
+handling, design questions), `rag.md`, `human-in-the-loop.md`, `demo.md` (the full output of
+`scripts/demo.sh` from the image at T-44) and `operations.md` (configuration, Docker,
+observability). The judge reruns three times and `evals/report.md` is refreshed. The rerun, made
+after 21:00 in Brazil, showed the judge taking the UTC date for today and scoring correct "ontem"
+answers 1, so the judge now receives the merchant's day each turn was answered on (`today`,
+judge prompt v2).
+**Done when:** `evals/router_benchmark.md` names router prompt v9; no README number disagrees with
+the eval it cites; the README is under 350 lines and links every moved section; a judge run after
+21:00 in Brazil scores day-relative answers against the merchant's day.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -429,7 +446,7 @@ another id does not; injection reports `prompt_injection`; a router failure esca
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
 | Security / isolation (9.5) | T-19, T-21, T-23, T-44 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
-| Trade-offs / engineering (10.0) | T-27, T-28 |
+| Trade-offs / engineering (10.0) | T-27, T-28, T-45 |
 
 Outside the task list: the pull request that merges v2 into `main` after T-27 (plan §15), and,
 by hand, pushing the `v1` tag, the walkthrough video (at most 15 minutes) and the submission

@@ -80,6 +80,8 @@ class Turn:
     conversation: list[dict]
     evidence: list[str]
     response: ChatResponse
+    today: date
+    """The merchant's day the turn was answered on: what "hoje" and "ontem" meant to the system."""
     retrieval: float | None = None
     verdict: Verdict | None = field(default=None)
 
@@ -123,19 +125,22 @@ async def run_line(graph, retriever: HybridRetriever, line: Line) -> list[Turn]:
     history: list[dict] = []
     turns: list[Turn] = []
     for number, message in enumerate(line.turns, start=1):
+        today = merchant_today()
         turn = turn_input(
             message=message,
             user_id=CALLER,
             conversation_id=conversation_id,
             trace_id=uuid4().hex,
-            today=merchant_today(),
+            today=today,
         )
         final = await graph.ainvoke(turn, config)
         response = to_response(final, conversation_id)
         label = f"turn {number}" if len(line.turns) > 1 else ""
         evidence = list(final.get("evidence") or [])
         confidence = corpus_confidence(final, retriever)
-        turns.append(Turn(line.name, label, message, list(history), evidence, response, confidence))
+        turns.append(
+            Turn(line.name, label, message, list(history), evidence, response, today, confidence)
+        )
         history += [
             {"role": "human", "content": message},
             {"role": "ai", "content": response.answer},
@@ -146,15 +151,25 @@ async def run_line(graph, retriever: HybridRetriever, line: Line) -> list[Turn]:
                 await graph.ainvoke(Command(resume=decision), config), conversation_id
             )
             turns.append(
-                Turn(line.name, "operator reply", message, list(history), [line.operator], resumed)
+                Turn(
+                    line.name,
+                    "operator reply",
+                    message,
+                    list(history),
+                    [line.operator],
+                    resumed,
+                    today,
+                )
             )
             history.append({"role": "ai", "content": resumed.answer})
     return turns
 
 
 async def judge(turn: Turn, provider: OpenAIProvider) -> Verdict:
-    """Score one answered turn against the evidence it had."""
+    """Score one answered turn against the evidence it had, on the day it was answered: the
+    judge's own idea of today may be another calendar day, such as UTC's after 21:00 in Brazil."""
     payload = {
+        "today": turn.today.isoformat(),
         "conversation": turn.conversation,
         "question": turn.question,
         "evidence": turn.evidence,
@@ -180,7 +195,7 @@ def revision() -> str:
     dirty = subprocess.run(
         ["git", "status", "--porcelain"], capture_output=True, text=True, check=False
     ).stdout.strip()
-    return f"`{sha}`" + (" plus the uncommitted changes that add this runner" if dirty else "")
+    return f"`{sha}`" + (" plus the changes committed with this report" if dirty else "")
 
 
 def calibration_summary() -> list[str]:

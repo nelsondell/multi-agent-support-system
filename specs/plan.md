@@ -284,7 +284,8 @@ Three levels, deliberately separate.
 - `uv run python -m evals.run_judge` — the ten challenge scenarios, two follow-ups, a compound
   request and the human-review loop through the real graph, every answered turn scored by
   `JUDGE_MODEL` (a tier above the chat model) for groundedness against that turn's `evidence` and
-  for relevance, written to `evals/report.md` with the retrieval calibration numbers.
+  for relevance, written to `evals/report.md` with the retrieval calibration numbers. The judge
+  is given the merchant's day the turn was answered on, so "ontem" means the same day to both.
 
 No eval runs inside pytest: a statistical measure that dips one case in thirty is not a red
 test suite.
