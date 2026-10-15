@@ -42,7 +42,7 @@ async def test_prompt_injection_is_refused_before_any_agent_runs(build_test_grap
     )
     state = GraphState.model_validate(final)
 
-    assert state.guardrail_outcome is GuardrailOutcome.IDENTITY_SWAP
+    assert state.guardrail_outcome is GuardrailOutcome.PROMPT_INJECTION
     assert state.route is None, "the router never ran"
     assert state.escalation is None
     assert state.answer.strip()

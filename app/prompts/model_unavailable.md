@@ -1,6 +1,6 @@
 ---
-version: 1
+version: 2
 ---
 
-Ainda não consigo responder a esse tipo de pergunta por aqui.
+Não consegui concluir a sua resposta agora por uma falha temporária no atendimento automático.
 Para não te passar uma informação errada sobre a sua conta ou sobre valores, prefiro encaminhar para um atendente humano.

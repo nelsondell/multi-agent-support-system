@@ -135,10 +135,11 @@ specs/                      spec, plan and task list (spec-driven development)
 
 1. **`POST /chat`** takes `{message, user_id, conversation_id?}`. `user_id` is the authenticated
    caller. The thread key is SHA-256 of `(user_id, conversation_id)`, so another merchant using the
-   same conversation id opens an empty thread. If a human has this conversation's case, the answer
-   is the open protocol and nothing runs.
+   same conversation id opens an empty thread. Messages on one conversation run one at a time. If
+   a human has this conversation's case, the answer is the open protocol and nothing runs.
 2. **Guardrail** masks CPF, CNPJ, card and phone numbers, and refuses prompt injection and
-   identity swaps before any model call. A refused message is never remembered.
+   identity swaps before any model call, each with its own outcome; a merchant naming their own
+   id is not a swap. A refused message is never remembered.
 3. **Router** reads the message, and the last messages and a rolling summary as a separate JSON
    field, never as instructions. It returns a validated `RouterDecision`: intent, confidence, and
    one or two steps, each with a standalone Portuguese query that resolves references ("e o de
@@ -260,8 +261,8 @@ curl -s localhost:8000/chat -H 'Content-Type: application/json' \
   -d '{"message": "E em que dia foi feita essa venda?", "user_id": "cliente1988", "conversation_id": "c2"}'
 ```
 
-A reply is rephrased for the merchant, but if the rephrasing carries a number the operator didn't
-write, the operator's literal text goes out instead. The reply cites the operator and lands in the
+A reply is rephrased for the merchant, but if the rephrasing carries a number or a status the
+operator didn't write, the operator's literal text goes out instead. The reply cites the operator and lands in the
 history, so step 4 resolves "essa venda" to the sale the operator named. The reply is also held
 for the merchant: their next `/chat` delivers it in `delivered`, before that message's own answer,
 and `GET /conversations/{id}?user_id=...` shows the whole history. While a case is open, the
@@ -579,13 +580,14 @@ run.
 - **Metrics.** `GET /metrics`: `support_escalations_total{reason}` and
   `support_node_latency_seconds{node}`. Escalation reasons are a typed enum: `low_router_confidence`,
   `repeated_misroute`, `low_retrieval_confidence`, `insufficient_sources`, `individual_case`,
-  `tool_unavailable`, `agent_not_implemented`. In the last timed real run, a turn took 4 to 6.5 s,
+  `tool_unavailable`, `model_unavailable`. In the last timed real run, a turn took 4 to 6.5 s,
   and 9 s for a compound request.
 - **Tracing.** Optional LangSmith tracing through one client that masks inputs and outputs before
   upload. Off by default, and off means off: it also overrides a `LANGSMITH_TRACING=true` LangChain
   would otherwise act on, unmasked. It costs nothing per request and can't fail one.
-- **Guardrail.** Deterministic, before any model call: prompt injection and identity swaps are
-  refused; PII is masked.
+- **Guardrail.** Deterministic, before any model call: prompt injection (`prompt_injection`) and
+  requests for another merchant's data (`identity_swap`, the caller's own id allowed) are refused;
+  PII is masked.
 
 **Financial hard rules**, in the prompts and asserted in tests:
 
@@ -594,8 +596,9 @@ run.
 2. No promise of a future date; an account forecast is said to be a forecast.
 3. No verdict on an individual case beyond the data: a declined sale gets the issuer's recorded
    reason and nothing more; refunds, chargebacks, blocks and fraud always go to a person.
-4. Rephrasing adds nothing: a merged answer or an operator reply with a number its source lacks is
-   replaced by that source. Numbers are compared by value ("R$ 1.234,56" = "1234.56").
+4. Rephrasing adds nothing: a merged answer, a draft or an operator reply with a number or a status
+   its source lacks is replaced by that source. Numbers are compared by value ("R$ 1.234,56" =
+   "1234.56"), statuses by meaning ("negada" = "recusada"; "estornada" ≠ "aprovada").
 5. No mention of a human unless the turn opened a protocol.
 
 ## 12. What changed since v1

@@ -110,7 +110,7 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
         )
     except LLMProviderError as exc:
         logger.warning("support planning failed: %s", exc)
-        return {"refusal_reason": EscalationReason.AGENT_NOT_IMPLEMENTED.value}
+        return {"refusal_reason": EscalationReason.MODEL_UNAVAILABLE.value}
 
     if plan.action is SupportAction.ESCALATE_INDIVIDUAL_CASE:
         return {"refusal_reason": EscalationReason.INDIVIDUAL_CASE.value}
@@ -135,7 +135,7 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     except LLMProviderError as exc:
         logger.warning("support generation failed: %s", exc)
         return {
-            "refusal_reason": EscalationReason.AGENT_NOT_IMPLEMENTED.value,
+            "refusal_reason": EscalationReason.MODEL_UNAVAILABLE.value,
             "evidence": evidence,
         }
 

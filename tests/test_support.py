@@ -93,7 +93,7 @@ async def test_planning_failure_does_not_raise() -> None:
     """A vendor error becomes an escalation, never a stack trace."""
     update = await answer(_state(), ScriptedProvider(error="upstream 500"))
 
-    assert update["refusal_reason"] == EscalationReason.AGENT_NOT_IMPLEMENTED.value
+    assert update["refusal_reason"] == EscalationReason.MODEL_UNAVAILABLE.value
 
 
 def test_plan_arguments_never_carry_an_identity() -> None:

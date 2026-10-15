@@ -29,6 +29,7 @@ from app.providers.llm import build_provider
 from app.settings import get_settings
 
 GOLDEN_SET = Path(__file__).parent / "routing_golden_set.jsonl"
+EVAL_USER = "eval"
 
 
 @dataclass
@@ -59,7 +60,7 @@ def evaluate_guardrail(rows: list[dict]) -> list[Outcome]:
             row_id=row["id"],
             group=row["group"],
             expected=row["expected_guardrail"],
-            actual=classify(row["message"]).value,
+            actual=classify(row["message"], EVAL_USER).value,
         )
         for row in rows
     ]
@@ -69,7 +70,7 @@ def row_state(row: dict) -> GraphState:
     """The turn a row describes: its message, after its earlier turns when it has any."""
     kinds = {"human": HumanMessage, "ai": AIMessage}
     history = [kinds[item["role"]](content=item["content"]) for item in row.get("history", [])]
-    return GraphState(message=row["message"], user_id="eval", messages=history)
+    return GraphState(message=row["message"], user_id=EVAL_USER, messages=history)
 
 
 def routed_as(row: dict, decision: RouterDecision) -> str:

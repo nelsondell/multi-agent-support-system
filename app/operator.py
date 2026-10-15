@@ -4,6 +4,7 @@ Every route requires `Authorization: Bearer <OPERATOR_TOKEN>`. Without a configu
 answer 503 rather than open up. Answering a case resumes the paused graph on that case's thread,
 and the agent turns the operator's input into the merchant's reply, which is held until the
 merchant's next message delivers it. A case can also be cancelled, which closes it with a notice.
+The resume holds the conversation's lock, so it never runs alongside a merchant's message.
 """
 
 import secrets
@@ -52,7 +53,8 @@ async def settle(
     app: Any, record: HandoffRecord, thread: str, decision: OperatorInput, outcome: Outcome
 ) -> ChatResponse | None:
     """Close a case, resume its conversation from the decision, and hold the reply for the
-    merchant's next message. None when the case was already closed by someone else."""
+    merchant's next message. None when the case was already closed by someone else. The caller
+    holds the conversation's lock."""
     queue, protocol = app.state.queue, record.case.protocol
     if not await queue.claim(protocol, outcome):
         return None
@@ -82,7 +84,8 @@ async def resume_handoff(protocol: str, decision: OperatorInput, request: Reques
     if decision.action == "approve" and not record.case.proposed_draft:
         raise HTTPException(422, f"case {protocol} has no draft to approve; reply instead")
     outcome = "cancelled" if decision.action == "cancel" else "answered"
-    response = await settle(request.app, record, thread, decision, outcome)
+    async with request.app.state.locks.hold(thread):
+        response = await settle(request.app, record, thread, decision, outcome)
     if response is None:
         raise HTTPException(409, f"case {protocol} is already closed")
     return response

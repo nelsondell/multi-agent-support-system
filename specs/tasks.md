@@ -400,19 +400,34 @@ that paused before any step ran, or a cancelled case, still ends with its reply 
 after the reply the second runs and compose joins both, citing the operator and the page; a
 hand-back after the reply replans within the budget and keeps the operator's answer.
 
+### T-44 — `fix(T-44): lock conversations, allow the caller's id, rename outcomes, guard statuses`
+A per-conversation lock (`app/locks.py`), held by `/chat` from reading the thread to writing the
+answer and by the operator's resume, so two requests on one conversation never run at once;
+locks are dropped when idle. The guardrail compares an id in the message with the authenticated
+`user_id`, so a merchant naming their own id is allowed. Prompt injection gets its own outcome,
+`prompt_injection`, and refusal. A failed model call in the router, knowledge or support escalates
+as `model_unavailable` (was `agent_not_implemented`, or low confidence), with a notice that says
+something failed; stored cases with the old value still load. Hard rule 4 covers status words:
+a merge, a draft or an operator rephrasing that states a status its source does not (for example
+"aprovada" for "estornada") falls back as a new number does.
+**Done when:** two concurrent messages on one conversation run one after the other and both stay
+in the history, while two conversations run at once; "user_id: <own id>" passes the guardrail and
+another id does not; injection reports `prompt_injection`; a router failure escalates as
+`model_unavailable`; a flipped status in a merge or a rephrasing is rejected.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
-| Human-in-the-loop (5.8) | T-21, T-24, T-42 |
+| Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32 |
 | Multi-agent / orchestration (8.8) | T-22, T-43 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
-| Security / isolation (9.5) | T-19, T-21, T-23 |
+| Security / isolation (9.5) | T-19, T-21, T-23, T-44 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
 | Trade-offs / engineering (10.0) | T-27, T-28 |
 

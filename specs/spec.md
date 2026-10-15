@@ -82,6 +82,11 @@ parallel plan steps, plans longer than two steps.
 `user_id` comes from the request envelope and is treated as authenticated. It is never a field
 the model can read or write, and never appears in a tool schema.
 
+Messages on one conversation are answered one at a time. A second `/chat` on the same
+conversation, or an operator's answer to its case, waits until the turn in progress has finished
+and then runs on its result, so no turn is lost to another written over it. Other conversations
+never wait. The lock lives in the API process, which runs as one worker.
+
 ### Operator endpoints
 
 All require `Authorization: Bearer <OPERATOR_TOKEN>`. A case is
@@ -246,9 +251,12 @@ These are testable statements, not prompt suggestions.
    the data does not carry. With no declined sale on record, or none with a recorded reason, it
    goes to a human. Chargebacks, refunds, blocks, fraud and pending registration go to a human
    even when account data exists.
-4. **Rephrasing adds nothing.** A composed answer or an operator reply that contains a number
-   absent from the text it was built from is discarded in favour of that text, delivered
-   verbatim. Numbers are compared by value, not by spelling: currency symbols
+4. **Rephrasing adds nothing.** A composed answer, a handoff draft or an operator reply that
+   contains a number or a status absent from the text it was built from is discarded in favour of
+   that text, delivered verbatim. Statuses are the account data's (aprovada, negada, estornada,
+   cancelada, bloqueada, liquidado, previsto, a terminal's ativo or sem comunicação), read as
+   whole words, with gender, number and synonyms folded together ("negada" and "recusada" are one
+   status), so "estornada" reworded as "aprovada" is caught even with every number intact. Numbers are compared by value, not by spelling: currency symbols
    and spaces are dropped and both pt-BR (`1.234,56`) and en (`1,234.56`) separators are read,
    so "R$ 1.234,56" and "1234.56" are the same value. A token whose separator is ambiguous
    ("1.234") matches under either reading.
@@ -268,7 +276,8 @@ Runs before routing, deterministic, no model call.
 
 | Outcome | Behaviour |
 | --- | --- |
-| `identity_swap` | A request to read another merchant or to override instructions gets a short refusal and a log event. Defence in depth: injected state already neutralises it. |
+| `prompt_injection` | An instruction to drop the rules, play another role or reveal the prompt gets a short refusal and a log event. |
+| `identity_swap` | A request for another merchant's data, named as another merchant or by an id that is not the authenticated caller's, gets a short refusal and a log event. A merchant naming their own id is allowed. Defence in depth: injected state already neutralises it. |
 | `allow` | Proceeds to the router. |
 
 CPF, CNPJ, card number and phone are masked on every message before anything is logged or
@@ -282,14 +291,18 @@ exchange-rate questions now have an answer (§7).
 summary, and writes one structured log line. The typed reason doubles as the operational metric.
 
 Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`,
-`insufficient_sources`, `individual_case`, `tool_unavailable`, `agent_not_implemented`.
+`insufficient_sources`, `individual_case`, `tool_unavailable`, `model_unavailable`. A failed model
+call (the router, a specialist's plan or answer) escalates as `model_unavailable`, with a notice
+that says something failed, never as low confidence or as nothing found. A case stored as v2's
+earlier `agent_not_implemented` reads as `model_unavailable`.
 
 **human_review** takes every escalated turn:
 
 1. It builds a case for the operator: the masked summary, the intent, what the agents tried and
    why they stopped, the pages retrieved if any, and a proposed draft reply. The draft may quote
    the case's evidence (the merchant's message, tool results, retrieved chunks); if it cannot be
-   generated, or states a number found in none of that evidence, the case opens without one.
+   generated, or states a number or a status found in none of that evidence, the case opens
+   without one.
    The case is recorded in the queue before the graph pauses.
 2. It pauses the graph with `interrupt()`. The merchant receives a pt-BR notice with the protocol
    and `status = pending_human`.
@@ -298,8 +311,8 @@ Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence
    unaffected.
 4. The operator lists open cases and answers one (§3): approving sends the draft as written;
    replying gives the agent the only new facts it may use. It may rephrase them, never add to
-   them (hard rule 4). If the rephrasing fails or adds a number, the operator's literal text is
-   sent. Cancelling closes the case with a notice and no new fact.
+   them (hard rule 4). If the rephrasing fails, adds a number or changes a status, the
+   operator's literal text is sent. Cancelling closes the case with a notice and no new fact.
 5. The reply cites the operator as its source, is saved to the conversation history, and is held
    until the merchant's next message delivers it. The next turn builds on it. Open cases and
    paused threads survive a restart.

@@ -18,12 +18,14 @@ app/
     compose.py         join point after the last step
     human_review.py    prepare_handoff and await_operator nodes
     numbers.py         hard-rule-4 guard: number extraction and normalization
+    statuses.py        hard-rule-4 guard: status words, read as the status they name
     knowledge.py, support.py, guardrail.py, escalation.py
   rag/                 extraction, snapshot, chunking, index build, hybrid retriever
   tools/               account.py (two support tools), web.py (web search)
   providers/           llm.py (port + OpenAI), fake.py (CI backend), embeddings.py
   prompts/             versioned pt-BR markdown, loaded by id
   observability/       structlog setup, PII masking, metrics, tracing
+  locks.py             one turn at a time per conversation, for /chat and operator resume
 data/corpus/documents.jsonl   committed extraction snapshot
 evals/                 routing golden set + runner, model benchmark, LLM-as-judge runner, reports
 .github/workflows/ci.yml, Makefile, .env.example
@@ -309,10 +311,12 @@ test suite.
 | Coverage: full and partial answered, none escalates (§7) | `test_knowledge::test_excerpts_that_answer_part_of_the_question_are_answered`, `test_excerpts_that_do_not_answer_abstain_instead_of_saying_so`, `test_human_review::test_a_product_question_the_excerpts_do_not_answer_goes_to_a_human` |
 | Unreachable embedder abstains (§7, §14) | `test_knowledge::test_an_unreachable_embedder_reads_as_nothing_retrieved` |
 | Web only for general questions; masked, dated, capped, degraded (§7) | `test_web::*`, `test_flows::test_a_general_question_is_answered_from_the_web_with_a_key`, `test_without_a_key_a_general_question_degrades_and_nothing_leaves`, `test_the_web_query_that_leaves_is_masked` |
-| Guardrail: injection and identity refused, PII masked, system ids untouched (§10) | `test_guardrail::*`, `test_adversarial::*`, `test_observability::*` |
+| Guardrail: injection and identity refused as separate outcomes, the caller's own id allowed, PII masked, system ids untouched (§10) | `test_guardrail::*`, `test_adversarial::*`, `test_observability::*` |
+| One turn at a time per conversation; other conversations never wait (§3) | `test_locks::*`, `test_flows::test_two_messages_on_one_conversation_take_turns`, `test_different_conversations_do_not_wait_for_each_other` |
+| A failed model call escalates as `model_unavailable`; older stored reasons still load (§11) | `test_router::test_provider_failure_becomes_zero_confidence_not_an_exception`, `test_knowledge::test_generation_failure_refuses_instead_of_raising`, `test_support::test_planning_failure_does_not_raise`, `test_escalation::test_a_model_failure_escalates_with_its_own_notice`, `test_a_reason_stored_before_the_rename_still_loads` |
 | Escalation deterministic, typed reason, masked summary (§11) | `test_escalation::*` |
 | Human review: case before pause, pending runs nothing, approve or reply, rephrase guarded, survives restart (§11) | `test_human_review::*` |
-| Hard rule 1 and 4: no number its source lacks (§9) | `test_numbers::*`, `test_plans::test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answers`, `test_human_review::test_a_rephrasing_with_a_new_number_falls_back_to_the_operator_text`, `test_web::test_an_answer_with_a_number_the_results_lack_degrades` |
+| Hard rule 1 and 4: no number or status its source lacks (§9) | `test_numbers::*`, `test_statuses::*`, `test_plans::test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answers`, `test_a_composed_answer_that_flips_a_status_falls_back_to_the_step_answers`, `test_human_review::test_a_rephrasing_with_a_new_number_falls_back_to_the_operator_text`, `test_a_rephrasing_that_flips_a_status_falls_back_to_the_operator_text`, `test_web::test_an_answer_with_a_number_the_results_lack_degrades` |
 | Hard rule 3: declines answered from the recorded reason, otherwise a person (§9) | `test_support::test_a_decline_is_explained_with_the_reason_the_issuer_recorded`, `test_a_decline_the_data_cannot_explain_goes_to_a_person` |
 | Hard rule 5: a person is promised only with a protocol (§9) | `test_plans::test_an_answer_never_promises_a_person_when_no_protocol_opens`, `test_an_answer_that_only_promises_a_person_opens_the_protocol` |
 | Identity injected, never in a tool schema (§8) | `test_tools::test_user_id_is_not_in_the_schema_the_model_sees`, `test_a_smuggled_user_id_cannot_reach_another_customer`, `test_adversarial::test_another_customers_data_is_unreachable_through_the_graph` |

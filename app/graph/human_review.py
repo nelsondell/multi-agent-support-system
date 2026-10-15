@@ -23,6 +23,7 @@ from pydantic import BaseModel
 from app.contracts import EscalationReason, HandoffCase, OperatorInput, Source, SourceType
 from app.graph.memory import thread_id
 from app.graph.numbers import adds_numbers
+from app.graph.statuses import adds_statuses
 from app.observability import mask_pii
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
@@ -40,7 +41,7 @@ STOPPED_BECAUSE = {
     EscalationReason.INSUFFICIENT_SOURCES: "the sources found do not answer the question",
     EscalationReason.INDIVIDUAL_CASE: "an individual case, which only a person may decide",
     EscalationReason.TOOL_UNAVAILABLE: "the account data could not be read",
-    EscalationReason.AGENT_NOT_IMPLEMENTED: "a model call failed before the specialist finished",
+    EscalationReason.MODEL_UNAVAILABLE: "a model call failed before the agent finished",
 }
 
 
@@ -82,8 +83,8 @@ def attempts(state: GraphState) -> list[str]:
 
 
 async def _draft(state: GraphState, provider: LLMProvider) -> str | None:
-    """One structured call proposes a reply. None when it fails, or when it states a number that
-    is in none of the case's evidence, since an approved draft goes out exactly as written."""
+    """One structured call proposes a reply. None when it fails, or when it states a number or a
+    status that is in none of the case's evidence, since an approved draft goes out as written."""
     question = state.escalation.summary
     payload = {
         "question": question,
@@ -102,7 +103,10 @@ async def _draft(state: GraphState, provider: LLMProvider) -> str | None:
         logger.warning("handoff draft failed, the case opens without one: %s", exc)
         return None
     draft = drafted.draft.strip()
-    invented = adds_numbers(draft, [question, *state.evidence], quoting=[state.escalation.protocol])
+    known = [question, *state.evidence]
+    invented = adds_numbers(draft, known, quoting=[state.escalation.protocol]) or adds_statuses(
+        draft, known
+    )
     return draft if draft and not invented else None
 
 
@@ -132,7 +136,7 @@ async def prepare_handoff(
 
 async def _rephrase(answer: str, case: HandoffCase, provider: LLMProvider) -> str:
     """Word the operator's answer for the merchant. Their literal text wins whenever the
-    rephrasing fails or carries a number they did not write (hard rule 4)."""
+    rephrasing fails, or carries a number or a status they did not write (hard rule 4)."""
     payload = {"question": case.summary, "operator_answer": answer}
     try:
         reply = await provider.structured(
@@ -144,7 +148,11 @@ async def _rephrase(answer: str, case: HandoffCase, provider: LLMProvider) -> st
         logger.warning("operator reply rephrasing failed, sending it verbatim: %s", exc)
         return answer
     text = reply.answer.strip()
-    if not text or adds_numbers(text, [answer], quoting=[case.protocol]):
+    if (
+        not text
+        or adds_numbers(text, [answer], quoting=[case.protocol])
+        or adds_statuses(text, [answer])
+    ):
         logger.warning("rephrased operator reply rejected, sending it verbatim")
         return answer
     return text

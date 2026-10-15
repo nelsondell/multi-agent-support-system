@@ -3,6 +3,7 @@
 from app.contracts import EscalationReason
 from app.graph.escalation import escalate, mint_protocol, resolve_reason
 from app.graph.state import GraphState
+from app.prompts import load_prompt
 
 
 def _state(**fields) -> GraphState:
@@ -46,6 +47,19 @@ async def test_escalation_payload_carries_reason_and_masked_summary() -> None:
     assert escalation.protocol in update["answer"]
     assert "[CPF]" in escalation.summary
     assert update["sources"] == []
+
+
+async def test_a_model_failure_escalates_with_its_own_notice() -> None:
+    """The merchant hears that something failed, not that their question has no answer."""
+    update = await escalate(_state(refusal_reason=EscalationReason.MODEL_UNAVAILABLE.value))
+
+    assert update["escalation"].reason is EscalationReason.MODEL_UNAVAILABLE
+    assert update["answer"].startswith(load_prompt("model_unavailable").text)
+
+
+def test_a_reason_stored_before_the_rename_still_loads() -> None:
+    """Open cases and checkpoints written as agent_not_implemented read as model_unavailable."""
+    assert EscalationReason("agent_not_implemented") is EscalationReason.MODEL_UNAVAILABLE
 
 
 async def test_escalation_runs_without_a_model() -> None:

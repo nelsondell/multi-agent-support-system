@@ -6,9 +6,10 @@ invariants the spec states, never a model's wording. The human-review loop over 
 `test_human_review`.
 """
 
+import asyncio
 import json
 from collections.abc import Callable
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 
 import httpx
 import pytest
@@ -91,6 +92,30 @@ class Model:
 
     def router_inputs(self) -> list[dict]:
         return [json.loads(user) for name, user in self.calls if name == "RouterDecision"]
+
+
+class Overlap(Model):
+    """Holds each router call until a second turn is routing too, or half a second passes, and
+    records the most turns that were routing at once."""
+
+    def __init__(self, **overrides) -> None:
+        super().__init__(**overrides)
+        self.routing = self.most = 0
+        self.second = asyncio.Event()
+
+    async def structured(self, *, system: str, user: str, schema: type):
+        if schema is not RouterDecision:
+            return await super().structured(system=system, user=user, schema=schema)
+        self.routing += 1
+        self.most = max(self.most, self.routing)
+        if self.routing > 1:
+            self.second.set()
+        try:
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self.second.wait(), 0.5)
+            return await super().structured(system=system, user=user, schema=schema)
+        finally:
+            self.routing -= 1
 
 
 @pytest.fixture
@@ -221,6 +246,36 @@ async def test_an_unreadable_account_escalates_instead_of_failing_the_request(st
 
     assert reply["status"] == "pending_human"
     assert reply["escalation"]["reason"] == "tool_unavailable"
+
+
+async def test_two_messages_on_one_conversation_take_turns(stack):
+    """Run at once, both turns would read the same checkpoint and one would be lost. The second
+    waits for the first instead, and the history keeps both."""
+    model = Overlap()
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model)
+        replies = await asyncio.gather(
+            chat(http, "Quando cai o dinheiro das vendas de ontem?"),
+            chat(http, "Quando cai o dinheiro das vendas de amanhã?"),
+        )
+        view = await http.get("/conversations/c1", params={"user_id": CALLER})
+
+    assert model.most == 1
+    assert [reply["status"] for reply in replies] == ["answered", "answered"]
+    assert len(view.json()["messages"]) == 4
+    assert len(app.state.locks) == 0
+
+
+async def test_different_conversations_do_not_wait_for_each_other(stack):
+    model = Overlap()
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, model)
+        await asyncio.gather(
+            chat(http, "Quando cai o dinheiro das vendas de ontem?", "c1"),
+            chat(http, "Quando cai o dinheiro das vendas de ontem?", "c2"),
+        )
+
+    assert model.most == 2
 
 
 async def test_the_evidence_never_reaches_the_response_or_the_history(stack):

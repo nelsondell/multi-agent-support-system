@@ -221,7 +221,7 @@ async def test_a_draft_may_quote_the_tool_result_but_nothing_else(stack, draft, 
 
         case = (await http.get(f"/handoffs/{protocol}", headers=OPERATOR)).json()["case"]
 
-    assert case["reason"] == "agent_not_implemented"
+    assert case["reason"] == "model_unavailable"
     assert case["proposed_draft"] == (draft if kept else None)
 
 
@@ -245,6 +245,18 @@ async def test_a_rephrasing_with_a_new_number_falls_back_to_the_operator_text(st
     inventive = model(OperatorReply=OperatorReply(answer="Estorno aprovado, cai em 3 dias úteis."))
     async with AsyncExitStack() as exits:
         http = await stack(exits, inventive)
+        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        decision = {"action": "reply", "answer": "Estorno aprovado, cai em 2 dias úteis."}
+
+        resumed = await http.post(f"/handoffs/{protocol}/resume", json=decision, headers=OPERATOR)
+
+    assert resumed.json()["answer"] == "Estorno aprovado, cai em 2 dias úteis."
+
+
+async def test_a_rephrasing_that_flips_a_status_falls_back_to_the_operator_text(stack):
+    flipped = model(OperatorReply=OperatorReply(answer="Estorno negado, cai em 2 dias úteis."))
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, flipped)
         protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
         decision = {"action": "reply", "answer": "Estorno aprovado, cai em 2 dias úteis."}
 

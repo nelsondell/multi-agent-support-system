@@ -24,6 +24,7 @@ from app.graph.build import build_graph
 from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
 from app.handoffs import open_handoff_queue
+from app.locks import ConversationLocks
 from app.observability import configure_logging, mask_pii
 from app.observability.tracing import configure_tracing
 from app.operator import router as operator_router
@@ -67,6 +68,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Multi-agent support system", lifespan=lifespan)
 app.include_router(operator_router)
+app.state.locks = ConversationLocks()
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -76,7 +78,8 @@ async def chat(request: ChatRequest) -> ChatResponse:
     The thread is keyed by the authenticated `user_id` together with the conversation id, so a
     conversation id alone never reaches another merchant's history. While a human has this
     conversation's case, the message is noted on the case and gets the open protocol; once the
-    case is closed, how it ended is delivered with the next message, before its answer.
+    case is closed, how it ended is delivered with the next message, before its answer. A second
+    message on the same conversation waits for the first one's turn to finish.
     """
     trace_id = uuid4().hex
     conversation_id = request.conversation_id or uuid4().hex
@@ -84,19 +87,20 @@ async def chat(request: ChatRequest) -> ChatResponse:
     thread = thread_id(request.user_id, conversation_id)
     config = {"configurable": {"thread_id": thread}}
     try:
-        snapshot = await app.state.graph.aget_state(config)
-        if PAUSED_AT in snapshot.next and await still_waiting(snapshot.values, request.message):
-            return pending_response(snapshot.values, conversation_id)
-        delivered = await app.state.queue.deliver(thread)
-        turn = turn_input(
-            message=request.message,
-            user_id=request.user_id,
-            conversation_id=conversation_id,
-            trace_id=trace_id,
-            today=merchant_today(),
-        )
-        response = to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
-        return response.model_copy(update={"delivered": delivered})
+        async with app.state.locks.hold(thread):
+            snapshot = await app.state.graph.aget_state(config)
+            if PAUSED_AT in snapshot.next and await still_waiting(snapshot.values, request.message):
+                return pending_response(snapshot.values, conversation_id)
+            delivered = await app.state.queue.deliver(thread)
+            turn = turn_input(
+                message=request.message,
+                user_id=request.user_id,
+                conversation_id=conversation_id,
+                trace_id=trace_id,
+                today=merchant_today(),
+            )
+            response = to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
+            return response.model_copy(update={"delivered": delivered})
     finally:
         structlog.contextvars.clear_contextvars()
 

@@ -1,7 +1,8 @@
 """Input guardrail.
 
 Runs before routing and is deliberately deterministic: patterns, no model call. It refuses prompt
-injection and requests for another merchant's data, as defence in depth for identity. It does not
+injection, and requests for another merchant's data as defence in depth for identity: an id in
+the message is compared with the authenticated caller's, so naming your own is allowed. It does not
 judge scope: a general-purpose question such as the weather or an exchange rate is routed, and the
 knowledge agent answers it from a cited web search.
 """
@@ -26,31 +27,46 @@ _INJECTION = [
     re.compile(r"\byou\s+are\s+now\b", re.IGNORECASE),
 ]
 
-_IDENTITY = [
+_NAMED_ID = [
     re.compile(
-        r"\b(conta|dados|vendas|cadastro|extrato)\b.{0,30}\bdo\s+(cliente|usu[áa]rio)\s+\S+"
+        r"\b(?:conta|dados|vendas|cadastro|extrato)\b.{0,30}"
+        r"\bdo\s+(?:cliente|usu[áa]rio)\s+(?P<id>[\w-]+)"
     ),
-    re.compile(r"\buser[_\s-]?id\b\s*[:=]?\s*\S+", re.IGNORECASE),
-    re.compile(r"\bcliente\d{3,}\b", re.IGNORECASE),
-    re.compile(r"\b(de\s+outro|do\s+outro)\s+(cliente|estabelecimento|lojista)\b", re.IGNORECASE),
+    re.compile(r"\buser[_\s-]?id\b\s*[:=]?\s*(?P<id>[\w-]+)", re.IGNORECASE),
+    re.compile(r"\b(?P<id>cliente\d{3,})\b", re.IGNORECASE),
 ]
+_ANOTHER_MERCHANT = re.compile(
+    r"\b(de\s+outro|do\s+outro)\s+(cliente|estabelecimento|lojista)\b", re.IGNORECASE
+)
 
 
-def classify(message: str) -> GuardrailOutcome:
-    """Decide before any model sees the message."""
+def names_another_merchant(message: str, user_id: str) -> bool:
+    """Whether the message asks about a merchant other than the caller: one it calls another, or
+    an id that is not the caller's. A merchant naming their own id is not swapping identity."""
+    if _ANOTHER_MERCHANT.search(message):
+        return True
+    named = {match["id"].casefold() for pattern in _NAMED_ID for match in pattern.finditer(message)}
+    return bool(named - {user_id.casefold()})
+
+
+def classify(message: str, user_id: str) -> GuardrailOutcome:
+    """Decide before any model sees the message. `user_id` is the authenticated caller."""
     if any(pattern.search(message) for pattern in _INJECTION):
-        return GuardrailOutcome.IDENTITY_SWAP
-    if any(pattern.search(message) for pattern in _IDENTITY):
+        return GuardrailOutcome.PROMPT_INJECTION
+    if names_another_merchant(message, user_id):
         return GuardrailOutcome.IDENTITY_SWAP
     return GuardrailOutcome.ALLOW
 
 
-_REFUSALS = {GuardrailOutcome.IDENTITY_SWAP: "identity_refusal"}
+_REFUSALS = {
+    GuardrailOutcome.PROMPT_INJECTION: "injection_refusal",
+    GuardrailOutcome.IDENTITY_SWAP: "identity_refusal",
+}
 
 
 async def inspect(state: GraphState) -> dict[str, Any]:
     """Mask the message for logging, then classify it."""
-    outcome = classify(state.message)
+    outcome = classify(state.message, state.user_id)
     masked = mask_pii(state.message)
     update: dict[str, Any] = {"guardrail_outcome": outcome, "masked_message": masked}
     if outcome is not GuardrailOutcome.ALLOW:

@@ -35,6 +35,7 @@ class GuardrailOutcome(StrEnum):
     """What the guardrail decided before routing."""
 
     ALLOW = "allow"
+    PROMPT_INJECTION = "prompt_injection"
     IDENTITY_SWAP = "identity_swap"
 
 
@@ -47,7 +48,12 @@ class EscalationReason(StrEnum):
     INSUFFICIENT_SOURCES = "insufficient_sources"
     INDIVIDUAL_CASE = "individual_case"
     TOOL_UNAVAILABLE = "tool_unavailable"
-    AGENT_NOT_IMPLEMENTED = "agent_not_implemented"
+    MODEL_UNAVAILABLE = "model_unavailable"
+
+    @classmethod
+    def _missing_(cls, value: object) -> "EscalationReason | None":
+        """Cases and checkpoints stored before the rename still load."""
+        return cls.MODEL_UNAVAILABLE if value == "agent_not_implemented" else None
 
 
 class SourceType(StrEnum):

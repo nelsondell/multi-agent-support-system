@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.contracts import Intent, TargetAgent
+from app.contracts import EscalationReason, Intent, TargetAgent
 from app.graph.router import PlanStep, RouterDecision, route
 from app.graph.state import GraphState
 from app.providers.llm import LLMProviderError
@@ -76,6 +76,7 @@ async def test_provider_failure_becomes_zero_confidence_not_an_exception() -> No
     assert update["route"].confidence == 0.0
     assert update["route"].steps[0].query_pt == state.message
     assert "upstream timeout" in update["route"].rationale
+    assert update["refusal_reason"] == EscalationReason.MODEL_UNAVAILABLE.value
 
 
 def test_confidence_outside_the_unit_interval_is_rejected() -> None:

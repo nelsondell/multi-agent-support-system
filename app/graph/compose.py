@@ -2,8 +2,8 @@
 
 One answered step is copied as it is, with no model call, which is how a single-intent turn
 keeps its old path and cost. Two answered steps are merged by one structured call, and the merge
-may not carry a number the step answers lack (hard rule 4); if it does, or the call fails, the
-step answers are joined as written. Sources are the union of every answered step's, never
+may not carry a number or a status the step answers lack (hard rule 4); if it does, or the call
+fails, the step answers are joined as written. Sources are the union of every answered step's, never
 something the merge chose.
 
 When a step needs a human, the turn comes here at once: the answered part goes out now, marked
@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 from app.contracts import EscalationReason, Source
 from app.graph.numbers import adds_numbers
+from app.graph.statuses import adds_statuses
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
 
@@ -67,7 +68,8 @@ def joined(results: list[StepResult]) -> str:
 
 
 async def _merge(state: GraphState, answered: list[StepResult], provider: LLMProvider) -> str:
-    """One model call merges the answers; their own text wins if the merge adds a number."""
+    """One model call merges the answers; their own text wins if the merge adds a number or
+    changes a status."""
     payload = {
         "question": state.message,
         "parts": [{"question": item.query_pt, "answer": item.answer} for item in answered],
@@ -82,7 +84,8 @@ async def _merge(state: GraphState, answered: list[StepResult], provider: LLMPro
         logger.warning("compose failed, joining the step answers: %s", exc)
         return joined(answered)
     text = merged.answer.strip()
-    if not text or adds_numbers(text, [item.answer for item in answered]):
+    parts = [item.answer for item in answered]
+    if not text or adds_numbers(text, parts) or adds_statuses(text, parts):
         logger.warning("composed answer rejected, joining the step answers")
         return joined(answered)
     return text

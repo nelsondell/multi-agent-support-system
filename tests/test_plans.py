@@ -173,6 +173,15 @@ async def test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answer
     assert final["answer"] == f"{SETTLEMENT_A}\n\n{ADVANCE_A}"
 
 
+async def test_a_composed_answer_that_flips_a_status_falls_back_to_the_step_answers(graph_for):
+    """Same numbers, opposite fact: "liquidado" became "previsto"."""
+    flipped = f"Consta R$ 396,06 previsto para 2026-08-31. {ADVANCE_A}"
+
+    final = await send(graph_for(model(ComposedAnswer=ComposedAnswer(answer=flipped))))
+
+    assert final["answer"] == f"{SETTLEMENT_A}\n\n{ADVANCE_A}"
+
+
 async def test_a_composed_answer_that_only_respells_a_value_is_kept(graph_for):
     respelled = f"O valor 396.06 foi liquidado em 2026-08-31. {ADVANCE_A}"
 

@@ -125,7 +125,9 @@ async def answer(
         )
     except LLMProviderError as exc:
         logger.warning("knowledge generation failed: %s", exc)
-        return _refusal(EscalationReason.LOW_RETRIEVAL_CONFIDENCE, looked_at)
+        # Not "no source found": the escalation says the model failed, in its own words.
+        failed = EscalationReason.MODEL_UNAVAILABLE.value
+        return {"refusal_reason": failed, "sources": [], **looked_at}
     if generated.coverage == "none":
         logger.info("knowledge abstained: the excerpts do not answer the question")
         return _refusal(EscalationReason.INSUFFICIENT_SOURCES, looked_at)
