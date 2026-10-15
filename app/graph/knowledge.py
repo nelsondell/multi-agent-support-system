@@ -171,7 +171,9 @@ def stamped(answer: str, results: list[WebResult], fresh_from: date | None) -> s
     only, never one read from page text by the model, and never a time of day.
 
     `fresh_from` is the earliest day the data may come from: the day asked about, or today for a
-    question about tomorrow. A source published before it, or with no date, gets a plain notice.
+    question about tomorrow. A source published before it gets a notice with that date. Without a
+    structured date, the notice says the date could not be confirmed, never that the source has
+    none: the page text may well show one.
     """
     if fresh_from is None:
         return answer

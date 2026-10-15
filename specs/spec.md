@@ -214,8 +214,9 @@ hard rule 1 forbids, and it is never used for account data.
   timeout.
 - An answer that depends on the day prefers pages from the last day and closes with the source's
   publication date, taken only from the provider's structured field and never from page text,
-  without a time of day; a source older than the day in question, or one with no date, gets a
-  plain notice.
+  without a time of day. A source older than the day in question gets a notice with its date; one
+  without a structured date gets "Não consegui confirmar a data de publicação desta informação.",
+  never a claim that the source has no date, since its page may show one.
 - Without an API key, on timeout, on a provider error, or when the answer fails those checks, the
   agent says in pt-BR that it cannot look that up right now. This is a degraded answer, not an
   escalation.

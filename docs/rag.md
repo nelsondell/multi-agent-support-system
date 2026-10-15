@@ -32,5 +32,7 @@ untrusted data: the answer may carry no number they lack and no link of its own.
 a day asks for pages from the last day first, and its answer closes with the source's publication
 date: taken only from the search provider's structured field, never from page text the model
 reads, in the merchant's calendar and without a time of day. A source older than the day in
-question, or one with no publication date, gets a plain notice instead. No key, a timeout or a
+question gets a notice with its date. Without a structured date, the answer closes with "Não
+consegui confirmar a data de publicação desta informação": it never says the source has no date,
+because its page may show one the provider did not structure. No key, a timeout or a
 failed check degrade to a pt-BR message, never an exception.

@@ -14,7 +14,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
 | **Tests** | 295 offline tests; CI builds the image and smoke-tests the container |
-| **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.68, relevance 4.56 ([report](evals/report.md)) |
+| **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
 timebox:** an iteration on the evaluator's feedback, done at the evaluator's invitation. [What
@@ -136,25 +136,25 @@ The curl walkthrough and every error code: [docs/human-in-the-loop.md](docs/huma
 ## 5. Demo
 
 `OPERATOR_TOKEN=... ./scripts/demo.sh` against the container built from this commit's code
-(`gpt-6-luna`, `text-embedding-3-large`, live Tavily), on 2026-10-14. Full output, pt-BR as a
+(`gpt-6-luna`, `text-embedding-3-large`, live Tavily), on 2026-10-15. Full output, pt-BR as a
 merchant gets it, including the delivered reply and the stored conversation:
 [docs/demo.md](docs/demo.md).
 
 | # | Question | Agents | Status | Answer, shortened |
 | --- | --- | --- | --- | --- |
-| S01 | What's the difference between the Get Clássica and the Get Smart? | knowledge | answered | Both credit in 2 business days. Smart rental R$ 50,00 from R$ 10 mil/mês, R$ 10,00 from R$ 30 mil, free from R$ 60 mil, otherwise R$ 129,90/mês; Clássica free from R$ 10 mil, otherwise R$ 79,90/mês; Smart only for CNPJ above R$ 10 mil/mês. Two product pages cited. |
-| S02 | What's the weather forecast in Porto Alegre tomorrow? | knowledge (web) | answered | Thunderstorms, 17.3–22.6 °C, 86% chance of rain, heavy rain possible in the metro area; then the notice that the source gives no publication date. |
-| S03 | When will the money from yesterday's sales be deposited? | support | answered | "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026." |
-| S04 | Do I need a bank account to receive my sales via Pix? | knowledge | answered (partial) | The Get Conta is a digital account that receives money and sells by Pix; the site doesn't say whether another bank account is needed. |
-| S05 | My card machine won't connect to the internet, what should I do? | knowledge | answered (partial) | Insert the chip in SIM1 or SIM2, wait for the 2G/3G signal, then run the machine's communication test (function key, 60, maintenance, communication test); the site has nothing else on connection problems. |
-| S06 | How does receivables advance (antecipação) work with Getnet? | knowledge | answered (partial) | Receive credit sales before the settlement term; automatic advance depends on an individual credit evaluation; how to request it and its rates are not published. |
-| S07 | What's the euro exchange rate today? | knowledge (web) | answered | "O euro comercial está cotado a R$ 5,6099. Outra fonte informa o euro a R$ 5,63." Then the notice that the source gives no publication date. |
-| S08 | My card machine is showing a transaction decline error. | support | answered | "A transação foi negada porque, segundo o banco emissor, havia saldo ou limite insuficiente no cartão." |
-| S09 | How many installments can I split a sale into with the crediário? | knowledge | answered | Up to 48 installments; the limit depends on the card issuer's credit policy. |
-| S10 | Can I sell through WhatsApp using the Payment Link? | knowledge | answered | "Sim. Você pode vender pelo WhatsApp usando o Link de Pagamento: crie o link e compartilhe por onde quiser." |
-| Follow-up | "Quando cai o dinheiro das vendas de ontem?" → "E o de amanhã?" | support, support | answered | R$ 231,26 today; then R$ 60,18 crediting 15/10/2026. |
+| S01 | What's the difference between the Get Clássica and the Get Smart? | knowledge | answered | Mainly cost by revenue: Smart rental R$ 50,00 from R$ 10 mil/mês, R$ 10,00 from R$ 30 mil, free from R$ 60 mil; Clássica free from R$ 10 mil or R$ 60 mil depending on the offer, otherwise R$ 79,90/mês; both credit in 2 business days. Three pages cited. |
+| S02 | What's the weather forecast in Porto Alegre tomorrow? | knowledge (web) | answered | The state's forecast for Friday (16): cloudy with drizzle, 10–17 °C minimums and 13–24 °C maximums; the source has nothing specific to Porto Alegre. Ends with "Não consegui confirmar a data de publicação desta informação." |
+| S03 | When will the money from yesterday's sales be deposited? | support | answered | "O dinheiro das vendas de ontem (14/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026." |
+| S04 | Do I need a bank account to receive my sales via Pix? | knowledge | answered (partial) | The Get Conta is a digital account that sells through Pix; the site doesn't say whether another bank account is needed. |
+| S05 | My card machine won't connect to the internet, what should I do? | knowledge | answered (partial) | The Chip Algar connects to several carriers where there is 2G/3G coverage; the site has no troubleshooting steps. In other runs it escalates as insufficient sources. |
+| S06 | How does receivables advance (antecipação) work with Getnet? | knowledge | answered (partial) | Receive credit sales before the settlement term; automatic advance depends on an individual credit evaluation; rates and other details are not published. |
+| S07 | What's the euro exchange rate today? | knowledge (web) | degraded | At 06:30 no page had the day's rate yet: "No momento não consigo consultar essa informação na internet com segurança." On 14/10 it quoted R$ 5,6099 from Valor. |
+| S08 | My card machine is showing a transaction decline error. | support | answered | "A transação foi negada por saldo ou limite insuficiente no cartão, segundo o banco emissor." |
+| S09 | How many installments can I split a sale into with the crediário? | knowledge | answered | Up to 48 installments; the limit depends on the card issuer's credit policy; the machine's simulation shows the options. |
+| S10 | Can I sell through WhatsApp using the Payment Link? | knowledge | answered | "Sim. O site informa que você pode vender pelo WhatsApp usando o Link de Pagamento." |
+| Follow-up | "Quando cai o dinheiro das vendas de ontem?" → "E o de amanhã?" | support, support | answered | R$ 231,26 today; then R$ 60,18 crediting 16/10/2026. |
 | Compound | "Quando cai o dinheiro de ontem e como funciona a antecipação?" | support, knowledge | answered | Both parts in one reply, account and website sources. |
-| Human review | refund case → operator reply → "E em que dia foi feita essa venda?" | support | paused → answered | The operator's reply, rephrased, cited and delivered with the next message; then "A venda foi feita em 13/10/2026." |
+| Human review | refund case → operator reply → "E em que dia foi feita essa venda?" | support | paused → answered | The operator's reply, rephrased, cited and delivered with the next message; then "A venda foi feita em 14/10/2026." |
 
 ## 6. Evaluation
 
@@ -171,13 +171,14 @@ Tests assert invariants (route, plan, sources, status, masking, isolation), neve
 The provider is scripted and the suite reads neither `.env` nor the clock. Evals never run inside
 pytest: a statistical score that dips one row is a signal to read, not a red build.
 
-**Judge:** groundedness **4.68 ± 0.15** and relevance **4.56 ± 0.11** over three runs, 16 or 17
-scored turns each. The judge reads every turn against the merchant's day; before that fix, a run
-after 21:00 in Brazil took UTC's date and failed correct "ontem" answers. S02 and S07 score 3 in
-every run: their closing notice says the source gives no publication date, while the page text
-shows today's, which the notice ignores by design (only the provider's structured date counts).
-S04's relevance dips when the answer doesn't say the Get Conta can stand in for a bank account,
-and S05 escalated once as insufficient sources. The human-review loop scores 5 in every run.
+**Judge:** groundedness **4.96 ± 0.07** and relevance **4.45 ± 0.05** over three runs, 16 or 17
+scored turns each, run at about 06:30 in Brazil. The judge reads every turn against the merchant's
+day. S02 now scores 5 for groundedness in every run: its notice says the date could not be
+confirmed, no longer that the source has none. Relevance is held down by S07, which at that hour
+found no page with the day's euro rate and answered that it couldn't look it up (2 to 3); by S01,
+which left out the Clássica's CPF option or its rental in two runs (3); and by the Payment Link's
+first turn, which adds plan prices nobody asked for (3). S05 escalated twice as insufficient
+sources. The human-review loop scores 5 in every run.
 
 ## 7. Guardrails and hard rules
 
@@ -258,9 +259,9 @@ of the cost ([benchmark](evals/router_benchmark.md)).
 - **Live answers vary.** Web answers depend on what the search returns that minute, and sampling
   moves the judge's scores; [`evals/report.md`](evals/report.md) reports the spread, not one run.
 - **The retrieval threshold rests on 37 hand-written questions** and a 0.110 gap.
-- **Most web pages carry no publication date** in the provider's structured field, so weather and
-  exchange-rate answers usually close with "a fonte não informa a data de publicação", even when
-  the page text shows one. The judge marks that notice down (S02 and S07 at 3).
+- **Most web pages carry no structured publication date**, so weather and exchange-rate answers
+  usually close with "Não consegui confirmar a data de publicação desta informação", even when the
+  page text shows one: only the provider's structured date is trusted.
 - **Some rules are prompt-only.** "The site doesn't say X" only when no excerpt treats X, and "a
   forecast is called a forecast", are checked by the judge, not by code. The status guard reads
   words, so it catches "aprovada" for "estornada", not a negation such as "não foi estornada".

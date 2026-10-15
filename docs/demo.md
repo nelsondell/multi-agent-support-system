@@ -1,11 +1,13 @@
 # Demo: real outputs
 
-`OPERATOR_TOKEN=... ./scripts/demo.sh` against the container built from the code at T-44
-(`gpt-6-luna` at low effort, `text-embedding-3-large`, live Tavily), on 2026-10-14. It runs the ten
-challenge scenarios, a follow-up, a compound request and the human-review loop: the case, the
-operator's reply, the next message that receives it, and the stored conversation. Answers are in
-pt-BR, as a merchant gets them; web answers change with the live results. The script trims each
-response to what a reader checks (status, agents, answer, sources, escalation, delivered).
+`OPERATOR_TOKEN=... ./scripts/demo.sh` against the container built from the code at T-46
+(`gpt-6-luna` at low effort, `text-embedding-3-large`, live Tavily), on 2026-10-15 at about 06:30
+in Brazil. It runs the ten challenge scenarios, a follow-up, a compound request and the
+human-review loop: the case, the operator's reply, the next message that receives it, and the
+stored conversation. Answers are in pt-BR, as a merchant gets them; web answers change with the
+live results. At that hour no page had published the day's euro rate yet, so S07 answers that it
+cannot look it up now instead of quoting an older rate as today's. The script trims each response
+to what a reader checks (status, agents, answer, sources, escalation, delivered).
 
 ```
 $ OPERATOR_TOKEN=... ./scripts/demo.sh
@@ -18,8 +20,9 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "As duas oferecem recebimento em 2 dias úteis e podem ter aluguel isento conforme as condições de faturamento. Na oferta da Get Smart, o aluguel é R$ 50,00 para vendas a partir de R$ 10 mil/mês, R$ 10,00 a partir de R$ 30 mil/mês e grátis a partir de R$ 60 mil/mês; abaixo das condições, o valor de utilização informado é R$ 129,90/mês. Para a Get Clássica, o site informa aluguel grátis mediante vendas a partir de R$ 10 mil e valor de utilização de R$ 79,90/mês caso não atinja os faturamentos indicados. A Get Smart é exclusiva para CNPJ com faturamento acima de R$ 10 mil/mês; a Get Clássica é válida para CPF e CNPJ. O site não informa diferenças de recursos ou especificações físicas entre as maquininhas.",
+  "answer": "A principal diferença informada é o custo conforme o faturamento: na oferta da Get Smart, o aluguel é de R$ 50,00 por mês a partir de R$ 10 mil em vendas mensais, R$ 10,00 a partir de R$ 30 mil e grátis a partir de R$ 60 mil. Na Get Clássica, o site informa a possibilidade de máquina grátis a partir de R$ 10 mil ou R$ 60 mil em vendas mensais, conforme a oferta, e aluguel de R$ 79,90 por mês caso não atinja os faturamentos para isenção. As duas informam recebimento em 2 dias úteis e taxas únicas; as taxas anunciadas variam conforme a oferta. O site não informa diferenças de funcionalidades ou especificações entre os modelos.",
   "sources": [
+    "kb: https://site.getnet.com.br/ofertas-b/",
     "kb: https://site.getnet.com.br/maquininha/get-classica/",
     "kb: https://site.getnet.com.br/maquininha/get-smart/"
   ]
@@ -32,9 +35,8 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Amanhã, em Porto Alegre, a previsão é de trovoadas, com máxima de 22.6C, mínima de 17.3C e 86% de chance de chuva. Também há previsão de chuva moderada a pontualmente forte na região metropolitana de Porto Alegre.\n\nAtenção: a fonte não informa a data de publicação, então não posso confirmar que o dado está atualizado.",
+  "answer": "Para sexta-feira (16), há previsão de variação de nebulosidade e chuviscos ou chuva fraca isolada nas regiões fora do Nordeste do Rio Grande do Sul. As temperaturas no estado devem ficar entre 10°C e 17°C nas mínimas e entre 13°C e 24°C nas máximas. A fonte não traz uma previsão específica para Porto Alegre.\n\nNão consegui confirmar a data de publicação desta informação.",
   "sources": [
-    "web: https://www.bra1.com.br/clima/id-698754/previsao_do_tempo_em_porto_alegre__parcialmente_nublado__max_21.5_c_e_84__de_chuva",
     "web: https://www.defesacivil.rs.gov.br/upload/arquivos/202610/14095752-boletim-hidrometeorolo-gico-diurno-14-10-2026.pdf"
   ]
 }
@@ -46,7 +48,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026.",
+  "answer": "O dinheiro das vendas de ontem (14/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ]
@@ -59,7 +61,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "O site informa que a Get Conta é uma conta digital que permite receber dinheiro e vender por Pix. Não informa se é necessário ter outra conta bancária para receber as vendas via Pix.",
+  "answer": "A Get Conta é uma conta digital que permite vender por meio do Pix. O site não informa se é necessário ter outra conta bancária para receber essas vendas.",
   "sources": [
     "kb: https://site.getnet.com.br/duvidas/"
   ]
@@ -72,7 +74,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Se a maquininha usa chip: desligue-a, abra a tampa traseira, insira o chip no local indicado como SIM1 ou SIM2, com a parte metálica voltada para baixo, feche a tampa e ligue a máquina. Aguarde a indicação de rede conectada (2G ou 3G). Para testar a comunicação, pressione o botão de função (F, # ou o da máquina), digite 60 e selecione “2 – manutenção” e depois “1 – teste de comunicação”. O site não informa outras soluções para dificuldades de conexão.",
+  "answer": "Se a sua máquina usa o Chip Algar, ele se conecta a várias operadoras e pode ser usado em locais com cobertura 2G/3G. O site não informa etapas para solucionar problemas de conexão.",
   "sources": [
     "kb: https://site.getnet.com.br/duvidas/"
   ]
@@ -85,7 +87,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A antecipação permite receber antes do prazo de compensação os valores de vendas feitas no crédito, à vista ou parceladas. A Antecipação Automática é uma condição para obter isenção para clientes que optam pelo plano “Receba Conforme suas Vendas”; sua concessão depende de avaliação individual de crédito pela Getnet. O site não informa neste trecho como solicitar a antecipação nem quais são suas taxas.",
+  "answer": "A antecipação de vendas permite receber antes do prazo de compensação os valores de vendas feitas no crédito, à vista ou parceladas. A Antecipação Automática é uma condição para obter isenção no plano “Receba Conforme suas Vendas” e depende de aprovação de crédito, com avaliação individual de cada contrato. O site não informa aqui as taxas nem os demais detalhes de funcionamento da antecipação.",
   "sources": [
     "kb: https://site.getnet.com.br/duvidas/"
   ]
@@ -98,11 +100,8 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "O euro comercial está cotado a R$ 5,6099. Outra fonte informa o euro a R$ 5,63.\n\nAtenção: a fonte não informa a data de publicação, então não posso confirmar que o dado está atualizado.",
-  "sources": [
-    "web: https://valor.globo.com/valor-data",
-    "web: https://redecambioseguro.com.br/previsao-de-mercado-cambio-e-ouro/previsao-de-mercado-cambio-e-ouro-14-de-outubro-de-2026"
-  ]
+  "answer": "No momento não consigo consultar essa informação na internet com segurança.\nTente de novo em instantes ou confira em uma fonte oficial.",
+  "sources": []
 }
 
 === S08 declined transaction ===
@@ -112,7 +111,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "A transação foi negada porque, segundo o banco emissor, havia saldo ou limite insuficiente no cartão.",
+  "answer": "A transação foi negada por saldo ou limite insuficiente no cartão, segundo o banco emissor.",
   "sources": [
     "account: get_transactions"
   ]
@@ -125,7 +124,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "O Crediário permite parcelamento em até 48 vezes, mas o limite máximo varia conforme o emissor do cartão e suas políticas de crédito.",
+  "answer": "No Crediário, é possível parcelar em até 48 vezes. O prazo máximo pode variar conforme o emissor do cartão e as políticas de crédito dele; a simulação na maquininha mostra as opções disponíveis.",
   "sources": [
     "kb: https://site.getnet.com.br/crediario/",
     "kb: https://site.getnet.com.br/duvidas/"
@@ -139,7 +138,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Sim. Você pode vender pelo WhatsApp usando o Link de Pagamento: crie o link e compartilhe por onde quiser.",
+  "answer": "Sim. O site informa que você pode vender pelo WhatsApp usando o Link de Pagamento. Depois de criar o link, é só compartilhá-lo pelo canal que quiser.",
   "sources": [
     "kb: https://site.getnet.com.br/link-de-pagamento/"
   ]
@@ -152,7 +151,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026.",
+  "answer": "O dinheiro das vendas de ontem (14/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ]
@@ -165,7 +164,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de 12/10/2026, R$ 60,18 líquidos, está previsto para cair amanhã, 15/10/2026.",
+  "answer": "O dinheiro das vendas de 13/10/2026, R$ 60,18 líquidos, está previsto para cair em 16/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ]
@@ -179,7 +178,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
     "support",
     "knowledge"
   ],
-  "answer": "O dinheiro das vendas de ontem (13/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 14/10/2026.\n\nA antecipação permite receber antes os valores das vendas feitas no crédito, à vista ou parceladas, sem esperar o prazo de compensação. O site não informa os passos para solicitar a antecipação nem como são definidos os valores e prazos.",
+  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026. A antecipação de vendas permite receber antes do prazo de compensação os valores de vendas feitas no crédito, à vista ou parceladas. O site não informa como solicitar a antecipação nem quais são as taxas aplicadas.",
   "sources": [
     "account: get_settlement_schedule",
     "kb: https://site.getnet.com.br/duvidas/"
@@ -193,11 +192,11 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "Não consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nGuarde o número de protocolo ESC-705417ED1D para acompanhar o caso.",
+  "answer": "Não consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nGuarde o número de protocolo ESC-584F039CF7 para acompanhar o caso.",
   "sources": [],
   "escalation": {
     "reason": "individual_case",
-    "protocol": "ESC-705417ED1D"
+    "protocol": "ESC-584F039CF7"
   }
 }
 
@@ -205,13 +204,13 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 {
   "status": "open",
   "case": {
-    "protocol": "ESC-705417ED1D",
+    "protocol": "ESC-584F039CF7",
     "reason": "individual_case",
     "attempts": [
       "router: individual_case, plan support, confidence 0.99",
-      "step 1 (support) stopped: an individual case, which only a person may decide; query: Por que o estorno da minha venda no Mastercard final 7788 ainda não apareceu?"
+      "step 1 (support) stopped: an individual case, which only a person may decide; query: Por que o estorno da venda no Mastercard final 7788 ainda não apareceu?"
     ],
-    "proposed_draft": "Entendo sua preocupação com o estorno da venda no Mastercard final 7788. Nossa equipe está verificando o caso para entender o que ocorreu e poderá orientar você assim que tiver mais informações."
+    "proposed_draft": "Entendo sua dúvida sobre o estorno da venda no Mastercard final 7788. Nossa equipe está verificando o caso e vai analisar o que aconteceu."
   }
 }
 
@@ -220,7 +219,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "status": "answered",
   "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. O valor volta ao comprador em até 2 dias úteis.",
   "sources": [
-    "operator: ESC-705417ED1D"
+    "operator: ESC-584F039CF7"
   ]
 }
 
@@ -229,7 +228,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 {
   "delivered": [
     {
-      "protocol": "ESC-705417ED1D",
+      "protocol": "ESC-584F039CF7",
       "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. O valor volta ao comprador em até 2 dias úteis."
     }
   ],
@@ -237,7 +236,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "A venda foi feita em 13/10/2026.",
+  "answer": "A venda foi feita em 14/10/2026.",
   "sources": [
     "account: get_transactions"
   ]
@@ -250,7 +249,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
     "merchant: Por que o estorno da minha venda no Mastercard final 7788 ainda não apareceu?",
     "assistant: Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. O valor volta ao comprador em até 2 dias úteis.",
     "merchant: E em que dia foi feita essa venda?",
-    "assistant: A venda foi feita em 13/10/2026."
+    "assistant: A venda foi feita em 14/10/2026."
   ]
 }
 ```

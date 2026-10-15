@@ -447,7 +447,9 @@ async def test_the_stamp_is_the_published_date_in_brazil_never_the_page_text(run
     assert "published" not in shown["results"][0], "the model never sees the date it would cite"
 
 
-async def test_without_a_published_date_the_answer_says_so(run, web_search):
+async def test_without_a_structured_date_the_answer_says_it_could_not_confirm_one(run, web_search):
+    """The page may show a date the provider did not structure, so the notice never says the source
+    has none."""
     web, _ = web_search([WEATHER])
     reply = "Amanhã em Porto Alegre a máxima é de 24°C."
     model = Model(
@@ -458,11 +460,10 @@ async def test_without_a_published_date_the_answer_says_so(run, web_search):
     )
 
     response = to_response(await run(model, web, "Vai chover amanhã em Porto Alegre?"), "c1")
+    stamp = response.answer.removeprefix(reply)
 
-    assert response.answer.endswith(
-        "a fonte não informa a data de publicação, então não posso confirmar que o dado está "
-        "atualizado."
-    )
+    assert stamp == "\n\nNão consegui confirmar a data de publicação desta informação."
+    assert not re.search(r"não informa|sem data|não tem data|não traz", stamp, re.IGNORECASE)
 
 
 async def test_a_question_that_does_not_depend_on_the_day_gets_no_filter_and_no_notice(

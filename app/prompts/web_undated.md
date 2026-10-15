@@ -1,5 +1,5 @@
 ---
-version: 2
+version: 3
 ---
 
-Atenção: a fonte não informa a data de publicação, então não posso confirmar que o dado está atualizado.
+Não consegui confirmar a data de publicação desta informação.

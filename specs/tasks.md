@@ -432,6 +432,16 @@ judge prompt v2).
 the eval it cites; the README is under 350 lines and links every moved section; a judge run after
 21:00 in Brazil scores day-relative answers against the merchant's day.
 
+### T-46 — `fix(T-46): say the publication date could not be confirmed, not that the source has none`
+A web answer whose sources have no structured publication date closed with "a fonte não informa a
+data de publicação", which is false when the page text shows a date the provider did not
+structure; the judge marked S02 and S07 down for it in every run. The notice is now "Não consegui
+confirmar a data de publicação desta informação." (`web_undated` v3): it says what the system
+could not do, never what the source lacks. The judge reruns three times, and `evals/report.md`,
+the README numbers and the demo output are refreshed.
+**Done when:** an answer without a structured date ends with the new notice and no wording that
+the source lacks a date; the report and the README agree on the judge's numbers.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -439,7 +449,7 @@ the eval it cites; the README is under 350 lines and links every moved section; 
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
 | Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
-| Product / completeness (7.5) | T-23, T-27, T-30, T-32 |
+| Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
 | Multi-agent / orchestration (8.8) | T-22, T-43 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
