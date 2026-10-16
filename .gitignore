@@ -1,7 +1,11 @@
 docs/_local/
 .env
+# Any other env file, such as a backup with real keys. Only the documented example is tracked.
+.env.*
+!.env.example
 data/raw/
 data/processed/
+data/state/
 __pycache__/
 .venv/
 .pytest_cache/

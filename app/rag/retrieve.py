@@ -6,10 +6,17 @@ against "Get Mini" — where embeddings blur near-identical marketing copy.
 
 The query used is `query_pt` from the router: the corpus is Brazilian Portuguese, so retrieval
 always runs in Portuguese even when the merchant wrote in English.
+
+A comparison also carries one short search per item compared. Each query's two rankings are fused
+with RRF on their own, and the per-query rankings are then interleaved, best hit of each query
+first. Fusing every list at once was measured and rejected: RRF rewards consensus, so generic pages
+that rank fairly well for every query crowd out the one page each item is actually about.
 """
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import zip_longest
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
@@ -43,7 +50,7 @@ class RetrievalResult:
 
     hits: list[Hit]
     confidence: float
-    """Best dense similarity among the fused hits.
+    """Best dense similarity any of the queries reached.
 
     RRF is a ranking signal, not a relevance one: a document that tops both lists scores the same
     whether the corpus answers the question or not. Abstention therefore keys off an absolute
@@ -59,6 +66,10 @@ def load_chunks(path: Path) -> list[Chunk]:
         )
     with path.open(encoding="utf-8") as handle:
         return [Chunk(**json.loads(line)) for line in handle if line.strip()]
+
+
+class RetrievalUnavailable(RuntimeError):
+    """Raised when the dense side cannot be queried, e.g. the embedding API is down."""
 
 
 def reciprocal_rank_fusion(
@@ -117,18 +128,20 @@ class HybridRetriever:
 
     def _dense_order(self, query: str) -> tuple[list[str], dict[str, float]]:
         """Chunk ids ranked by vector similarity, with the similarities themselves."""
-        response = self._collection.query(query_texts=[query], n_results=_CANDIDATES)
+        try:
+            response = self._collection.query(query_texts=[query], n_results=_CANDIDATES)
+        except Exception as exc:  # the embedder may be a remote API with its own error types
+            raise RetrievalUnavailable(f"dense retrieval failed: {exc}") from exc
         ids = response["ids"][0]
         distances = response["distances"][0]
         return ids, {i: 1.0 - d for i, d in zip(ids, distances, strict=True)}
 
-    def search(self, query_pt: str) -> RetrievalResult:
-        """Retrieve, fuse and cut to the configured top-k."""
-        bm25_order = self._bm25_order(query_pt)
-        dense_order, similarities = self._dense_order(query_pt)
+    def _ranking(self, query: str) -> list[Hit]:
+        """One query's chunks, its BM25 and dense rankings fused with RRF, best first."""
+        bm25_order = self._bm25_order(query)
+        dense_order, similarities = self._dense_order(query)
         fused = reciprocal_rank_fusion(bm25_order, dense_order)
-
-        hits = [
+        return [
             Hit(
                 chunk=self._chunks[chunk_id],
                 rrf_score=score,
@@ -138,7 +151,36 @@ class HybridRetriever:
             )
             for chunk_id, score in sorted(fused.items(), key=lambda pair: -pair[1])
             if chunk_id in self._chunks
-        ][: self._top_k]
+        ]
 
-        confidence = max((hit.dense_similarity for hit in hits), default=0.0)
+    def search(self, query_pt: str, also: Sequence[str] = ()) -> RetrievalResult:
+        """Retrieve for the whole question and any per-item searches, and cut to the top-k.
+
+        The question is always one of the queries; confidence is the best dense similarity any
+        of them reached.
+
+        Raises `RetrievalUnavailable` when the dense side cannot be queried.
+        """
+        rankings = [self._ranking(query) for query in dict.fromkeys([query_pt, *also])]
+        hits = interleave(rankings)[: self._top_k]
+        # The best match any query found, not only among the hits kept: a per-item search can
+        # be the one that finds the page, and the question as a whole must not veto it.
+        confidence = max(
+            (hit.dense_similarity for ranking in rankings for hit in ranking), default=0.0
+        )
         return RetrievalResult(hits=hits, confidence=confidence)
+
+
+def interleave(rankings: list[list[Hit]]) -> list[Hit]:
+    """Every ranking's first hit, then every ranking's second, skipping chunks already taken.
+
+    With a single ranking this is that ranking unchanged.
+    """
+    merged: list[Hit] = []
+    taken: set[str] = set()
+    for tier in zip_longest(*rankings):
+        for hit in tier:
+            if hit is not None and hit.chunk.id not in taken:
+                taken.add(hit.chunk.id)
+                merged.append(hit)
+    return merged

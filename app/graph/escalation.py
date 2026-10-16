@@ -12,7 +12,7 @@ from app.graph.state import GraphState
 from app.prompts import load_prompt
 
 _HANDOFF_PROMPT = "escalation"
-_UNSUPPORTED_PROMPT = "not_implemented"
+_MODEL_DOWN_PROMPT = "model_unavailable"
 
 
 def mint_protocol() -> str:
@@ -33,14 +33,12 @@ async def escalate(state: GraphState) -> dict[str, Any]:
     reason = resolve_reason(state)
     protocol = mint_protocol()
     body = state.answer or (
-        load_prompt(_UNSUPPORTED_PROMPT).text
-        if reason is EscalationReason.AGENT_NOT_IMPLEMENTED
-        else ""
+        load_prompt(_MODEL_DOWN_PROMPT).text if reason is EscalationReason.MODEL_UNAVAILABLE else ""
     )
     handoff = load_prompt(_HANDOFF_PROMPT).text.format(protocol=protocol)
     return {
         "answer": f"{body}\n\n{handoff}".strip(),
-        "sources": [],
+        "sources": state.sources,
         "escalation": Escalation(
             protocol=protocol,
             reason=reason,

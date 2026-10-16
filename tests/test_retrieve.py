@@ -2,7 +2,16 @@
 
 import pytest
 
-from app.rag.retrieve import RRF_K, HybridRetriever, reciprocal_rank_fusion
+from app.rag.retrieve import RRF_K, HybridRetriever, RetrievalUnavailable, reciprocal_rank_fusion
+from tests.conftest import UnreachableCollection
+
+COMPARISON = "qual a diferença entre o crediário e o get tap?"
+CREDIARIO = "https://site.getnet.com.br/crediario/"
+GET_TAP = "https://site.getnet.com.br/get-tap/"
+
+
+def pages(result) -> set[str]:
+    return {hit.chunk.url for hit in result.hits}
 
 
 def test_rrf_prefers_the_document_both_retrievers_rank() -> None:
@@ -45,3 +54,36 @@ def test_confidence_is_absolute_similarity_not_fusion_rank(sample_chunks, fake_c
 
     assert result.hits, "fusion always returns an order"
     assert result.confidence == pytest.approx(0.05)
+
+
+def test_a_comparison_retrieves_the_page_of_each_item(sample_chunks, fake_collection) -> None:
+    """The question alone ranks generic pages first; one search per item brings each page in."""
+    retriever = HybridRetriever(sample_chunks, fake_collection(), top_k=3)
+
+    alone = retriever.search(COMPARISON)
+    per_item = retriever.search(COMPARISON, ["crediário", "get tap"])
+
+    assert GET_TAP not in pages(alone)
+    assert {CREDIARIO, GET_TAP} <= pages(per_item)
+    assert per_item.hits[0] == alone.hits[0], "the question's own best hit still comes first"
+
+
+def test_an_unreachable_embedder_raises_its_own_error(sample_chunks) -> None:
+    retriever = HybridRetriever(sample_chunks, UnreachableCollection(), top_k=5)
+
+    with pytest.raises(RetrievalUnavailable):
+        retriever.search(COMPARISON)
+
+
+def test_confidence_is_the_best_match_any_query_found(sample_chunks, fake_collection) -> None:
+    """A strong dense match outside the kept hits still says the corpus has the subject."""
+    lexical = next(c for c in sample_chunks if "crediário" in c.text.lower())
+    semantic = next(c for c in sample_chunks if "/get-tap/" in c.url)
+    similarities = {chunk.id: 0.0 for chunk in sample_chunks}
+    similarities.update({lexical.id: 0.3, semantic.id: 0.9})
+    retriever = HybridRetriever(sample_chunks, fake_collection(similarities), top_k=1)
+
+    result = retriever.search("parcelamento no crediário")
+
+    assert [hit.chunk.id for hit in result.hits] == [lexical.id]
+    assert result.confidence == pytest.approx(0.9)

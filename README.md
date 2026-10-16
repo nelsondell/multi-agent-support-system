@@ -1,402 +1,284 @@
 # Multi-agent support system
 
-A support service for a payments acquirer. One HTTP endpoint takes a merchant message and returns
-an answer in Brazilian Portuguese that is grounded in a retrieved source or in the merchant's own
-account data — or it hands the case to a human. Three agent roles cooperate behind a LangGraph
-orchestration: a **router** that decides, a **knowledge** agent that answers from the indexed
-website corpus, and a **support** agent that reads the caller's account through two tools.
+[![CI](https://github.com/nelsondell/multi-agent-support-system/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nelsondell/multi-agent-support-system/actions/workflows/ci.yml)
 
-The governing rule is that no answer leaves the system without evidence. When retrieval is weak,
-when the request is an individual financial case, or when routing fails twice, the system
-escalates instead of guessing.
+A support service for a payments acquirer (Getnet). One endpoint takes a merchant's message and
+answers in Brazilian Portuguese from the acquirer's website, the merchant's own account, a cited
+web search, or a human operator, and remembers the conversation. Four agents cooperate behind a
+LangGraph orchestration. The rule that governs all of them: **no answer leaves without evidence**.
+When the evidence is missing, weak, or the case needs a person, a human gets it, with a protocol.
 
-## 1. Build, configure, run, test
-
-Requirements: Python 3.12 and [uv](https://docs.astral.sh/uv/). Docker is optional.
-
-```bash
-uv sync                                   # install dependencies
-uv run python -m app.rag.ingest           # build the knowledge index (needs data/raw/)
-uv run uvicorn app.main:app --reload      # serve on http://localhost:8000
-uv run pytest -q                          # offline test suite, no vendor calls, no cost
-uv run ruff check . && uv run ruff format --check .
-```
-
-### Configuration
-
-Settings are read from the environment or `.env` (`app/settings.py`).
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `OPENAI_API_KEY` | unset | Chat model credential. The API fails fast at start-up without it. |
-| `LLM_MODEL` | `gpt-4o-mini` | Chat model. |
-| `LLM_TEMPERATURE` | `0.0` | Sampling temperature. |
-| `EMBEDDING_BACKEND` | `auto` | `auto` follows the key, `local` uses Chroma's bundled model, `openai` requires the key. |
-| `EMBEDDING_MODEL` | `text-embedding-3-small` | Used when the backend is `openai`. |
-| `ROUTER_CONFIDENCE_THRESHOLD` | `0.6` | Below this, the request escalates without reaching a specialist. |
-| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.35` | Below this, the knowledge agent abstains. Not calibrated — see §9. |
-| `MAX_HOPS` | `2` | Router passes allowed per request; bounds the single hand-back. |
-| `INDEX_PATH` | `data/processed/chroma` | Persisted Chroma directory. |
-| `COLLECTION_NAME` | `getnet_kb` | Chroma collection. |
-| `RETRIEVAL_TOP_K` | `5` | Chunks passed to generation. |
-
-The embedder is deliberately configurable apart from the chat key: it is part of the index's
-identity, and adding a key must not silently change it under an index built without one.
-
-### Docker
-
-```bash
-uv run python -m app.rag.ingest           # build the index on the host first
-docker compose up --build
-```
-
-The image never builds the index: no API key is needed at build time, and the container mounts
-the prepared index as a volume. A missing index is a start-up error naming the command that
-creates it. The image runs as a non-root user and ships a healthcheck against `/health`.
-
-> **Not verified.** Docker was unavailable on the development machine, so the image was never
-> built or run. Build status: [preencher]. Container start-up and healthcheck: [preencher].
-
-### Demo
-
-With the service running and the index built:
-
-```bash
-./scripts/demo.sh                         # five requests, one per path through the graph
-```
-
-## 2. Orchestration architecture
-
-```
-POST /chat
-    |
-    v
-+-----------+   blocked (out of scope / identity)  -> answer, END
-| guardrail |-------------------------------------------------+
-+-----------+                                                 |
-    | allow                                                    |
-    v                                                          |
-+-----------+   confidence < ROUTER_CONFIDENCE_THRESHOLD       |
-|  router   |-----------------------------------+              |
-+-----------+                                   |              |
-    |  target_agent                             |              |
-    +-------------------+                       |              |
-    v                   v                       v              |
-+-----------+     +-----------+           +-----------+        |
-| knowledge |     |  support  |           | escalate  |        |
-+-----------+     +-----------+           +-----------+        |
-    |                   |                       ^              |
-    | answer -> END     | answer -> END          |              |
-    | refusal ----------+-----------------------+              |
-    | handoff, hops < MAX_HOPS -> back to router                |
-    | handoff, budget spent ------------------- >               |
-                                                               v
-                                                           response
-```
-
-Three decisions are worth naming:
-
-- **The confidence threshold is a conditional edge, not an `if` inside a node.** Routing policy is
-  readable in one place (`app/graph/build.py`), and a low-confidence request never touches a
-  specialist.
-- **A failed model call is not a parallel error path.** The router turns a provider error into a
-  `RouterDecision` with `confidence = 0.0`, which the threshold edge already handles.
-- **Hand-back is bounded by `hops`.** A specialist that believes the message is not its own returns
-  it to the router once; a second miss escalates with `repeated_misroute`. Two agents cannot pass
-  the same message back and forth.
-
-### The agent boundary
-
-The dividing question is *does answering require reading this `user_id`'s account data?*
-Possessive phrasing decides nothing.
-
-| Message | Agent |
+| | |
 | --- | --- |
-| "What's the difference between Get Clássica and Get Smart?" | knowledge |
-| "My card machine won't connect" | knowledge (published procedure) |
-| "When will yesterday's sales be deposited?" | support (reads the account) |
-| "Why was my sale declined?" | support, which escalates it |
+| **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
+| **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite |
+| **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
+| **Tests** | 295 offline tests; CI builds the image and smoke-tests the container |
+| **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
 
-## 3. Message flow, from POST to response
+v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
+timebox:** an iteration on the evaluator's feedback, done at the evaluator's invitation. [What
+changed since v1](#8-what-changed-since-v1) maps each change to the criterion it answers.
 
-1. `POST /chat` validates `{message, user_id}`. `user_id` comes from the request envelope and is
-   treated as already authenticated.
-2. A `trace_id` is minted and bound to the logging context for the whole request.
-3. **Guardrail** masks PII into `masked_message`, then classifies. `out_of_domain` and
-   `identity_swap` are answered on the spot and never routed.
-4. **Router** emits a validated `RouterDecision` — `intent`, `target_agent`, `confidence`,
-   `rationale`, `lang`, `query_pt` — and increments `hops`.
-5. The **conditional edge** sends the request to `knowledge`, `support`, or straight to `escalate`.
-6. **Knowledge** retrieves on `query_pt`, and either answers citing the retrieved URLs or abstains
-   with `low_retrieval_confidence`. **Support** plans an action, calls at most one tool with the
-   injected identity, and answers from the result — or escalates an individual case.
-7. **Escalate** is deterministic and model-free: it mints a protocol, attaches a typed reason and a
-   masked summary, and composes the handoff message.
-8. The terminal state is projected onto `ChatResponse`, which validates its own consistency: the
-   `escalated` flag must match the payload, an escalated response cites no sources, a
-   non-escalated one must carry an answer, and a router-level escalation may not name a specialist.
+**Contents** — [Quick start](#1-quick-start) · [Architecture](#2-architecture) ·
+[Message flow](#3-how-a-message-flows) · [Human in the loop](#4-human-in-the-loop) ·
+[Demo](#5-demo) · [Evaluation](#6-evaluation) · [Hard rules](#7-guardrails-and-hard-rules) ·
+[Since v1](#8-what-changed-since-v1) · [Design decisions](#9-design-decisions) ·
+[Limitations](#10-known-limitations) · [Process](#11-process)
 
-Response shape:
+**Go deeper** — [architecture](docs/architecture.md) (workflow, tools, memory, failures) ·
+[RAG and web search](docs/rag.md) · [human in the loop](docs/human-in-the-loop.md) ·
+[demo output](docs/demo.md) · [operations](docs/operations.md) (configuration, Docker,
+observability) · [spec](specs/spec.md) · [plan](specs/plan.md) · [tasks](specs/tasks.md)
 
-```json
-{
-  "answer": "...",
-  "intent": "product_info",
-  "target_agent": "knowledge",
-  "confidence": 0.91,
-  "sources": [{"url": "https://site.getnet.com.br/crediario/", "title": "..."}],
-  "escalated": false,
-  "escalation": null
-}
+## 1. Quick start
+
+```bash
+cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY; OPERATOR_TOKEN for /handoffs
+docker compose up --build       # or `make up`: detached, returns once healthy
+curl -s localhost:8000/health   # {"status":"ok"}
+OPERATOR_TOKEN=... ./scripts/demo.sh   # the walkthrough in §5
 ```
 
-## 4. RAG pipeline
+The first boot builds the knowledge index from the committed corpus snapshot into a volume;
+conversations and open cases live in a second volume and survive restarts. Without
+`OPENAI_API_KEY` the first boot stops with a one-line fix and writes nothing. Every setting is in
+`.env.example` and [docs/operations.md](docs/operations.md).
 
-Ingestion runs on the host (`uv run python -m app.rag.ingest`); the service only reads.
+```bash
+uv sync && uv run python -m app.rag.ingest && uv run uvicorn app.main:app --reload   # local
+uv run pytest -q && uv run ruff check .        # offline, no network, no cost
+uv run python -m evals.run_routing_eval        # routing golden set (needs OPENAI_API_KEY)
+uv run python -m evals.run_judge               # LLM judge, 3 runs (needs both keys)
+```
 
-**Parse** (`app/rag/parse.py`) — two routes, each confirmed against a real file in `data/raw/`
-before the parser was written:
+## 2. Architecture
 
-- *FAQ* (`/duvidas/`): questions are `a.c-all-faq__question`, answers are separate
-  `div.o-modal__content--faq` nodes, paired by their shared `data-modal` id. The answer node
-  repeats the question as its first line, which is stripped.
-- *Article* (Beaver Builder): body text under `.fl-col-content`. Generic extraction returns mostly
-  footer on these pages, which is why the selector is explicit. Meta descriptions are ignored
-  everywhere: they repeat verbatim across pages.
+```mermaid
+flowchart TD
+    chat["POST /chat"] --> open{"case open on this<br/>conversation?"}
+    open -->|yes| notice["pending_human<br/>+ protocol"]
+    open -->|no| guard["guardrail<br/>masks PII · refuses injection"]
+    guard -->|refused| refusal["refusal<br/>(never remembered)"]
+    guard --> router["router<br/>plan of 1–2 steps,<br/>standalone pt-BR queries"]
+    router -->|"confidence below 0.6"| escalate
+    router --> knowledge["knowledge<br/>website RAG · web search"]
+    router --> support["support<br/>settlements · transactions"]
+    knowledge -.->|"hand-back, once"| router
+    support -.->|"hand-back, once"| router
+    knowledge --> collect
+    support --> collect
+    collect -->|"next step"| knowledge
+    collect -->|"next step"| support
+    collect --> compose["compose<br/>joins the steps, keeps every source"]
+    compose -->|"a step needs a person"| escalate["escalate<br/>protocol + typed reason"]
+    compose --> remember
+    escalate --> prepare["prepare_handoff<br/>case + draft → queue"]
+    prepare --> wait["await_operator<br/>interrupt()"]
+    operator["POST /handoffs/{protocol}/resume"] -.->|resumes| wait
+    wait -->|"plan steps left"| knowledge
+    wait -->|"plan steps left"| support
+    wait --> compose
+    wait --> remember["remember<br/>masked turn → history"]
+    remember --> response["ChatResponse"]
+```
 
-**Chunk** (`app/rag/chunk.py`) — 600-token windows with 100 tokens of overlap, measured with
-`tiktoken` (`cl100k_base`). Each chunk keeps `url`, `title`, `section` and `route` so it can be
-cited.
+| Agent | Decides | Reads | Stops with |
+| --- | --- | --- | --- |
+| **Router** | intent, a plan of one or two steps, a standalone Portuguese query per step | the message, plus the conversation as data | `low_router_confidence`; `model_unavailable` if its call fails |
+| **Knowledge** | answers from the website corpus, or from a web search for `general_info` | retrieved excerpts, or search results | `low_retrieval_confidence`, `insufficient_sources` |
+| **Support** | which account tool to call, with which arguments | the merchant's settlements or transactions | `individual_case`, `tool_unavailable` |
+| **Human review** | builds a case and a draft, pauses, turns the operator's reply into the paused step's answer | the case's evidence and the operator's text | — (it is where escalations end) |
 
-**Dedup** — by SHA-256 of the normalized chunk text. This is not hygiene. Of the 11 duplicate
-chunks in the last run, 4 are shared between `/` and `/contato/`, 3 between
-`/taxas-personalizadas/` and `/todas-as-maquininhas/` — different routes rendering the same body —
-and 4 are answers repeated across categories inside `/duvidas/`. Without dedup the index would
-rank the same text twice.
+The dividing question between knowledge and support is *does answering require reading this
+merchant's account?* "My machine won't connect" is the published procedure; "when does yesterday's
+money land" reads the account. A compound message gets both, in the order asked. Policy lives in
+one file, `app/graph/build.py`: the confidence threshold is a conditional edge, and the hop budget
+spans the whole plan, so two agents cannot pass a message back and forth.
 
-**Index** — Chroma persisted to `data/processed/chroma` with cosine space, plus a `chunks.jsonl`
-corpus that BM25 is rebuilt from at query time. Chunk ids are content hashes and Chroma upserts
-them, so re-running is idempotent.
+## 3. How a message flows
 
-**Retrieve** (`app/rag/retrieve.py`) — hybrid, because the two retrievers fail differently. Dense
-vectors carry a question into Portuguese prose; BM25 pins exact product names, where embeddings
-blur near-identical marketing copy. Both lists are fused with hand-written Reciprocal Rank Fusion
-at `k = 60`; only positions enter the fusion, never raw BM25 or cosine values, which live on
-incomparable scales.
+1. **`POST /chat`** `{message, user_id, conversation_id?}`. `user_id` is the authenticated caller;
+   the thread key hashes it with the conversation id, so nobody else's id opens this history.
+   Messages on one conversation run one at a time.
+2. **Guardrail**, deterministic: masks CPF, CNPJ, card and phone; refuses prompt injection and
+   requests for another merchant's data (a merchant naming their own id passes).
+3. **Router**: one structured call returns intent, confidence and one or two steps, each a
+   standalone Portuguese query that resolves "e o de amanhã?" or "dessa venda" from the history,
+   which it reads as data. A rewrite that invents a number or id is discarded.
+4. **Specialists** run step by step on their own query, never the history: knowledge retrieves
+   (or searches the web for weather and exchange rates), support calls one account tool.
+5. **Compose** copies one answer, or merges two with a call that may not add a number or change a
+   status. A step that needs a person pauses the turn there; the part already answered goes out.
+6. **Human review** opens a case and pauses; when the operator answers, the plan resumes (§4).
+7. **Remember** stores the masked turn. The response cites typed sources: `kb` and `web` with a
+   url, `account` with the tool, `operator` with the protocol.
 
-Abstention keys off **dense similarity, not the RRF score**. RRF is a ranking signal: a document
-that tops both lists scores the same whether the corpus answers the question or not. The absolute
-similarity is what can say "this is not in the base".
+The full path, the code layout, the tools and memory are in [docs/architecture.md](docs/architecture.md).
 
-**Generate** (`app/graph/knowledge.py`) — the prompt receives only the surviving chunks, each
-labelled with its URL, plus the financial hard rules. Sources are taken from what was retrieved,
-never from URLs the model claims to have used.
+## 4. Human in the loop
 
-### Corpus and fixture
+Every escalation goes to a fourth agent. `prepare_handoff` records a case once (what the agents
+tried and why they stopped, the pages retrieved, a draft reply) in a SQLite queue, and
+`await_operator` pauses the graph with `interrupt()`. The operator approves the draft, replies in
+their own words, or cancels. The reply becomes the answer of the step that paused, the plan's
+remaining steps run with it as evidence, and compose joins them.
 
-| | Corpus | Fixture |
+- The merchant's next `/chat` delivers the reply in `delivered`, exactly once, before its own answer;
+  `GET /conversations/{id}` shows the history to its merchant only.
+- While the case is open, each new message becomes a masked note the operator sees, and nothing runs.
+- A rephrasing that adds a number or flips a status is replaced by the operator's own text.
+- Cases expire after `HANDOFF_TTL_HOURS` (24); no conversation waits forever. Cases and paused
+  threads survive a restart, and two operators cannot both resume one.
+
+The curl walkthrough and every error code: [docs/human-in-the-loop.md](docs/human-in-the-loop.md).
+
+## 5. Demo
+
+`OPERATOR_TOKEN=... ./scripts/demo.sh` against the container built from this commit's code
+(`gpt-6-luna`, `text-embedding-3-large`, live Tavily), on 2026-10-15. Full output, pt-BR as a
+merchant gets it, including the delivered reply and the stored conversation:
+[docs/demo.md](docs/demo.md).
+
+| # | Question | Agents | Status | Answer, shortened |
+| --- | --- | --- | --- | --- |
+| S01 | What's the difference between the Get Clássica and the Get Smart? | knowledge | answered | Mainly cost by revenue: Smart rental R$ 50,00 from R$ 10 mil/mês, R$ 10,00 from R$ 30 mil, free from R$ 60 mil; Clássica free from R$ 10 mil or R$ 60 mil depending on the offer, otherwise R$ 79,90/mês; both credit in 2 business days. Three pages cited. |
+| S02 | What's the weather forecast in Porto Alegre tomorrow? | knowledge (web) | answered | The state's forecast for Friday (16): cloudy with drizzle, 10–17 °C minimums and 13–24 °C maximums; the source has nothing specific to Porto Alegre. Ends with "Não consegui confirmar a data de publicação desta informação." |
+| S03 | When will the money from yesterday's sales be deposited? | support | answered | "O dinheiro das vendas de ontem (14/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026." |
+| S04 | Do I need a bank account to receive my sales via Pix? | knowledge | answered (partial) | The Get Conta is a digital account that sells through Pix; the site doesn't say whether another bank account is needed. |
+| S05 | My card machine won't connect to the internet, what should I do? | knowledge | answered (partial) | The Chip Algar connects to several carriers where there is 2G/3G coverage; the site has no troubleshooting steps. In other runs it escalates as insufficient sources. |
+| S06 | How does receivables advance (antecipação) work with Getnet? | knowledge | answered (partial) | Receive credit sales before the settlement term; automatic advance depends on an individual credit evaluation; rates and other details are not published. |
+| S07 | What's the euro exchange rate today? | knowledge (web) | degraded | At 06:30 no page had the day's rate yet: "No momento não consigo consultar essa informação na internet com segurança." On 14/10 it quoted R$ 5,6099 from Valor. |
+| S08 | My card machine is showing a transaction decline error. | support | answered | "A transação foi negada por saldo ou limite insuficiente no cartão, segundo o banco emissor." |
+| S09 | How many installments can I split a sale into with the crediário? | knowledge | answered | Up to 48 installments; the limit depends on the card issuer's credit policy; the machine's simulation shows the options. |
+| S10 | Can I sell through WhatsApp using the Payment Link? | knowledge | answered | "Sim. O site informa que você pode vender pelo WhatsApp usando o Link de Pagamento." |
+| Follow-up | "Quando cai o dinheiro das vendas de ontem?" → "E o de amanhã?" | support, support | answered | R$ 231,26 today; then R$ 60,18 crediting 16/10/2026. |
+| Compound | "Quando cai o dinheiro de ontem e como funciona a antecipação?" | support, knowledge | answered | Both parts in one reply, account and website sources. |
+| Human review | refund case → operator reply → "E em que dia foi feita essa venda?" | support | paused → answered | The operator's reply, rephrased, cited and delivered with the next message; then "A venda foi feita em 14/10/2026." |
+
+## 6. Evaluation
+
+| What | Result | Where |
 | --- | --- | --- |
-| Path | `data/raw/`, `data/processed/` (gitignored) | `tests/fixtures/kb_sample.jsonl` (committed) |
-| Size | 18 pages fetched, 133 documents, 148 chunks | 32 chunks |
-| Used by | the running service | the offline test suite |
+| Offline suite | 295 tests, about 8 s, no network: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
+| Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
+| Model benchmark | 5 candidates × the golden set: `gpt-6-luna` low **54/56**, `gpt-6-sol` 55/56 at 18× the cost, `gpt-4o-mini` 46/56 | [`evals/router_benchmark.md`](evals/router_benchmark.md) |
+| Retrieval calibration | 3 embedders × 37 questions: the large OpenAI model separates in- from out-of-domain with a 0.110 gap; the local one doesn't | [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md) |
+| LLM judge | 3 independent runs of the ten scenarios, follow-ups, a compound request and the human-review loop; `gpt-6-sol` scores each answered turn against the evidence it had | [`evals/report.md`](evals/report.md) |
 
-The fixture is selected by BM25 against the ten challenge scenarios, four chunks each, including
-the out-of-scope ones on purpose so a test can prove the abstain path on a corpus that genuinely
-does not answer them. Tests never load the full corpus.
+Tests assert invariants (route, plan, sources, status, masking, isolation), never a model's wording.
+The provider is scripted and the suite reads neither `.env` nor the clock. Evals never run inside
+pytest: a statistical score that dips one row is a signal to read, not a red build.
 
-Ingestion counters from the last run:
+**Judge:** groundedness **4.96 ± 0.07** and relevance **4.45 ± 0.05** over three runs, 16 or 17
+scored turns each, run at about 06:30 in Brazil. The judge reads every turn against the merchant's
+day. S02 now scores 5 for groundedness in every run: its notice says the date could not be
+confirmed, no longer that the source has none. Relevance is held down by S07, which at that hour
+found no page with the day's euro rate and answered that it couldn't look it up (2 to 3); by S01,
+which left out the Clássica's CPF option or its rental in two runs (3); and by the Payment Link's
+first turn, which adds plan prices nobody asked for (3). S05 escalated twice as insufficient
+sources. The human-review loop scores 5 in every run.
 
-```
-pages parsed into documents: 133
-  skipped: site-getnet-com-br-get-ajuda-get-conta.html (no route matched)
-  skipped: site-getnet-com-br-get-ajuda.html (no route matched)
-  skipped: www-getnet-net-en-our-solutions-agentic-commerce.html (no route matched)
-  skipped: www-getnet-net-en.html (no route matched)
-chunks generated=159 discarded=11 (duplicates) total=148
-indexed into data/processed/chroma (collection getnet_kb)
-fixture chunks written to tests/fixtures/kb_sample.jsonl: 32
-```
+## 7. Guardrails and hard rules
 
-Four of eighteen pages match neither route: the two `get-ajuda` pages render their content with
-JavaScript, and the two English pages come from a different stack with no `.fl-col-content`. They
-are reported, not silently dropped.
+The guardrail is deterministic and runs before any model call: prompt injection
+(`prompt_injection`) and requests for another merchant's data (`identity_swap`) get a refusal and
+are never remembered. Identity can't be argued with anyway: `user_id` is injected into the tools
+from graph state and is in no schema the model sees. Logs, traces, history and outbound web queries
+are masked; ids the system issues are not.
 
-## 5. How the LLM is used
+**Financial hard rules**, in the prompts and asserted in tests:
 
-**Structured output everywhere.** Every model call returns a validated Pydantic object:
-`RouterDecision`, `KnowledgeAnswer`, `SupportPlan`, `SupportAnswer`. Nothing in the system parses
-model prose into a decision, so a malformed generation is a validation error rather than a
-mis-route.
+1. No rate, term, limit or amount unless it is literally in an excerpt, an account record, a web
+   page or an operator's answer.
+2. No promise of a future date; an account forecast is said to be a forecast.
+3. No verdict on an individual case beyond the data: a declined sale gets the issuer's recorded
+   reason and nothing more; refunds, chargebacks, blocks and fraud always go to a person.
+4. Rephrasing adds nothing: a merged answer, a draft or an operator reply with a number or a status
+   its source lacks is replaced by that source. Numbers are compared by value ("R$ 1.234,56" =
+   "1234.56"), statuses by meaning ("negada" = "recusada"; "estornada" ≠ "aprovada").
+5. No mention of a human unless the turn opened a protocol.
 
-**Tool calling with injected identity.** The two support tools are LangChain tools whose
-`user_id` parameter is annotated with LangGraph's `InjectedState`. It therefore appears in
-`args_schema` but not in `tool_call_schema` — the schema the model sees:
+Escalations are counted by typed reason on `GET /metrics`; LangSmith tracing is optional and masked
+([docs/operations.md](docs/operations.md)).
 
-```
-get_settlement_schedule    model sees: ['date_from', 'date_to']
-get_transactions           model sees: ['limit', 'status']
-```
+## 8. What changed since v1
 
-There is no argument a prompt could set to reach another merchant. `call_tool` additionally
-filters the model's arguments down to the allowed fields before injecting the caller's id, so a
-smuggled `user_id` is dropped rather than trusted. The support agent plans in one structured call,
-the code executes exactly one tool, and a second structured call writes the answer — which keeps
-tool orchestration out of vendor-specific code.
+31 tasks (T-15 to T-45), each one commit with a done criterion.
 
-**One provider seam.** `app/providers/llm.py` defines an `LLMProvider` protocol with a single
-`structured()` method; `app/providers/embeddings.py` does the same for embeddings. No other module
-imports a vendor SDK, so moving to Azure AI Foundry is a rewrite of one file. Provider errors are
-wrapped in `LLMProviderError` and become an answer or an escalation, never a stack trace.
+| Criterion (v1 score) | v2 | Tasks |
+| --- | --- | --- |
+| Memory / multi-turn (1.5) | Persistent threads keyed by merchant and conversation; follow-ups rewritten into standalone queries with history as data; rolling summary; history endpoint; survives restarts | T-19, T-20, T-34, T-42 |
+| Human in the loop (5.8) | A fourth agent: case and draft before `interrupt()`; approve, reply or cancel; guarded rephrasing; reply delivered with the next message; notes while waiting; expiry; the plan finishes after the reply | T-21, T-42, T-43 |
+| Infra / Docker (6.8) | One command from a clean clone; index built on first boot; separate state volume; healthcheck; CI builds and smoke-tests the container | T-16, T-17, T-18, T-33 |
+| Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
+| Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan | T-21, T-22, T-43 |
+| Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; Prometheus counters by honest reason; masked tracing | T-25, T-26, T-28, T-29, T-39, T-44 |
+| Tests / quality (9.2) | 78 → 295 offline tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
+| Security / isolation (9.5) | Threads bound to the merchant; one turn at a time per conversation; restricted checkpoint deserializer; masked web queries; operator token | T-19, T-21, T-23, T-31, T-44 |
+| RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |
+| Trade-offs (10.0) | Each choice measured and committed: model, embedder, fusion, router effort | T-28, T-29, T-34, T-45 |
 
-**Prompts are versioned files.** Every prompt lives in `app/prompts/*.md` with a `version` in front
-matter and is loaded by id. No prompt literal appears in Python — which also keeps each file
-single-language, since prompts and user-facing messages are Portuguese while the code is English.
+## 9. Design decisions
 
-## 6. Tests and evaluation
+**Memory without coupling agents to the database.** The checkpointer is attached at `compile()`; no
+node imports it, and a test fails if one does. Only `messages` and `summary` persist, and only the
+router reads them, as data; specialists stay stateless. LangGraph's msgpack decoder would import
+any type a checkpoint names, so `app/checkpoints.py` restricts it to the state's own types.
 
-Two levels, deliberately separate.
+**Really multi-agent.** Each agent owns a decision, its evidence and its ways of stopping, and they
+hand work to each other: the router plans; a specialist hands a step back once and the router
+replans; compose joins without adding facts; a step that needs a person pauses the plan, and the
+plan finishes after the operator answers. Not a router dispatching to one specialist and ending.
 
-**Offline suite** — provider mocked, no network, no cost, always runs:
+**A complete human flow.** `interrupt()` and the checkpointer pause the turn with its state saved;
+every side effect happens before the pause, because the paused node re-runs on resume. The
+operator's reply is the only new fact the agent may use, and the next turn builds on it. That
+needed a measured fix: after an operator named a sale, "E qual foi o valor dessa venda?" lost its
+referent. More reasoning effort didn't help; a router rule (prompt v7) that resolves demonstratives
+to the entity of the last reply took the 8 follow-up rows of the time from 28/40 to 40/40, 5 runs
+each. With today's router (v9) the 9 follow-up rows score 45/45 at low effort and at medium, so
+the router stays at low.
 
-```
-$ uv run pytest -q
-78 passed in 0.76s
-```
+**Hybrid retrieval.** Embeddings carry an English question into Portuguese prose but blur
+near-identical product pages; BM25 pins "Get Smart" against "Get Mini". RRF fuses them by rank.
+Abstention uses dense similarity, calibrated per embedder ([docs/rag.md](docs/rag.md)).
 
-One module per graph node (`test_router`, `test_knowledge`, `test_support`, `test_guardrail`,
-`test_escalation`), the two tools (`test_tools`), masking and the log pipeline
-(`test_observability`), retrieval and fusion (`test_retrieve`), three adversarial paths
-(`test_adversarial`: prompt injection, another customer's data, out of scope) and HTTP integration
-(`test_api`, which injects a scripted graph instead of running the lifespan).
+**Failures degrade, never raise.** A failed model call escalates as `model_unavailable`, an
+unreadable account as `tool_unavailable`, a web search failure becomes a pt-BR notice, and two
+requests on one conversation take turns instead of overwriting each other
+([table](docs/architecture.md#failure-handling)).
 
-**Routing golden set** — 15 labelled rows (the 10 challenge scenarios, 3 ambiguous, 2 out of
-scope). It is a measurement, not a test: a score that dips one row in fifteen is a signal to read,
-not a red build, so it never runs inside pytest.
+**Model choice.** `gpt-6-luna` at low effort matched `gpt-6-sol` on routing within one row at 1/18
+of the cost ([benchmark](evals/router_benchmark.md)).
 
-```
-$ uv run python -m evals.run_routing_eval
-guardrail (deterministic)
-  overall: 86.7%  (13/15)
-  by expected class:
-    allow            100.0%  (11/11)
-    out_of_domain     50.0%  (2/4)
-  by group:
-    ambiguous        100.0%  (3/3)
-    challenge        100.0%  (10/10)
-    out_of_scope       0.0%  (0/2)
-  misses:
-    O01  expected=out_of_domain  got=allow
-    O02  expected=out_of_domain  got=allow
+## 10. Known limitations
 
-router: skipped, OPENAI_API_KEY is not set (this stage calls a real model)
-```
+- **Live answers vary.** Web answers depend on what the search returns that minute, and sampling
+  moves the judge's scores; [`evals/report.md`](evals/report.md) reports the spread, not one run.
+- **The retrieval threshold rests on 37 hand-written questions** and a 0.110 gap.
+- **Most web pages carry no structured publication date**, so weather and exchange-rate answers
+  usually close with "Não consegui confirmar a data de publicação desta informação", even when the
+  page text shows one: only the provider's structured date is trusted.
+- **Some rules are prompt-only.** "The site doesn't say X" only when no excerpt treats X, and "a
+  forecast is called a forecast", are checked by the judge, not by code. The status guard reads
+  words, so it catches "aprovada" for "estornada", not a negation such as "não foi estornada".
+- **Router confidence is self-reported**, and A01 ("Quanto eu pago de taxa por venda no crédito?")
+  is genuinely ambiguous.
+- **Article chunking cuts tables**: a 600-token window can split a fee table mid-row.
+- **Mock account data** with dates moved to the current day; **single process over SQLite**,
+  `user_id` trusted from the request, one shared operator token, no rate limiting: fit for the
+  challenge, not for production traffic.
+- **Latency**: 4 to 9 s per turn, mostly two or three sequential model calls.
 
-The guardrail catches every out-of-scope case the challenge anticipates and none of the two
-open-ended ones written to probe it. That is the honest limit of a pattern-based scope check.
+## 11. Process
 
-**Router accuracy against a real model: [preencher].** The stage requires an API key and was never
-run. Per-class accuracy, confusion between `knowledge` and `support`, and behaviour on the three
-ambiguous rows are all unmeasured.
-
-## 7. Observability and guardrails
-
-**Structured logs.** `structlog` renders JSON to stdout. `mask_pii` is installed as a processor,
-not called at each site, so no node can log an unmasked value even by accident. `instrument_node`
-wraps every graph node, so timing and outcome fields are uniform and an agent that forgets to log
-cannot exist.
-
-```json
-{"agent": "support", "latency_ms": 1.5, "trace_id": "591f8d5b7aa5475eb1d31e4a9056fa7b",
- "intent": "account_data", "target_agent": "support", "router_confidence": 0.93,
- "guardrail": null, "refusal_reason": null, "handoff_reason": null, "escalated": false,
- "event": "node.completed", "level": "info", "timestamp": "2026-09-01T18:22:47.886994Z",
- "user_id": "u_a9f6bd311e2b"}
-```
-
-The merchant id is pseudonymised with a stable SHA-256 prefix, so traces correlate without
-carrying the identifier. `escalation.reason` is a typed enum and doubles as the operational metric:
-`low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`, `individual_case`,
-`agent_not_implemented`.
-
-Production latency and escalation rates: **[preencher]** — the figures above come from runs with a
-stubbed model and say nothing about real inference time.
-
-**Guardrail.** Deterministic patterns, before any model call: prompt injection and identity-swap
-attempts get a short refusal, out-of-scope questions get a scope reply, and PII is masked. It is
-defence in depth for identity, since injected state already blocks the data path, and it is the
-only thing that can answer an out-of-scope question — there is no web search to fall back on.
-
-**Financial hard rules**, carried in the prompts and asserted in tests:
-
-1. No rate, term, limit or amount unless it is literally present in a retrieved chunk or an account
-   record. No deriving, rounding or averaging.
-2. No promise of a future date. An account forecast is echoed as a forecast, with the reference
-   date of the data.
-3. No verdict on an individual case — declined transactions, chargebacks, blocks, fraud, pending
-   registration — even when the data exists. Those escalate.
-
-## 8. Process
-
-**Spec-driven, with Claude Code.** The specification was written and approved before any
-application code: `specs/spec.md` (what the system does), `specs/plan.md` (how it is built) and
-`specs/tasks.md` (14 tasks, one commit each, every task with a done criterion). The architecture
-was settled first in a structured interview covering the agent boundary, mis-routing recovery,
-low-confidence retrieval, per-user authorization and what a financial-domain system must never
-assert. `CLAUDE.md` carries the non-negotiables the assistant had to honour on every task.
-
-Every commit follows `<type>(<T-id>): <imperative>`, one per task, from `docs(T-00)` through
-`build(T-14)`. The history is the task list.
-
-**Preparation, before the core window.** The corpus was fetched in advance (`data/raw/`, with
-`docs/_local/corpus-manifest.tsv` and `corpus-urls.txt` recording what was fetched from where), an
-earlier exploration session produced the parsing hypotheses in `docs/_local/site-findings.md`, and
-the repository was scaffolded with uv. The hypotheses were treated as hypotheses: each selector was
-confirmed against a real file before its parser was written, and one of them — "article pages are
-Beaver Builder" — turned out to describe every Portuguese page, not just articles.
-
-**Actual development time: [preencher].**
-
-**Out of scope, deliberately.** Web search, OpenTelemetry and MCP were excluded when the scope was
-closed, and were never re-proposed. Web search would have made the out-of-scope scenarios
-answerable, but abstaining is the correct behaviour for a system whose only warrant is its corpus.
-OpenTelemetry would duplicate what structured logs already carry at this size. A fourth agent and a
-human-handoff queue were left out; escalation emits a protocol and a typed reason, which is the
-part a queue would consume.
-
-## 9. Limitations and next steps
-
-**The retrieval threshold is not calibrated.** Measured on the local fallback embedder, in-domain
-queries score 0.59–0.70 and out-of-domain ones 0.50–0.55 — a separation of about 0.05. The default
-of 0.35 therefore catches almost nothing, and no threshold on this signal can reject out-of-scope
-questions; the guardrail has to. With `text-embedding-3-small` the numbers change entirely and must
-be re-measured: **[preencher]**.
-
-**`query_pt` is load-bearing.** A raw English question scores 0.375 against this corpus, below an
-off-topic Portuguese one. Retrieval works because the router rewrites the query into Portuguese
-first. Without that step the English path degrades badly.
-
-**Article chunking cuts tables.** A 600-token window splits the fee tables on the offers page
-mid-row, so a percentage can survive while the plan and condition that qualify it do not — which is
-in direct tension with hard rule 1. Structural chunking (by heading, block or table row) for the
-article route is the highest-value fix, and it costs little because the 120 FAQ pairs never reach
-the window.
-
-**The scope check is a denylist.** It scores 0/2 on open-ended out-of-scope questions. A small
-classifier, or an in-domain allowlist checked against the corpus, would generalise where patterns
-cannot.
-
-**The test fixture is generated by the pipeline it tests.** If extraction is wrong, the fixture is
-wrong in the same way and the suite still passes. Hand-curating the sampled chunks once would break
-that circularity.
-
-**Router confidence is self-reported.** The escalation gate keys off a number the model produces
-about itself, which is a weak signal. The golden set exists to calibrate or discredit it and has
-not yet been run against a real model.
-
-**Not exercised:** the Docker image was never built, the router half of the golden set never ran,
-and no request has ever been served by a real model. Everything reported here that involves the
-model came from scripted providers.
-
-**Next, in order:** run the golden set against a real model and calibrate both thresholds; switch
-the article route to structural chunking; build and run the container; expose terminal status,
-which exists in `data/customers.json` but no tool reads; then revisit the scope check.
+Spec-driven development with Claude Code: `specs/spec.md` (what), `specs/plan.md` (how) and
+`specs/tasks.md` (one task per commit, each with a done criterion) were approved before code, and
+`CLAUDE.md` carries the non-negotiables. Every commit follows `<type>(<T-id>): <imperative>`, so the
+history is the task list. The v1 core went from scaffold to a packaged service in 60 minutes of
+commits (T-00 to T-14). v2 came from the v1 evaluation (T-15 to T-27); three fix passes (T-28 to
+T-39) followed from real runs in Docker, and later passes (T-40 to T-45) from reviews of the
+result. Each finding became a task, and each decision kept its measurement in `evals/`.

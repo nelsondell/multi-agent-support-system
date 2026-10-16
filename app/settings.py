@@ -1,21 +1,41 @@
 """Application configuration, read once from the environment."""
 
+from datetime import timedelta, timezone
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+ReasoningEffort = Literal["none", "low", "medium", "high", "xhigh"]
+
+MERCHANT_TIMEZONE = timezone(timedelta(hours=-3), "America/Sao_Paulo")
+"""The merchants' calendar. Brazil has had no daylight saving time since 2019, so a fixed offset is
+exact and needs no timezone database in the image."""
 
 
 class Settings(BaseSettings):
     """Runtime configuration. Absent secrets are tolerated until a provider is built."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_ignore_empty=True)
 
+    llm_backend: Literal["openai", "fake"] = "openai"
+    """`fake` answers every structured call deterministically with no vendor account. It exists
+    for the CI smoke test and is never meant to serve a merchant."""
     openai_api_key: str | None = None
-    llm_model: str = "gpt-4o-mini"
-    llm_temperature: float = 0.0
-    embedding_model: str = "text-embedding-3-small"
+    llm_model: str = "gpt-6-luna"
+    """Chosen by measurement: `evals/router_benchmark.md`."""
+    llm_temperature: float | None = None
+    """Sent only when set, and only to models without reasoning (gpt-4o-mini takes 0). Reasoning
+    models such as gpt-6-luna reject any value but their own default."""
+    llm_reasoning_effort: ReasoningEffort | None = None
+    """Sent only to reasoning models. Resolves to `low` unless a temperature is set, because a
+    temperature means a model without reasoning, which rejects this parameter."""
+    judge_model: str = "gpt-6-sol"
+    """Scores the eval runs only, never a merchant's turn. A tier above the chat model, so the
+    model being graded is not grading itself."""
+    embedding_model: str = "text-embedding-3-large"
+    """Chosen by measurement: `evals/retrieval_calibration.md`."""
     embedding_backend: Literal["auto", "local", "openai"] = "auto"
     """Which embedder the index is built and queried with.
 
@@ -23,17 +43,58 @@ class Settings(BaseSettings):
     identity, so adding an API key must not silently change it under a built index."""
 
     router_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
-    retrieval_confidence_threshold: float = Field(default=0.35, ge=0.0, le=1.0)
-    """Not yet calibrated. Measured on the local fallback embedder, in-domain queries score
-    0.59-0.70 and out-of-domain ones 0.50-0.55, so this signal cannot carry out-of-domain
-    rejection: that is the guardrail's job. This threshold only catches in-domain questions
-    the corpus does not cover, and it must be re-measured against whichever embedder is
-    configured."""
+    retrieval_confidence_threshold: float = Field(default=0.52, ge=0.0, le=1.0)
+    """Calibrated for text-embedding-3-large in `evals/retrieval_calibration.md`: the midpoint of
+    the gap between the highest out-of-domain score (0.464) and the lowest in-domain one (0.574).
+    It belongs to that embedder. The local fallback embedder separates nothing, so with it no
+    threshold can do this job and the knowledge answer's sufficiency flag is the only gate."""
     max_hops: int = Field(default=2, ge=1)
 
     index_path: str = "data/processed/chroma"
     collection_name: str = "getnet_kb"
     retrieval_top_k: int = 5
+
+    state_dir: str = "data/state"
+    """Conversation checkpoints. Apart from the index on purpose: in the container this is its own
+    named volume, so a restart keeps conversations and rebuilding the index never deletes them."""
+    history_window: int = Field(default=6, ge=2)
+    """Most recent messages kept verbatim. Older ones are folded into the rolling summary."""
+    history_max_messages: int = Field(default=12, ge=3)
+    """Once the history would pass this length, everything before the window is summarised."""
+
+    tavily_api_key: str | None = None
+    """Web search credential. Without it, general-purpose questions get a pt-BR message saying
+    the system cannot look them up right now."""
+    web_search_max_results: int = Field(default=3, ge=1, le=10)
+    web_search_timeout_s: float = Field(default=8.0, gt=0)
+
+    langsmith_tracing: bool = False
+    """Uploads masked traces to LangSmith. Off by default; on without a key, it stays off."""
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "getnet-support"
+
+    handoff_ttl_hours: float = Field(default=24.0, gt=0)
+    """How long a case waits for an operator. After that, the merchant's next message closes it
+    as expired and the conversation goes on, so none waits forever."""
+
+    operator_token: str | None = None
+    """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
+
+    @model_validator(mode="after")
+    def pick_sampling_control(self) -> "Settings":
+        """A temperature and a reasoning effort belong to different kinds of model."""
+        if self.llm_temperature is not None and self.llm_reasoning_effort is not None:
+            raise ValueError("set LLM_TEMPERATURE or LLM_REASONING_EFFORT, not both")
+        if self.llm_temperature is None and self.llm_reasoning_effort is None:
+            self.llm_reasoning_effort = "low"
+        return self
+
+    @model_validator(mode="after")
+    def check_history_bounds(self) -> "Settings":
+        """A window as large as the limit would never fold anything."""
+        if self.history_max_messages <= self.history_window:
+            raise ValueError("history_max_messages must be larger than history_window")
+        return self
 
 
 @lru_cache(maxsize=1)

@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    name: Lint and offline tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run pytest -q
+
+  container:
+    name: Docker build and smoke test
+    needs: checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      # Exactly the documented setup, with no key: the deterministic LLM backend, the local
+      # embedder, and the retrieval floor that goes with it, since the documented threshold is
+      # calibrated for the OpenAI embedder (evals/retrieval_calibration.md).
+      - name: Configure the keyless backends
+        run: |
+          cp .env.example .env
+          sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=fake/' .env
+          sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
+          sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
+
+      - name: Build the image
+        run: docker compose build
+
+      - name: Start the container and wait until healthy
+        run: docker compose up -d --wait
+
+      - name: Smoke-test /health
+        run: curl -fsS localhost:8000/health | jq -e '.status == "ok"'
+
+      - name: Smoke-test /metrics
+        run: curl -fsS localhost:8000/metrics | grep -q '^# TYPE support_escalations_total counter'
+
+      # The fake router sends the question to the knowledge agent as written, so this one is
+      # chosen to clear the retrieval threshold with the local embedder by a wide margin.
+      - name: Smoke-test /chat
+        run: |
+          curl -fsS -X POST localhost:8000/chat \
+            -H 'Content-Type: application/json' \
+            -d '{"message": "What is the Get Smart card machine?", "user_id": "cliente1988"}' \
+            | tee chat.json
+          echo
+          jq -e '.escalated == false and (.answer | length > 0) and (.sources | length > 0)' chat.json
+
+      - name: Container logs
+        if: always()
+        run: docker compose logs api

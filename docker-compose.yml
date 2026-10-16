@@ -2,15 +2,30 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
-    environment:
-      # The embedder is part of the index identity: pin it to whatever built the mounted index,
-      # so adding a chat key later cannot silently invalidate it.
-      EMBEDDING_BACKEND: "${EMBEDDING_BACKEND:-local}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:?set OPENAI_API_KEY in .env or the environment}"
-      INDEX_PATH: "/app/data/processed/chroma"
+      # Host port from API_PORT in .env, for machines where 8000 is already taken.
+      - "${API_PORT:-8000}:8000"
+    # Every setting is documented in .env.example; `cp .env.example .env` is the whole setup.
+    env_file: .env
     volumes:
-      # Built on the host with `uv run python -m app.rag.ingest`. Mounted read-write because
-      # Chroma opens its SQLite store read-write even to serve queries.
-      - ./data/processed:/app/data/processed
+      # The index: built on first boot from the committed corpus snapshot, reused after. Read-write
+      # because Chroma opens its SQLite store read-write even to serve queries.
+      - index:/app/data/processed
+      # The conversation checkpoints. A volume of their own, so dropping the index to rebuild it
+      # never deletes a conversation.
+      - state:/app/data/state
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      # Covers the first boot, which builds the index before the API starts listening.
+      start_period: 120s
     restart: unless-stopped
+
+volumes:
+  index:
+  state:
