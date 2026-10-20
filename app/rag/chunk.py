@@ -5,11 +5,16 @@ use, so a chunk that looks like it fits really does. De-duplication is by hash o
 text: several routes on this site render the same body (the contact page repeats the home page,
 the custom-rates page repeats the machine catalogue), and without this the index would count
 those twice and rank them twice.
+
+The tokenizer's merge table ships in `assets/`, so chunking never downloads it.
 """
 
 import hashlib
+import os
 import re
 from dataclasses import dataclass
+from functools import cache
+from pathlib import Path
 
 import tiktoken
 
@@ -19,6 +24,8 @@ CHUNK_TOKENS = 600
 CHUNK_OVERLAP = 100
 
 _ENCODING = "cl100k_base"
+ASSETS = Path(__file__).parent / "assets"
+"""cl100k_base, under the name tiktoken caches it by: the SHA-1 of its download URL."""
 _NORMALIZE = re.compile(r"[^0-9a-zà-ÿ]+")
 _TOKEN = re.compile(r"[0-9a-zà-ÿ]+")
 
@@ -66,9 +73,25 @@ def text_hash(text: str) -> str:
     return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
 
 
+@cache
+def tokenizer() -> tiktoken.Encoding:
+    """cl100k_base, read from the committed copy. tiktoken checks it against the encoding's
+    SHA-256 and would download only on a mismatch; the cache directory points at the copy only for
+    this load, so no other encoding is ever written next to it."""
+    previous = os.environ.get("TIKTOKEN_CACHE_DIR")
+    os.environ["TIKTOKEN_CACHE_DIR"] = str(ASSETS)
+    try:
+        return tiktoken.get_encoding(_ENCODING)
+    finally:
+        if previous is None:
+            del os.environ["TIKTOKEN_CACHE_DIR"]
+        else:
+            os.environ["TIKTOKEN_CACHE_DIR"] = previous
+
+
 def split_tokens(text: str, size: int = CHUNK_TOKENS, overlap: int = CHUNK_OVERLAP) -> list[str]:
     """Slide a token window over the text, keeping `overlap` tokens between windows."""
-    encoder = tiktoken.get_encoding(_ENCODING)
+    encoder = tokenizer()
     tokens = encoder.encode(text)
     if len(tokens) <= size:
         return [text]

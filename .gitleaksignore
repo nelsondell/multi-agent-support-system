@@ -1,0 +1,3 @@
+# Reviewed false positives, one fingerprint each (commit:file:rule:line).
+# generic-api-key on `operator_token=token`: a fixture passing the variable `token` to Settings.
+6e2b3c69aee0b98581e4d714df817c511ce539d8:tests/test_human_review.py:generic-api-key:96

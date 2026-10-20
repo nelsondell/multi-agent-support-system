@@ -442,19 +442,41 @@ the README numbers and the demo output are refreshed.
 **Done when:** an answer without a structured date ends with the new notice and no wording that
 the source lacks a date; the report and the README agree on the judge's numbers.
 
+## After the V4 evaluation
+
+The V4 evaluation scored v2 at 9.5. T-47 to T-55 close the gaps it named, one branch and one pull
+request each.
+
+### T-47 — `fix(T-47): reproducible offline, in one command`
+The evaluator could not start the suite: `app/rag/chunk.py` imports tiktoken, which was only a
+transitive dependency and downloads `cl100k_base` on first use. tiktoken is declared and the
+encoding is committed under `app/rag/assets/`, loaded by pointing `TIKTOKEN_CACHE_DIR` at it for
+that one load. The other runtime download, Chroma's local ONNX model, now comes only from the
+image build or `make models`; without it the local embedder stops with that fix. The suite runs
+with sockets blocked (`pytest-socket`); the LangSmith test client keeps run updates in-process. `make
+verify` runs `uv sync --frozen`, then `scripts/verify.py`: ruff, the format check, the suite and
+the guardrail eval (which now exits non-zero on a miss) with no key, written to
+`reports/verify.md`. CI runs that offline phase on ubuntu inside `unshare --net` and on macOS,
+scans the history with gitleaks, writes a syft SBOM of the image and fails on a critical Trivy
+finding outside `.trivyignore`. Base images are pinned by digest, third-party actions by SHA, and
+Dependabot covers uv, actions and Docker.
+**Done when:** `make verify` passes from a clean clone with no key and no network after the sync,
+in under 3 minutes; the verify job is green on ubuntu with the network cut and on macOS; the
+secret, SBOM and vulnerability steps are green; the README quick start opens with `make verify`.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
 | Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44 |
-| Infra / Docker (6.8) | T-16, T-17, T-18, T-33 |
+| Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
 | Multi-agent / orchestration (8.8) | T-22, T-43 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
-| Security / isolation (9.5) | T-19, T-21, T-23, T-44 |
+| Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
 | Trade-offs / engineering (10.0) | T-27, T-28, T-45 |
 

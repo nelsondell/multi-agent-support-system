@@ -1,7 +1,10 @@
-# Build stage: resolve dependencies with uv against the lockfile, nothing else.
-FROM python:3.12-slim AS builder
+# Base images are pinned by digest (multi-arch index), so a rebuild gets the same bytes until
+# Dependabot proposes a newer digest.
 
-COPY --from=ghcr.io/astral-sh/uv:0.10.11 /uv /usr/local/bin/uv
+# Build stage: resolve dependencies with uv against the lockfile, nothing else.
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS builder
+
+COPY --from=ghcr.io/astral-sh/uv:0.10.11@sha256:3472e43b4e738cf911c99d41bb34331280efad54c73b1def654a6227bb59b2b4 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -20,7 +23,7 @@ RUN uv sync --frozen --no-dev
 
 
 # Runtime stage: the virtualenv, the application and the corpus snapshot, no build tooling.
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
 
 # No API key at build time: the index is built on first boot, from the committed snapshot.
 RUN groupadd --system --gid 1001 appuser \
@@ -39,15 +42,13 @@ RUN mkdir -p /app/data/processed /app/data/state \
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    TIKTOKEN_CACHE_DIR=/home/appuser/.cache/tiktoken
+    PYTHONDONTWRITEBYTECODE=1
 
 USER appuser
 
-# Fetch the chunker's tokenizer and the local embedding model now, so the first boot builds the
-# index without downloading anything.
-RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')" \
-    && python -c "from chromadb.utils.embedding_functions import DefaultEmbeddingFunction; DefaultEmbeddingFunction()(['warm-up'])"
+# Fetch the local embedding model now, so the first boot builds the index without downloading
+# anything; at runtime the app refuses to fetch it. The chunker's tokenizer ships in app/rag/assets.
+RUN python -m app.providers.embeddings
 
 EXPOSE 8000
 

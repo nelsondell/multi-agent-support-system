@@ -8,9 +8,11 @@ one case in fifteen is a signal to read, not a red build.
 Rows may carry earlier turns (`history`) and words the rewrite must keep (`expected_mentions`),
 which is how follow-ups are scored: the right agent with a query that lost its referent is a miss.
 
-The guardrail half is deterministic and always runs. The router half calls the configured model:
-with `LLM_BACKEND=openai` it needs a key and costs money; with `LLM_BACKEND=fake` it runs offline,
-which proves the runner end to end but measures nothing about routing quality.
+The guardrail half is deterministic and always runs, and a miss there is a bug, so it exits
+non-zero (`make verify` runs it offline with `--guardrail-only`). The router half calls the
+configured model: with `LLM_BACKEND=openai` it needs a key and costs money; with
+`LLM_BACKEND=fake` it runs offline, which proves the runner end to end but measures nothing about
+routing quality. Its misses are read, never a failure.
 """
 
 import argparse
@@ -144,17 +146,19 @@ def main() -> None:
 
     rows = load_rows()
     print(f"golden set: {len(rows)} rows from {GOLDEN_SET}")
-    report("guardrail (deterministic)", evaluate_guardrail(rows))
+    guardrail = evaluate_guardrail(rows)
+    report("guardrail (deterministic)", guardrail)
+    failed = any(not outcome.hit for outcome in guardrail)
 
-    if arguments.guardrail_only:
+    settings = None if arguments.guardrail_only else get_settings()
+    if settings is None:
         print("\nrouter: skipped (--guardrail-only)")
-        return
-    settings = get_settings()
-    if settings.llm_backend == "openai" and not settings.openai_api_key:
+    elif settings.llm_backend == "openai" and not settings.openai_api_key:
         print("\nrouter: skipped, OPENAI_API_KEY is not set (this stage calls a real model)")
-        return
-    print(f"\nrouter backend: {settings.llm_backend}")
-    report("router (model)", asyncio.run(evaluate_router(rows)))
+    else:
+        print(f"\nrouter backend: {settings.llm_backend}")
+        report("router (model)", asyncio.run(evaluate_router(rows)))
+    raise SystemExit(1 if failed else 0)
 
 
 if __name__ == "__main__":

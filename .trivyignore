@@ -1,0 +1,8 @@
+# Critical findings reviewed and accepted, each with its reason and an expiry: past the date the
+# scan fails again, so the exception is looked at once more.
+#
+# chromadb 1.5.9, no fixed release yet. Both are code injection through Chroma's HTTP server API
+# (/api/v2/.../collections with trust_remote_code). This service embeds Chroma in-process with
+# PersistentClient and never runs or exposes a Chroma server, so neither endpoint exists here.
+CVE-2026-45829 exp:2026-12-31
+CVE-2026-45833 exp:2026-12-31

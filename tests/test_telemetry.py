@@ -89,6 +89,11 @@ class Recorder(langsmith.Client):
             raise ConnectionError("langsmith unreachable")
         Recorder.uploads.append(run_create.get("inputs"))
 
+    def _update_run(self, run_update, **kwargs):
+        """A run's end is an upload too; it stays here, so the suite opens no socket."""
+        if self.broken:
+            raise ConnectionError("langsmith unreachable")
+
 
 @pytest.fixture
 def recorder(monkeypatch):

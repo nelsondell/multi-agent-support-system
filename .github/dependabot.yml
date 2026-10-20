@@ -1,0 +1,25 @@
+# Weekly updates for the three places versions are pinned: uv.lock, the workflow actions (pinned
+# by commit SHA where third party) and the Dockerfile base images (pinned by digest). Minor and
+# patch updates arrive grouped, one PR per ecosystem; a major version gets its own PR.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      python:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
