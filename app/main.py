@@ -7,11 +7,12 @@ from uuid import uuid4
 
 import httpx
 import structlog
-from fastapi import APIRouter, FastAPI, Query, Request, Response
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from app.auth import Merchant, RateLimiter, TokenVerifier
 from app.contracts import (
     CONVERSATION_ID_PATTERN,
     ChatRequest,
@@ -56,9 +57,12 @@ async def lifespan(app: FastAPI):
     configure_tracing(settings)
     retriever = HybridRetriever.from_settings(settings)
     provider = build_provider(settings)
+    app.state.verifier = TokenVerifier.from_settings(settings)
+    app.state.limiter = RateLimiter(settings.rate_limit_per_minute)
     async with open_storage(settings) as storage, httpx.AsyncClient() as http:
         app.state.settings, app.state.retriever = settings, retriever
         app.state.queue, app.state.locks = storage.queue, storage.locks
+        app.state.audit = storage.audit
         web = WebSearch(settings, http)
         app.state.graph = build_graph(
             provider, settings, retriever, storage.checkpointer, storage.queue, web
@@ -70,10 +74,10 @@ routes = APIRouter()
 
 
 @routes.post("/chat", response_model=ChatResponse)
-async def chat(body: ChatRequest, request: Request) -> ChatResponse:
+async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatResponse:
     """Answer a merchant message inside its conversation, or hand the case to a human.
 
-    The thread is keyed by the authenticated `user_id` together with the conversation id, so a
+    The thread is keyed by the merchant the token names together with the conversation id, so a
     conversation id alone never reaches another merchant's history. While a human has this
     conversation's case, the message is noted on the case and gets the open protocol; once the
     case is closed, how it ended is delivered with the next message, before its answer. A second
@@ -82,16 +86,16 @@ async def chat(body: ChatRequest, request: Request) -> ChatResponse:
     trace_id = uuid4().hex
     conversation_id = body.conversation_id or uuid4().hex
     structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
-    thread = thread_id(body.user_id, conversation_id)
+    thread = thread_id(merchant, conversation_id)
     try:
         async with request.app.state.locks.hold(thread):
-            return await take_turn(request.app, body, conversation_id, thread, trace_id)
+            return await take_turn(request.app, body, merchant, conversation_id, thread, trace_id)
     finally:
         structlog.contextvars.clear_contextvars()
 
 
 async def take_turn(
-    app: Any, body: ChatRequest, conversation_id: str, thread: str, trace_id: str
+    app: Any, body: ChatRequest, merchant: str, conversation_id: str, thread: str, trace_id: str
 ) -> ChatResponse:
     """One turn, under the conversation's lock. A turn left unfinished, because the replica
     running it died, is finished first from its last checkpoint; when this message is the
@@ -108,7 +112,7 @@ async def take_turn(
     delivered = await app.state.queue.deliver(thread)
     turn = turn_input(
         message=body.message,
-        user_id=body.user_id,
+        user_id=merchant,
         conversation_id=conversation_id,
         trace_id=trace_id,
         today=merchant_today(),
@@ -131,22 +135,25 @@ async def still_waiting(app: Any, values: dict, message: str) -> bool:
         await queue.add_note(record.case.protocol, mask_pii(message))
         return True
     expired = await settle(app, record, thread, OperatorInput(action="cancel"), "expired")
+    if expired is not None:
+        await app.state.audit.append("system", "system", "case.expired", record.case.protocol)
     return expired is None
+
+
+ConversationId = Annotated[str, PathParam(pattern=CONVERSATION_ID_PATTERN)]
 
 
 @routes.get("/conversations/{conversation_id}", response_model=ConversationView)
 async def conversation(
-    user_id: Annotated[str, Query(min_length=1)],
-    conversation_id: Annotated[str, PathParam(pattern=CONVERSATION_ID_PATTERN)],
-    request: Request,
+    conversation_id: ConversationId, request: Request, merchant: Merchant
 ) -> ConversationView:
     """A conversation's history, as stored, and the protocol of its open case if one is waiting.
 
-    Read through the same thread key as `/chat`, so another merchant's id finds nothing."""
-    config = {"configurable": {"thread_id": thread_id(user_id, conversation_id)}}
+    Read through the same thread key as `/chat`, so another merchant's conversation is a 404."""
+    config = {"configurable": {"thread_id": thread_id(merchant, conversation_id)}}
     snapshot = await request.app.state.graph.aget_state(config)
     if not snapshot.values:
-        return ConversationView(conversation_id=conversation_id, status="active")
+        raise HTTPException(404, "no such conversation")
     state = GraphState.model_validate(snapshot.values)
     paused = PAUSED_AT in snapshot.next
     return ConversationView(
@@ -162,6 +169,22 @@ async def conversation(
             for message in state.messages
         ],
     )
+
+
+@routes.delete("/me/conversations/{conversation_id}", status_code=204)
+async def erase(conversation_id: ConversationId, request: Request, merchant: Merchant) -> Response:
+    """LGPD erasure: the conversation's checkpoints and every case it opened, payloads, notes and
+    replies included, under its lock so no turn writes it back. The audit log keeps that it
+    happened, by thread hash, and nothing of what was said."""
+    app, thread = request.app, thread_id(merchant, conversation_id)
+    async with app.state.locks.hold(thread):
+        graph = app.state.graph
+        if not (await graph.aget_state({"configurable": {"thread_id": thread}})).values:
+            raise HTTPException(404, "no such conversation")
+        await graph.checkpointer.adelete_thread(thread)
+        await app.state.queue.erase(thread)
+        await app.state.audit.append(merchant, "merchant", "conversation.erased", thread)
+    return Response(status_code=204)
 
 
 @routes.get("/ready")
@@ -199,7 +222,7 @@ def create_app() -> FastAPI:
     api = FastAPI(title="Multi-agent support system", lifespan=lifespan)
     api.include_router(routes)
     api.include_router(operator_router)
-    api.state.locks = ConversationLocks()
+    api.state.locks, api.state.limiter = ConversationLocks(), RateLimiter()
     return api
 
 

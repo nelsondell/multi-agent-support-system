@@ -127,6 +127,7 @@ def build_test_graph(sample_chunks, fake_collection):
         checkpointer=None,
         web=None,
         provider=None,
+        queue=None,
         **overrides,
     ):
         from app.graph.build import build_graph
@@ -136,7 +137,7 @@ def build_test_graph(sample_chunks, fake_collection):
         settings = Settings(**overrides)
         retriever = HybridRetriever(sample_chunks, fake_collection(similarities), top_k=5)
         model = provider or ScriptedProvider(responses)
-        return build_graph(model, settings, retriever, checkpointer, web=web)
+        return build_graph(model, settings, retriever, checkpointer, queue, web=web)
 
     return build
 

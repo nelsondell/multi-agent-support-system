@@ -8,7 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class Intent(StrEnum):
@@ -164,13 +164,15 @@ CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 
 class ChatRequest(BaseModel):
-    """Inbound payload. `user_id` is taken as already authenticated."""
+    """Inbound payload. The merchant is whoever the bearer token names (app/auth.py); a body
+    that tries to name one is rejected."""
+
+    model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1)
-    user_id: str = Field(min_length=1)
     conversation_id: str | None = Field(default=None, pattern=CONVERSATION_ID_PATTERN)
     """Continues a conversation when given; the server starts a new one when absent. It only
-    names a thread together with `user_id`, never on its own."""
+    names a thread together with the merchant's id, never on its own."""
 
 
 class ChatResponse(BaseModel):

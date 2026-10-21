@@ -1,5 +1,5 @@
 # Thin wrappers over the commands in the README.
-.PHONY: verify verify-offline models up scale test eval demo
+.PHONY: verify verify-offline models dev-keys up scale purge test eval demo
 
 # From a clean clone, with no key: the frozen sync is the only step that uses the network; then
 # lint, the offline suite and the offline evals, recorded in reports/verify.md.
@@ -16,14 +16,23 @@ verify-offline:
 models:
 	uv run --frozen python -m app.providers.embeddings
 
+# A local RS256 key pair standing in for the identity provider: .dev/jwks.json for the API,
+# the private key for scripts/dev_token.py. Kept if it exists.
+dev-keys:
+	uv run --frozen python scripts/dev_keys.py
+
 # Build the image and start the API in the background, returning once it is healthy.
-up:
+up: dev-keys
 	docker compose up --build --wait
 
 # Postgres, two replicas over it and a round-robin load balancer on SCALE_PORT (8080), returning
 # once both replicas are ready.
-scale:
+scale: dev-keys
 	docker compose --profile scale up --build --wait lb
+
+# Erase conversations idle for longer than RETENTION_DAYS, with the cases they opened.
+purge:
+	uv run --frozen python -m app.retention
 
 # Lint, then the offline suite: no vendor call, no cost.
 test:

@@ -14,7 +14,6 @@ from contextlib import AsyncExitStack, suppress
 import httpx
 import pytest
 
-from app.checkpoints import open_checkpointer
 from app.contracts import Intent, SourceType, TargetAgent
 from app.graph.build import build_graph
 from app.graph.compose import ComposedAnswer
@@ -22,10 +21,11 @@ from app.graph.human_review import HandoffDraft
 from app.graph.knowledge import KnowledgeAnswer
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
-from app.handoffs import open_handoff_queue
 from app.main import app
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
+from app.storage import open_storage
+from tests.identity import IDENTITY, serve
 
 CALLER = "cliente1988"
 STRANGER = "cliente7771"
@@ -124,13 +124,12 @@ def stack(tmp_path, sample_chunks, fake_collection):
 
     async def start(exits: AsyncExitStack, model: Model, web=None) -> httpx.AsyncClient:
         settings = Settings(state_dir=str(tmp_path / "state"))
-        checkpointer = await exits.enter_async_context(open_checkpointer(settings))
-        queue = await exits.enter_async_context(open_handoff_queue(settings))
+        storage = await exits.enter_async_context(open_storage(settings))
         retriever = HybridRetriever(
             sample_chunks, fake_collection({chunk.id: 0.9 for chunk in sample_chunks}), top_k=5
         )
-        app.state.settings, app.state.queue, app.state.retriever = settings, queue, retriever
-        app.state.graph = build_graph(model, settings, retriever, checkpointer, queue, web)
+        graph = build_graph(model, settings, retriever, storage.checkpointer, storage.queue, web)
+        serve(app, settings, storage, graph, retriever)
         transport = httpx.ASGITransport(app=app)
         return await exits.enter_async_context(
             httpx.AsyncClient(transport=transport, base_url="http://test")
@@ -140,8 +139,8 @@ def stack(tmp_path, sample_chunks, fake_collection):
 
 
 async def chat(http, message: str, conversation_id: str = "c1", user_id: str = CALLER) -> dict:
-    payload = {"message": message, "user_id": user_id, "conversation_id": conversation_id}
-    response = await http.post("/chat", json=payload)
+    payload = {"message": message, "conversation_id": conversation_id}
+    response = await http.post("/chat", json=payload, headers=IDENTITY.merchant(user_id))
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -258,7 +257,7 @@ async def test_two_messages_on_one_conversation_take_turns(stack):
             chat(http, "Quando cai o dinheiro das vendas de ontem?"),
             chat(http, "Quando cai o dinheiro das vendas de amanhã?"),
         )
-        view = await http.get("/conversations/c1", params={"user_id": CALLER})
+        view = await http.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))
 
     assert model.most == 1
     assert [reply["status"] for reply in replies] == ["answered", "answered"]

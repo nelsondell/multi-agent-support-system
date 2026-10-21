@@ -52,6 +52,8 @@ _COLUMNS = "status, payload, closed_at, outcome, notes"
 class Tables(Protocol):
     """A database as the queue uses it. Parameters are written `?`; every write commits."""
 
+    dialect: str
+
     async def execute(self, sql: str, params: Sequence[Any] = ()) -> int:
         """Run a statement and return how many rows it changed."""
         ...
@@ -63,6 +65,8 @@ class Tables(Protocol):
 
 class SqliteTables:
     """The queue's SQL on one SQLite connection."""
+
+    dialect = "sqlite"
 
     def __init__(self, connection: aiosqlite.Connection) -> None:
         self._db = connection
@@ -79,6 +83,8 @@ class SqliteTables:
 
 class PostgresTables:
     """The same SQL on a Postgres connection pool, in autocommit."""
+
+    dialect = "postgres"
 
     def __init__(self, pool: Any) -> None:
         self._pool = pool
@@ -170,6 +176,10 @@ class HandoffQueue:
             (reply.model_dump_json(), reply.protocol),
         )
 
+    async def erase(self, thread_id: str) -> int:
+        """Delete every case this conversation opened, with its notes and reply."""
+        return await self._db.execute("DELETE FROM handoffs WHERE thread_id = ?", (thread_id,))
+
     async def deliver(self, thread_id: str) -> list[DeliveredReply]:
         """The replies this conversation has not seen yet, oldest first, marked as delivered."""
         rows = await self._db.fetch(
@@ -208,10 +218,17 @@ async def _migrate(connection: aiosqlite.Connection) -> None:
 
 
 @asynccontextmanager
-async def open_handoff_queue(settings: Settings) -> AsyncIterator[HandoffQueue]:
-    """Open the queue database under `STATE_DIR`, creating it on first use."""
+async def open_sqlite_tables(settings: Settings) -> AsyncIterator[SqliteTables]:
+    """Open the cases database under `STATE_DIR`, creating or migrating the queue's table."""
     state_dir = Path(settings.state_dir)
     state_dir.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(str(state_dir / "handoffs.sqlite")) as connection:
         await _migrate(connection)
-        yield HandoffQueue(SqliteTables(connection))
+        yield SqliteTables(connection)
+
+
+@asynccontextmanager
+async def open_handoff_queue(settings: Settings) -> AsyncIterator[HandoffQueue]:
+    """The queue alone, on its SQLite file."""
+    async with open_sqlite_tables(settings) as tables:
+        yield HandoffQueue(tables)

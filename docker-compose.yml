@@ -2,6 +2,16 @@
 # `make scale` runs the `scale` profile instead: Postgres, two replicas over it and a round-robin
 # load balancer on SCALE_PORT (docs/operations.md).
 
+# The identity provider's public keys, from `make dev-keys`. Only the public half is mounted, and
+# compose stops with an error if it is missing rather than create an empty directory.
+x-jwks: &jwks
+  type: bind
+  source: ./.dev/jwks.json
+  target: /app/.dev/jwks.json
+  read_only: true
+  bind:
+    create_host_path: false
+
 x-api: &api
   build: .
   # One image for every service that runs the API, so it is built once.
@@ -46,6 +56,7 @@ services:
       # The conversation checkpoints. A volume of their own, so dropping the index to rebuild it
       # never deletes a conversation.
       - state:/app/data/state
+      - *jwks
 
   # --- scale profile ---------------------------------------------------------------------------
   postgres:
@@ -67,11 +78,13 @@ services:
     <<: *replica
     volumes:
       - index-a:/app/data/processed
+      - *jwks
 
   api-b:
     <<: *replica
     volumes:
       - index-b:/app/data/processed
+      - *jwks
 
   lb:
     profiles: [scale]

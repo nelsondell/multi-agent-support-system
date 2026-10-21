@@ -13,7 +13,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 305 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Verify** | `make verify`: 326 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
 | **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
@@ -28,7 +28,8 @@ changed since v1](#8-what-changed-since-v1) maps each change to the criterion it
 
 **Go deeper** — [architecture](docs/architecture.md) (workflow, tools, memory, failures) ·
 [RAG and web search](docs/rag.md) · [human in the loop](docs/human-in-the-loop.md) ·
-[demo output](docs/demo.md) · [operations](docs/operations.md) (configuration, Docker,
+[demo output](docs/demo.md) · [security](docs/security.md) (identity, audit, LGPD, OWASP agentic
+map) · [operations](docs/operations.md) (configuration, Docker,
 observability) · [spec](specs/spec.md) · [plan](specs/plan.md) · [tasks](specs/tasks.md)
 
 ## 1. Quick start
@@ -39,14 +40,14 @@ make verify                     # frozen sync, then lint, tests and offline eval
 
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, the tests run with sockets blocked, and the result lands in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 100 s of
-sync (441 MB, so mostly the network) and 21.3 s of checks.
+[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 92 s of
+sync (453 MB, so mostly the network) and 24.1 s of checks.
 
 ```bash
-cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY; OPERATOR_TOKEN for /handoffs
-docker compose up --build       # or `make up`: detached, returns once healthy
-curl -s localhost:8000/health   # {"status":"ok"}
-OPERATOR_TOKEN=... ./scripts/demo.sh   # the walkthrough in §5
+cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY
+make up                         # dev identity keys, then docker compose up; returns once ready
+curl -s localhost:8000/ready    # {"status":"ready",...}
+./scripts/demo.sh               # the walkthrough in §5, with tokens minted from the dev keys
 ```
 
 The first boot builds the knowledge index from the committed corpus snapshot into a volume;
@@ -109,9 +110,10 @@ spans the whole plan, so two agents cannot pass a message back and forth.
 
 ## 3. How a message flows
 
-1. **`POST /chat`** `{message, user_id, conversation_id?}`. `user_id` is the authenticated caller;
-   the thread key hashes it with the conversation id, so nobody else's id opens this history.
-   Messages on one conversation run one at a time.
+1. **`POST /chat`** `{message, conversation_id?}` with a merchant's bearer token. The merchant is
+   the token's `sub`, verified against the identity provider's keys; the thread key hashes it with
+   the conversation id, so nobody else opens this history. Messages on one conversation run one
+   at a time.
 2. **Guardrail**, deterministic: masks CPF, CNPJ, card and phone; refuses prompt injection and
    requests for another merchant's data (a merchant naming their own id passes).
 3. **Router**: one structured call returns intent, confidence and one or two steps, each a
@@ -146,7 +148,7 @@ The curl walkthrough and every error code: [docs/human-in-the-loop.md](docs/huma
 
 ## 5. Demo
 
-`OPERATOR_TOKEN=... ./scripts/demo.sh` against the container built from this commit's code
+`./scripts/demo.sh` against the container built from the code at T-46
 (`gpt-6-luna`, `text-embedding-3-large`, live Tavily), on 2026-10-15. Full output, pt-BR as a
 merchant gets it, including the delivered reply and the stored conversation:
 [docs/demo.md](docs/demo.md).
@@ -171,7 +173,7 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 305 tests, about 9 s, sockets blocked, plus 6 that run two replicas over Postgres in CI: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 326 tests, about 10 s, sockets blocked, plus 9 that run two replicas over Postgres in CI: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite and the guardrail eval, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
@@ -196,8 +198,11 @@ sources. The human-review loop scores 5 in every run.
 
 The guardrail is deterministic and runs before any model call: prompt injection
 (`prompt_injection`) and requests for another merchant's data (`identity_swap`) get a refusal and
-are never remembered. Identity can't be argued with anyway: `user_id` is injected into the tools
-from graph state and is in no schema the model sees. Logs, traces, history and outbound web queries
+are never remembered. Identity can't be argued with anyway: the merchant is the `sub` of a signed
+token, injected into the tools from graph state and in no schema the model sees. Operators act by
+role, every operator action and erasure is in an append-only audit log, and a merchant can erase a
+conversation; idle ones are purged after 90 days ([docs/security.md](docs/security.md), with the
+OWASP agentic Top 10 mapped to controls and tests). Logs, traces, history and outbound web queries
 are masked; ids the system issues are not.
 
 **Financial hard rules**, in the prompts and asserted in tests:
@@ -227,9 +232,9 @@ Escalations are counted by typed reason on `GET /metrics`; LangSmith tracing is 
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
 | Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan | T-21, T-22, T-43 |
 | Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; Prometheus counters by honest reason; masked tracing | T-25, T-26, T-28, T-29, T-39, T-44 |
-| Tests / quality (9.2) | 78 → 311 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Tests / quality (9.2) | 78 → 335 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
-| Security / isolation (9.5) | Threads bound to the merchant; one turn at a time per conversation; restricted checkpoint deserializer; masked web queries; operator token | T-19, T-21, T-23, T-31, T-44 |
+| Security / isolation (9.5) | Merchant identity from a signed JWT; operator roles; append-only audit; LGPD erasure and retention; rate limit; threads bound to the merchant; restricted checkpoint deserializer; masked web queries | T-19, T-21, T-23, T-31, T-44, T-49 |
 | RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |
 | Trade-offs (10.0) | Each choice measured and committed: model, embedder, fusion, router effort | T-28, T-29, T-34, T-45 |
 
@@ -282,8 +287,8 @@ of the cost ([benchmark](evals/router_benchmark.md)).
   is genuinely ambiguous.
 - **Article chunking cuts tables**: a 600-token window can split a fee table mid-row.
 - **Mock account data** with dates moved to the current day; **one node over SQLite** unless
-  `make scale`; `user_id` trusted from the request, one shared operator token, no rate limiting: fit for the
-  challenge, not for production traffic.
+  `make scale`; the dev identity provider is a local key pair (production points `AUTH_JWKS_URL`
+  at a real one), and the rate limit counts per replica.
 - **Latency**: 4 to 9 s per turn, mostly two or three sequential model calls.
 
 ## 11. Process

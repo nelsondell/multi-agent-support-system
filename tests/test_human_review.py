@@ -12,7 +12,6 @@ from contextlib import AsyncExitStack
 import httpx
 import pytest
 
-from app.checkpoints import open_checkpointer
 from app.contracts import Intent, TargetAgent
 from app.graph.build import build_graph
 from app.graph.human_review import HandoffDraft, OperatorReply
@@ -20,15 +19,15 @@ from app.graph.knowledge import KnowledgeAnswer
 from app.graph.memory import thread_id
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
-from app.handoffs import open_handoff_queue
 from app.main import app
 from app.providers.llm import LLMProviderError
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
+from app.storage import open_storage
+from tests.identity import FORGER, IDENTITY, serve
 
 CALLER = "cliente1988"
-TOKEN = "operator-test-token"
-OPERATOR = {"Authorization": f"Bearer {TOKEN}"}
+OPERATOR = IDENTITY.operator()
 COMPLAINT = "Fui cobrado duas vezes na mesma venda, meu CPF é 123.456.789-00"
 DRAFT = "Recebemos sua solicitação e nossa equipe está verificando a cobrança."
 PROTOCOL = "ESC-3B500C0D1E"
@@ -89,18 +88,13 @@ def pinned_protocol(monkeypatch):
 def stack(tmp_path, sample_chunks, fake_collection):
     """Start the app over stores in `tmp_path`; starting again reopens the same files."""
 
-    async def start(
-        exits: AsyncExitStack, stand_in: Model, token: str | None = TOKEN, ttl_hours: float = 24
-    ):
-        settings = Settings(
-            state_dir=str(tmp_path / "state"), operator_token=token, handoff_ttl_hours=ttl_hours
-        )
-        checkpointer = await exits.enter_async_context(open_checkpointer(settings))
-        queue = await exits.enter_async_context(open_handoff_queue(settings))
+    async def start(exits: AsyncExitStack, stand_in: Model, ttl_hours: float = 24):
+        settings = Settings(state_dir=str(tmp_path / "state"), handoff_ttl_hours=ttl_hours)
+        storage = await exits.enter_async_context(open_storage(settings))
         above = fake_collection({chunk.id: 0.9 for chunk in sample_chunks})
         retriever = HybridRetriever(sample_chunks, above, top_k=5)
-        app.state.settings, app.state.queue = settings, queue
-        app.state.graph = build_graph(stand_in, settings, retriever, checkpointer, queue)
+        graph = build_graph(stand_in, settings, retriever, storage.checkpointer, storage.queue)
+        serve(app, settings, storage, graph, retriever)
         transport = httpx.ASGITransport(app=app)
         return await exits.enter_async_context(
             httpx.AsyncClient(transport=transport, base_url="http://test")
@@ -112,8 +106,8 @@ def stack(tmp_path, sample_chunks, fake_collection):
 async def chat(
     http: httpx.AsyncClient, message: str, conversation_id: str = "c1", user_id: str = CALLER
 ) -> dict:
-    payload = {"message": message, "user_id": user_id, "conversation_id": conversation_id}
-    response = await http.post("/chat", json=payload)
+    payload = {"message": message, "conversation_id": conversation_id}
+    response = await http.post("/chat", json=payload, headers=IDENTITY.merchant(user_id))
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -310,9 +304,10 @@ async def test_one_case_keeps_one_protocol_through_pause_list_and_resume(stack):
 
 
 @pytest.mark.parametrize(
-    "headers", [{}, {"Authorization": "Bearer wrong"}, {"Authorization": TOKEN}]
+    "headers",
+    [{}, {"Authorization": "Bearer wrong"}, IDENTITY.merchant(CALLER), FORGER.operator()],
 )
-async def test_operator_routes_reject_a_missing_or_wrong_token(stack, headers):
+async def test_operator_routes_reject_a_missing_forged_or_merchant_token(stack, headers):
     async with AsyncExitStack() as exits:
         http = await stack(exits, model())
 
@@ -322,15 +317,6 @@ async def test_operator_routes_reject_a_missing_or_wrong_token(stack, headers):
         )
 
     assert listed.status_code == resumed.status_code == 401
-
-
-async def test_operator_routes_are_disabled_without_a_configured_token(stack):
-    async with AsyncExitStack() as exits:
-        http = await stack(exits, model(), token=None)
-
-        response = await http.get("/handoffs", headers=OPERATOR)
-
-    assert response.status_code == 503
 
 
 async def test_an_unknown_protocol_is_404(stack):
@@ -421,23 +407,17 @@ async def test_the_history_is_readable_by_its_merchant_only(stack):
     async with AsyncExitStack() as exits:
         http = await stack(exits, model())
         protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
-        waiting = (await http.get("/conversations/c1", params={"user_id": CALLER})).json()
+        waiting = (await http.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))).json()
         await http.post(f"/handoffs/{protocol}/resume", json=REPLY, headers=OPERATOR)
-        answered = (await http.get("/conversations/c1", params={"user_id": CALLER})).json()
-        stranger = (await http.get("/conversations/c1", params={"user_id": "cliente7771"})).json()
+        answered = (await http.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))).json()
+        stranger = await http.get("/conversations/c1", headers=IDENTITY.merchant("cliente7771"))
 
     assert waiting["status"] == "pending_human" and waiting["protocol"] == protocol
     assert answered["status"] == "active" and answered["protocol"] is None
     assert [message["role"] for message in answered["messages"]] == ["merchant", "assistant"]
     assert "[CPF]" in answered["messages"][0]["content"]
     assert answered["messages"][1]["content"] == REPLY["answer"]
-    assert stranger == {
-        "conversation_id": "c1",
-        "status": "active",
-        "protocol": None,
-        "summary": "",
-        "messages": [],
-    }
+    assert stranger.status_code == 404, "another merchant's conversation does not exist for them"
 
 
 async def test_messages_sent_while_waiting_reach_the_operator_as_notes(stack):

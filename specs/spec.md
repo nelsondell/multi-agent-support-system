@@ -50,8 +50,10 @@ parallel plan steps, plans longer than two steps.
 
 ### `POST /chat`
 
+`Authorization: Bearer <merchant JWT>`
+
 ```json
-{ "message": "string", "user_id": "string", "conversation_id": "string (optional)" }
+{ "message": "string", "conversation_id": "string (optional)" }
 ```
 
 ```json
@@ -79,8 +81,12 @@ parallel plan steps, plans longer than two steps.
 - `kb` and `web` sources always carry a `url`. An `account` source has no url; its `title` names
   the tool that read the merchant's account.
 
-`user_id` comes from the request envelope and is treated as authenticated. It is never a field
-the model can read or write, and never appears in a tool schema.
+The merchant is the `sub` of an RS256 token whose signature, issuer, audience and expiry are
+checked against the identity provider's keys (`AUTH_JWKS_URL`); a body that names a user is
+rejected. That id becomes `user_id` in graph state: never a field the model can read or write,
+and never in a tool schema. A merchant is held to `RATE_LIMIT_PER_MINUTE` requests (429 with
+`Retry-After`). Identity, roles, audit, erasure and the OWASP agentic map are in
+`docs/security.md`.
 
 Messages on one conversation are answered one at a time. A second `/chat` on the same
 conversation, or an operator's answer to its case, waits until the turn in progress has finished
@@ -90,7 +96,9 @@ advisory lock on the thread.
 
 ### Operator endpoints
 
-All require `Authorization: Bearer <OPERATOR_TOKEN>`. A case is
+All require an operator token: `OPERATOR_AUDIENCE` and a `role`, `operator` or `supervisor`.
+Every call is appended to the audit log under the operator's id, and `GET /audit` lets a
+supervisor read it. A case is
 `{ "protocol", "reason", "intent", "summary", "attempts": ["string"], "sources": [Source], "proposed_draft": "string | null", "user_id", "conversation_id", "opened_at", "expires_at" }`,
 shown as `{ "status": "open | closed", "outcome": "answered | cancelled | expired | null", "case": Case, "closed_at", "notes": [{ "at", "message" }] }`.
 `notes` are the merchant's messages sent while the case waited, masked.
@@ -105,15 +113,17 @@ shown as `{ "status": "open | closed", "outcome": "answered | cancelled | expire
 
 ### Conversation history
 
-`GET /conversations/{conversation_id}?user_id=...` returns `{ "conversation_id", "status":
-"active | pending_human", "protocol", "summary", "messages": [{ "role": "merchant | assistant",
-"content" }] }`, read through the same thread key as `/chat`, so another merchant's id finds an
-empty conversation.
+`GET /conversations/{conversation_id}`, with the merchant's token, returns `{ "conversation_id",
+"status": "active | pending_human", "protocol", "summary", "messages": [{ "role": "merchant |
+assistant", "content" }] }`, read through the same thread key as `/chat`; another merchant's
+conversation is a 404. `DELETE /me/conversations/{conversation_id}` erases it (LGPD): its
+checkpoints and every case it opened, then 204; `make purge` erases conversations idle for longer
+than `RETENTION_DAYS`.
 
 | Condition | Status |
 | --- | --- |
-| Missing or wrong token | 401 |
-| `OPERATOR_TOKEN` not configured | 503, with a message saying operator endpoints are disabled |
+| Missing, forged, expired or misaddressed token | 401 |
+| Token without the needed role | 403 |
 | Unknown protocol | 404 |
 | Case already closed | 409 |
 | Approving a case that has no draft | 422 |
@@ -233,7 +243,7 @@ Exactly two, both read-only:
   the date. A sale date after today is read as a credit date: no sale has happened yet.
 - `get_transactions` — the caller's most recent transactions, optionally filtered by status.
 
-Both take `user_id` from injected graph state. There is no identity parameter in either schema,
+Both take `user_id`, the verified token's `sub`, from injected graph state. There is no identity parameter in either schema,
 so a message naming another merchant's id cannot change what is queried. An unknown id yields an
 empty result, which is answered as "não localizei seu cadastro" — not as an error.
 
