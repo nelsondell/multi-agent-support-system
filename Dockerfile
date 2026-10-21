@@ -52,9 +52,11 @@ RUN python -m app.providers.embeddings
 
 EXPOSE 8000
 
-# Hits the liveness endpoint with the interpreter already present: no curl in the image.
+# Readiness, with the interpreter already present: no curl in the image. /ready answers 503 until
+# the store answers and the index is loaded.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status == 200 else 1)"
 
 # First boot builds the index into the volume; every later boot finds it and goes straight to the API.
-CMD ["sh", "-c", "python -m app.rag.ingest --if-missing && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# On SIGTERM uvicorn stops accepting connections and gives in-flight turns 30 s to finish.
+CMD ["sh", "-c", "python -m app.rag.ingest --if-missing && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 30"]

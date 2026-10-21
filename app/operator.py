@@ -60,7 +60,8 @@ async def settle(
         return None
     config = {"configurable": {"thread_id": thread}}
     try:
-        final = await app.state.graph.ainvoke(Command(resume=decision.model_dump()), config)
+        resume = Command(resume=decision.model_dump())
+        final = await app.state.graph.ainvoke(resume, config, durability="sync")
     except Exception:
         await queue.reopen(protocol)
         raise

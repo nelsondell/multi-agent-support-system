@@ -89,11 +89,10 @@ async def test_handoff_when_the_question_is_not_about_the_account() -> None:
     assert update["handoff_reason"] == EscalationReason.REPEATED_MISROUTE.value
 
 
-async def test_planning_failure_does_not_raise() -> None:
-    """A vendor error becomes an escalation, never a stack trace."""
-    update = await answer(_state(), ScriptedProvider(error="upstream 500"))
-
-    assert update["refusal_reason"] == EscalationReason.MODEL_UNAVAILABLE.value
+async def test_a_planning_failure_raises_for_the_graph_to_retry() -> None:
+    """The graph retries the node, then escalates it as model_unavailable (test_resilience)."""
+    with pytest.raises(LLMProviderError, match="upstream 500"):
+        await answer(_state(), ScriptedProvider(error="upstream 500"))
 
 
 def test_plan_arguments_never_carry_an_identity() -> None:

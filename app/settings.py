@@ -49,10 +49,22 @@ class Settings(BaseSettings):
     It belongs to that embedder. The local fallback embedder separates nothing, so with it no
     threshold can do this job and the knowledge answer's sufficiency flag is the only gate."""
     max_hops: int = Field(default=2, ge=1)
+    node_timeout_s: float = Field(default=45.0, gt=0)
+    """Wall-clock cap on one attempt of a graph node: a model call that hangs is cut here."""
+    node_attempts: int = Field(default=2, ge=1)
+    """Attempts per node on a model failure or a timeout, before the node's fallback runs."""
 
     index_path: str = "data/processed/chroma"
     collection_name: str = "getnet_kb"
     retrieval_top_k: int = 5
+
+    storage: Literal["sqlite", "postgres"] = "sqlite"
+    """Where conversations, cases and per-conversation locks live: SQLite files on one node, or
+    Postgres shared by every replica."""
+    database_url: str | None = None
+    """Postgres connection string, for `STORAGE=postgres`. It carries a password: never logged."""
+    database_pool_size: int = Field(default=10, ge=2)
+    """Connections per replica, in each of its two pools: one for data, one for turn locks."""
 
     state_dir: str = "data/state"
     """Conversation checkpoints. Apart from the index on purpose: in the container this is its own

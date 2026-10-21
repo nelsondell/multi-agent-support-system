@@ -85,7 +85,8 @@ the model can read or write, and never appears in a tool schema.
 Messages on one conversation are answered one at a time. A second `/chat` on the same
 conversation, or an operator's answer to its case, waits until the turn in progress has finished
 and then runs on its result, so no turn is lost to another written over it. Other conversations
-never wait. The lock lives in the API process, which runs as one worker.
+never wait. On one node the lock lives in the process; replicas over Postgres share it as an
+advisory lock on the thread.
 
 ### Operator endpoints
 
@@ -341,6 +342,14 @@ one step with network, then lint, the suite and the deterministic evals with no 
 `reports/verify.md`. Nothing downloads at runtime: the tokenizer ships in the repository and the
 local embedding model is fetched only by the image build or `make models`. The suite runs with
 sockets blocked.
+
+**Scale out.** `STORAGE=postgres` moves checkpoints, the handoff queue and the per-conversation
+lock into one Postgres every replica shares; the read-only index stays per node. A case escalated
+on one replica is answered on another, a turn whose replica dies is finished from its last
+checkpoint by the retry on another, and turns on one conversation never overlap across replicas.
+`/ready` reports whether a replica can take traffic, and shutdown lets in-flight turns finish.
+Every graph node runs under LangGraph's own timeout and retry, and a model that keeps failing
+escalates as `model_unavailable` through the node's error handler.
 
 **CI.** A GitHub Actions workflow runs the offline checks on ubuntu, with the network cut after
 the sync, and on macOS; scans the history for secrets; builds the image, writes its SBOM and fails

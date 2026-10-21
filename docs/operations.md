@@ -16,6 +16,8 @@ every setting. The ones that matter most:
 | `ROUTER_CONFIDENCE_THRESHOLD` / `MAX_HOPS` | `0.6` / `2` | Below the first, a turn escalates before any specialist. The second bounds hand-backs. |
 | `HISTORY_WINDOW` / `HISTORY_MAX_MESSAGES` | `6` / `12` | Recent messages kept verbatim; past the limit, older ones fold into a summary. |
 | `HANDOFF_TTL_HOURS` | `24` | How long a case waits for an operator before the merchant's next message closes it. |
+| `STORAGE` / `DATABASE_URL` | `sqlite` / — | Where checkpoints, cases and turn locks live: SQLite files on one node, or Postgres shared by replicas. |
+| `NODE_TIMEOUT_S` / `NODE_ATTEMPTS` | `45` / `2` | LangGraph's cap on one attempt of a node, and attempts on a model failure or timeout before the turn escalates. |
 | `LANGSMITH_TRACING` | `false` | Masked LangSmith tracing (with `LANGSMITH_API_KEY`). |
 | `LLM_BACKEND` | `openai` | `fake` answers every call deterministically with no key: CI only. |
 
@@ -45,9 +47,54 @@ at build time. The first boot builds the knowledge index from the committed corp
 the `index` volume, then starts the API; later boots skip the build. Conversations and open cases
 live in a separate `state` volume, so a restart keeps them and rebuilding the index never deletes
 one. Without `OPENAI_API_KEY` the first boot stops with a one-line fix and writes nothing.
-`API_PORT` moves the host port. The API runs as one worker, which the per-conversation lock and the
-SQLite stores rely on. The base images are pinned by digest; the build fetches the local embedding
-model, so a keyless image boots, indexes and answers with `--network none`.
+`API_PORT` moves the host port. The base images are pinned by digest; the build fetches the local
+embedding model, so a keyless image boots, indexes and answers with `--network none`.
+
+`/health` says the process is up; `/ready` says this replica can take traffic, answering 503 with
+what is missing until the store answers and the index is loaded. The image's healthcheck and
+compose wait on `/ready`. On SIGTERM uvicorn stops accepting connections and gives in-flight turns
+30 s (`--timeout-graceful-shutdown`; compose waits 40 s) before the lifespan closes the store.
+LangGraph's RunControl drain is a feature of LangGraph Platform, not of the library this runs on.
+
+## Scaling out
+
+`make scale` runs the `scale` profile: Postgres, two replicas (`api-a`, `api-b`) and nginx round
+robin on `SCALE_PORT` (8080).
+
+| What | One node (default) | Replicas (`STORAGE=postgres`) |
+| --- | --- | --- |
+| Checkpoints | SQLite file in the `state` volume | Postgres, LangGraph's `AsyncPostgresSaver` |
+| Handoff queue | SQLite file | the same table in Postgres; one SQL for both |
+| One turn per conversation | an asyncio lock in the process | `pg_advisory_xact_lock` on the thread, held for the turn |
+| Knowledge index | the `index` volume | one volume per replica, built from the same snapshot |
+
+The index stays per node because it is read-only and small (148 chunks): every replica builds the
+same one from the committed snapshot at first boot, and Chroma's on-disk SQLite is not meant to be
+shared between processes. A corpus that outgrows that would move to a shared vector store.
+
+Everything else a turn needs is in Postgres, so any replica can serve any request:
+
+- A case escalated on one replica is listed and answered on another, and the reply is delivered
+  by whichever replica gets the merchant's next message.
+- Checkpoints are written after every step before the next one starts (`durability="sync"`). If a
+  replica dies mid-turn, its lock goes with its connection, and the merchant's retry, sent to the
+  other replica by the balancer, finishes the turn from the last step instead of starting over.
+  nginx never re-sends a request that was already sent, so a turn cannot run twice.
+- Replicas that boot together take turns at creating the tables. LangGraph's migrations build
+  indexes `CONCURRENTLY`, so that lock is a polled session lock, not a transaction.
+
+Each replica keeps two pools, one for data and one for turn locks: a turn holds a lock
+connection for its whole length and must never wait for a data connection held by a turn that is
+waiting for its lock. `tests/test_replicas.py` runs two replicas over one Postgres in CI.
+
+## Fault tolerance in the graph
+
+Every node gets LangGraph's own `TimeoutPolicy` (`NODE_TIMEOUT_S`) and `RetryPolicy`
+(`NODE_ATTEMPTS`, on a model failure or a timeout), set once with `set_node_defaults`. The router,
+knowledge and support nodes get an `error_handler` that turns a model failure, after its retries,
+into a `model_unavailable` escalation. It escalates through `collect`, so an answered step still
+goes out. Any other exception is a bug and fails the run. The OpenAI client itself does not retry,
+so there is one layer of retries. These replace the try/except each of those nodes carried.
 
 ## CI and supply chain
 
@@ -59,9 +106,14 @@ model, so a keyless image boots, indexes and answers with `--network none`.
   `reports/verify.md`.
 - **Secret scan**: gitleaks over the history. Reviewed false positives are listed by fingerprint
   in `.gitleaksignore`.
+- **Replicas over Postgres**: `tests/test_replicas.py` against a Postgres service; a skipped test
+  fails the job.
 - **Image**: `docker compose build`, an SPDX SBOM by syft (uploaded as an artifact), a Trivy scan
   that fails on any critical finding not accepted in `.trivyignore` (each entry with its reason
   and an expiry), then the keyless container smoke tests of `/health`, `/metrics` and `/chat`.
+- **Scale profile**: `docker compose --profile scale up`, `/ready` through the balancer, one
+  conversation served by both replicas, then one replica killed while the balancer keeps
+  answering.
 
 Third-party actions are pinned by commit SHA. Dependabot proposes weekly updates for `uv.lock`,
 the actions and the base-image digests (`.github/dependabot.yml`).

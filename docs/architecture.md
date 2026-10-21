@@ -48,8 +48,9 @@ names the tool that read the merchant's data, `operator` names the protocol a hu
 ```
 app/
   main.py, operator.py      FastAPI: /chat, /conversations, /health, /metrics; /handoffs for operators
-  locks.py                  one turn at a time per conversation
-  handoffs.py               the SQLite queue of cases waiting for a human
+  storage.py                SQLite on one node or Postgres for replicas: checkpoints, queue, locks
+  locks.py                  one turn at a time per conversation, in-process or advisory in Postgres
+  handoffs.py               the queue of cases waiting for a human, one SQL for both databases
   graph/                    one module per node, plus build.py (edges), state.py, memory.py,
                             numbers.py and statuses.py (the hard-rule-4 guards)
   rag/                      parse, chunk, ingest, hybrid retrieval
@@ -115,11 +116,12 @@ Every dependency has a defined degraded path, and none raises to the merchant:
 
 | Failure | Behaviour |
 | --- | --- |
-| Chat model | Router, knowledge or support: the turn escalates as `model_unavailable`, with a notice that something failed. Compose: the step answers are joined as written. A rephrasing or a draft: the operator's text, or no draft. |
+| Chat model | Each node attempt is capped by LangGraph's timeout and retried once. Router, knowledge or support, still failing: their error handler escalates as `model_unavailable`, with a notice that something failed. Compose: the step answers are joined as written. A rephrasing or a draft: the operator's text, or no draft. |
 | Embedding API | Nothing retrieved → the step abstains and escalates. |
 | Web search | A pt-BR "cannot look this up now"; no escalation. |
 | Account store | `tool_unavailable` escalation. |
-| API restart | Conversations, open cases and paused threads are in SQLite on a volume. |
+| API restart | Conversations, open cases and paused threads are in SQLite on a volume, or in Postgres. |
+| A replica dies mid-turn | Its lock goes with its connection; the retry on another replica finishes the turn from its last checkpoint. |
 | Two requests on one conversation | The second waits for the first; neither overwrites the other's turn. |
 | Operator resume fails midway | The case is claimed atomically and reopened on failure, so a second attempt works and two cannot both resume. |
 | First boot without a key | One-line fix, nothing written. |

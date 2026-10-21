@@ -86,15 +86,13 @@ async def test_below_threshold_refuses_without_calling_the_model(sample_chunks) 
     assert "não encontrei" in update["answer"].lower()
 
 
-async def test_generation_failure_refuses_instead_of_raising(sample_chunks) -> None:
-    """A vendor error becomes a handoff, never a stack trace, and says what failed: the model,
-    not the retrieval, so the merchant is not told nothing was found."""
+async def test_a_generation_failure_raises_for_the_graph_to_retry(sample_chunks) -> None:
+    """Not "nothing was found": the graph retries the node, then escalates it as
+    model_unavailable (test_resilience)."""
     provider = StubProvider(error="upstream 503")
 
-    update = await answer(_state(), provider, _result(sample_chunks[:1], 0.9), threshold=0.35)
-
-    assert update["refusal_reason"] == EscalationReason.MODEL_UNAVAILABLE.value
-    assert "answer" not in update
+    with pytest.raises(LLMProviderError, match="upstream 503"):
+        await answer(_state(), provider, _result(sample_chunks[:1], 0.9), threshold=0.35)
 
 
 def test_context_labels_every_chunk_with_its_url(sample_chunks) -> None:

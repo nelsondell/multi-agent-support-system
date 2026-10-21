@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from app.contracts import EscalationReason, Source, SourceType
 from app.prompts import load_prompt
-from app.providers.llm import LLMProvider, LLMProviderError
+from app.providers.llm import LLMProvider
 from app.tools.account import DateField, call_tool
 
 if TYPE_CHECKING:
@@ -100,18 +100,14 @@ def answer_input(
 
 
 async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
-    """Plan, call one tool, and answer from its result."""
+    """Plan, call one tool, and answer from its result. A model failure raises: the graph retries
+    the node and then escalates (`build.model_failed`)."""
     question = state.current_query()
-    try:
-        plan = await provider.structured(
-            system=load_prompt("support_plan").text,
-            user=planning_input(state, question),
-            schema=SupportPlan,
-        )
-    except LLMProviderError as exc:
-        logger.warning("support planning failed: %s", exc)
-        return {"refusal_reason": EscalationReason.MODEL_UNAVAILABLE.value}
-
+    plan = await provider.structured(
+        system=load_prompt("support_plan").text,
+        user=planning_input(state, question),
+        schema=SupportPlan,
+    )
     if plan.action is SupportAction.ESCALATE_INDIVIDUAL_CASE:
         return {"refusal_reason": EscalationReason.INDIVIDUAL_CASE.value}
     if plan.action is SupportAction.HANDOFF_TO_KNOWLEDGE or plan.tool is None:
@@ -126,18 +122,11 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     evidence = [*state.evidence, json.dumps(result, ensure_ascii=False)]
     if unexplained_decline(plan, result):
         return {"refusal_reason": EscalationReason.INDIVIDUAL_CASE.value, "evidence": evidence}
-    try:
-        generated = await provider.structured(
-            system=load_prompt("support_answer").text,
-            user=answer_input(state, question, plan.tool, arguments, result),
-            schema=SupportAnswer,
-        )
-    except LLMProviderError as exc:
-        logger.warning("support generation failed: %s", exc)
-        return {
-            "refusal_reason": EscalationReason.MODEL_UNAVAILABLE.value,
-            "evidence": evidence,
-        }
+    generated = await provider.structured(
+        system=load_prompt("support_answer").text,
+        user=answer_input(state, question, plan.tool, arguments, result),
+        schema=SupportAnswer,
+    )
 
     account = Source(source_type=SourceType.ACCOUNT, title=plan.tool)
     return {"answer": generated.answer, "sources": [account], "evidence": evidence}

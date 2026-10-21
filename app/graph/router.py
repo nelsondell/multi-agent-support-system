@@ -8,21 +8,19 @@ stay stateless and never see an earlier turn.
 from __future__ import annotations
 
 import json
-import logging
 import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.contracts import EscalationReason, Intent, TargetAgent
+from app.contracts import Intent, TargetAgent
 from app.observability import get_logger
 from app.prompts import load_prompt
-from app.providers.llm import LLMProvider, LLMProviderError
+from app.providers.llm import LLMProvider
 
 if TYPE_CHECKING:
     from app.graph.state import GraphState
 
-logger = logging.getLogger(__name__)
 events = get_logger(__name__)
 
 _IDENTIFIER = re.compile(r"[^\W_]*\d[^\W_]*")
@@ -53,22 +51,6 @@ class RouterDecision(BaseModel):
     lang: Literal["pt", "en", "other"] = "pt"
     steps: list[PlanStep] = Field(min_length=1, max_length=2)
     """Run in order. Two steps only for a genuinely compound request; the schema refuses three."""
-
-
-def _failed_decision(message: str, error: str) -> RouterDecision:
-    """A failed model call is expressed as a decision nobody trusts.
-
-    Zero confidence is already handled by the threshold edge in `build`, so the graph needs no
-    parallel error branch. `route` records why, so the escalation reads as a model failure and
-    not as an unsure router.
-    """
-    return RouterDecision(
-        intent=Intent.OTHER,
-        confidence=0.0,
-        rationale=f"router unavailable: {error}",
-        lang="pt",
-        steps=[PlanStep(agent=TargetAgent.KNOWLEDGE, query_pt=message)],
-    )
 
 
 def router_input(state: GraphState, window: int) -> str:
@@ -125,18 +107,11 @@ async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[s
     A new plan starts the turn over: earlier step results, from before a hand-back, are dropped,
     except an answer an operator already gave, which no replan may lose.
     """
-    failed = None
-    try:
-        decision = await provider.structured(
-            system=load_prompt("router").text,
-            user=router_input(state, window),
-            schema=RouterDecision,
-        )
-    except LLMProviderError as exc:
-        logger.warning("router call failed, falling back to zero confidence: %s", exc)
-        decision = _failed_decision(state.message, str(exc))
-        failed = EscalationReason.MODEL_UNAVAILABLE.value
-
+    decision = await provider.structured(
+        system=load_prompt("router").text,
+        user=router_input(state, window),
+        schema=RouterDecision,
+    )
     decision = _grounded(decision, state, window)
     events.info(
         "router.rewrite",
@@ -148,7 +123,6 @@ async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[s
         "route": decision,
         "hops": state.hops + 1,
         "handoff_reason": None,
-        "refusal_reason": failed,
         "step_index": 0,
         "step_results": [result for result in state.step_results if result.by_operator],
     }

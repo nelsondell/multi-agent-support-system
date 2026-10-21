@@ -5,14 +5,15 @@ graph on the same thread at once: both read the same checkpoint and the later wr
 earlier turn. Each conversation gets a lock, held from reading its state to writing its answer, so
 a second request waits for the first and then sees its result. Other conversations never wait.
 
-The locks live in this process. That is enough because the API runs as one worker over SQLite
-files; several workers would need the lock in a shared store. A lock is dropped once no request
-holds or waits for it, so the registry does not grow with every conversation ever seen.
+On one node over SQLite the locks live in the process, and a lock is dropped once no request
+holds or waits for it, so the registry does not grow with every conversation ever seen. Replicas
+over Postgres share the lock through the database instead (`PostgresLocks`).
 """
 
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 
 class ConversationLocks:
@@ -38,3 +39,21 @@ class ConversationLocks:
     def __len__(self) -> int:
         """How many conversations have a request holding or waiting for their lock."""
         return len(self._locks)
+
+
+class PostgresLocks:
+    """The same contract across replicas: a transaction-scoped advisory lock per thread, held on a
+    pooled connection of its own for the whole turn. It is released when the turn ends, or by the
+    server when the replica holding it dies, so another replica can take the conversation over."""
+
+    def __init__(self, pool: Any) -> None:
+        self._pool = pool
+
+    @asynccontextmanager
+    async def hold(self, thread: str) -> AsyncIterator[None]:
+        """Run the block alone on this thread, on any replica."""
+        async with self._pool.connection() as connection, connection.transaction():
+            await connection.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (thread,)
+            )
+            yield

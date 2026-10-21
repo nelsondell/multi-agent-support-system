@@ -1,17 +1,17 @@
-"""HTTP surface: the conversational endpoint, the operator endpoints and a liveness probe."""
+"""HTTP surface: the conversational endpoint, the operator endpoints and the probes."""
 
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime
-from typing import Annotated
+from typing import Annotated, Any
 from uuid import uuid4
 
 import httpx
 import structlog
-from fastapi import FastAPI, Query, Response
+from fastapi import APIRouter, FastAPI, Query, Request, Response
 from fastapi import Path as PathParam
+from fastapi.responses import JSONResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from app.checkpoints import open_checkpointer
 from app.contracts import (
     CONVERSATION_ID_PATTERN,
     ChatRequest,
@@ -23,7 +23,6 @@ from app.contracts import (
 from app.graph.build import build_graph
 from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
-from app.handoffs import open_handoff_queue
 from app.locks import ConversationLocks
 from app.observability import configure_logging, mask_pii
 from app.observability.tracing import configure_tracing
@@ -33,6 +32,7 @@ from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
 from app.responses import PAUSED_AT, pending_response, to_response
 from app.settings import MERCHANT_TIMEZONE, get_settings
+from app.storage import open_storage
 from app.tools.web import WebSearch
 
 
@@ -44,68 +44,80 @@ def merchant_today() -> date:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Build the provider, open the conversation store, the handoff queue and the web client,
-    and compile the graph once, failing fast on bad configuration.
+    """Build the provider, open the store (checkpoints, handoff queue, turn locks) and the web
+    client, and compile the graph once, failing fast on bad configuration.
 
-    The index is never built here: a missing one raises with the command that creates it.
+    The index is never built here: a missing one raises with the command that creates it. On
+    shutdown uvicorn stops accepting connections and lets in-flight turns finish
+    (`--timeout-graceful-shutdown`) before this closes the store under them.
     """
     configure_logging()
     settings = get_settings()
     configure_tracing(settings)
     retriever = HybridRetriever.from_settings(settings)
     provider = build_provider(settings)
-    async with (
-        open_checkpointer(settings) as checkpointer,
-        open_handoff_queue(settings) as queue,
-        httpx.AsyncClient() as http,
-    ):
-        app.state.settings = settings
-        app.state.queue = queue
+    async with open_storage(settings) as storage, httpx.AsyncClient() as http:
+        app.state.settings, app.state.retriever = settings, retriever
+        app.state.queue, app.state.locks = storage.queue, storage.locks
         web = WebSearch(settings, http)
-        app.state.graph = build_graph(provider, settings, retriever, checkpointer, queue, web)
+        app.state.graph = build_graph(
+            provider, settings, retriever, storage.checkpointer, storage.queue, web
+        )
         yield
 
 
-app = FastAPI(title="Multi-agent support system", lifespan=lifespan)
-app.include_router(operator_router)
-app.state.locks = ConversationLocks()
+routes = APIRouter()
 
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+@routes.post("/chat", response_model=ChatResponse)
+async def chat(body: ChatRequest, request: Request) -> ChatResponse:
     """Answer a merchant message inside its conversation, or hand the case to a human.
 
     The thread is keyed by the authenticated `user_id` together with the conversation id, so a
     conversation id alone never reaches another merchant's history. While a human has this
     conversation's case, the message is noted on the case and gets the open protocol; once the
     case is closed, how it ended is delivered with the next message, before its answer. A second
-    message on the same conversation waits for the first one's turn to finish.
+    message on the same conversation waits for the first one's turn to finish, on any replica.
     """
     trace_id = uuid4().hex
-    conversation_id = request.conversation_id or uuid4().hex
+    conversation_id = body.conversation_id or uuid4().hex
     structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
-    thread = thread_id(request.user_id, conversation_id)
-    config = {"configurable": {"thread_id": thread}}
+    thread = thread_id(body.user_id, conversation_id)
     try:
-        async with app.state.locks.hold(thread):
-            snapshot = await app.state.graph.aget_state(config)
-            if PAUSED_AT in snapshot.next and await still_waiting(snapshot.values, request.message):
-                return pending_response(snapshot.values, conversation_id)
-            delivered = await app.state.queue.deliver(thread)
-            turn = turn_input(
-                message=request.message,
-                user_id=request.user_id,
-                conversation_id=conversation_id,
-                trace_id=trace_id,
-                today=merchant_today(),
-            )
-            response = to_response(await app.state.graph.ainvoke(turn, config), conversation_id)
-            return response.model_copy(update={"delivered": delivered})
+        async with request.app.state.locks.hold(thread):
+            return await take_turn(request.app, body, conversation_id, thread, trace_id)
     finally:
         structlog.contextvars.clear_contextvars()
 
 
-async def still_waiting(values: dict, message: str) -> bool:
+async def take_turn(
+    app: Any, body: ChatRequest, conversation_id: str, thread: str, trace_id: str
+) -> ChatResponse:
+    """One turn, under the conversation's lock. A turn left unfinished, because the replica
+    running it died, is finished first from its last checkpoint; when this message is the
+    merchant's retry of it, that is the answer."""
+    graph, config = app.state.graph, {"configurable": {"thread_id": thread}}
+    snapshot = await graph.aget_state(config)
+    if snapshot.next and PAUSED_AT not in snapshot.next:
+        finished = await graph.ainvoke(None, config, durability="sync")
+        if finished.get("message") == body.message:
+            return to_response(finished, conversation_id)
+        snapshot = await graph.aget_state(config)
+    if PAUSED_AT in snapshot.next and await still_waiting(app, snapshot.values, body.message):
+        return pending_response(snapshot.values, conversation_id)
+    delivered = await app.state.queue.deliver(thread)
+    turn = turn_input(
+        message=body.message,
+        user_id=body.user_id,
+        conversation_id=conversation_id,
+        trace_id=trace_id,
+        today=merchant_today(),
+    )
+    final = await graph.ainvoke(turn, config, durability="sync")
+    return to_response(final, conversation_id).model_copy(update={"delivered": delivered})
+
+
+async def still_waiting(app: Any, values: dict, message: str) -> bool:
     """Whether a paused conversation keeps waiting for its operator. While the case is open and
     not expired, the message becomes a note on it. An expired case is closed here, with its
     notice held for delivery, and the conversation goes on."""
@@ -122,16 +134,17 @@ async def still_waiting(values: dict, message: str) -> bool:
     return expired is None
 
 
-@app.get("/conversations/{conversation_id}", response_model=ConversationView)
+@routes.get("/conversations/{conversation_id}", response_model=ConversationView)
 async def conversation(
     user_id: Annotated[str, Query(min_length=1)],
     conversation_id: Annotated[str, PathParam(pattern=CONVERSATION_ID_PATTERN)],
+    request: Request,
 ) -> ConversationView:
     """A conversation's history, as stored, and the protocol of its open case if one is waiting.
 
     Read through the same thread key as `/chat`, so another merchant's id finds nothing."""
     config = {"configurable": {"thread_id": thread_id(user_id, conversation_id)}}
-    snapshot = await app.state.graph.aget_state(config)
+    snapshot = await request.app.state.graph.aget_state(config)
     if not snapshot.values:
         return ConversationView(conversation_id=conversation_id, status="active")
     state = GraphState.model_validate(snapshot.values)
@@ -151,13 +164,43 @@ async def conversation(
     )
 
 
-@app.get("/metrics")
+@routes.get("/ready")
+async def ready(request: Request) -> JSONResponse:
+    """Readiness, for a load balancer: the store answers and the index is loaded. 503 names what
+    is not ready; `/health` only says the process is up."""
+    problems = []
+    try:
+        await request.app.state.queue.ping()
+    except Exception as exc:  # any store failure means this replica should not take traffic
+        problems.append(f"storage: {type(exc).__name__}")
+    chunks = request.app.state.retriever.size
+    if not chunks:
+        problems.append("index: empty")
+    if problems:
+        return JSONResponse({"status": "not_ready", "problems": problems}, status_code=503)
+    storage = request.app.state.settings.storage
+    return JSONResponse({"status": "ready", "storage": storage, "chunks": chunks})
+
+
+@routes.get("/metrics")
 async def metrics() -> Response:
     """Escalations by reason and node latency, in the Prometheus text format."""
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/health")
+@routes.get("/health")
 async def health() -> dict[str, str]:
     """Liveness probe."""
     return {"status": "ok"}
+
+
+def create_app() -> FastAPI:
+    """The API: one per process, or two in a test that plays two replicas."""
+    api = FastAPI(title="Multi-agent support system", lifespan=lifespan)
+    api.include_router(routes)
+    api.include_router(operator_router)
+    api.state.locks = ConversationLocks()
+    return api
+
+
+app = create_app()
