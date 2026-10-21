@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from app.audit import AuditLog
 from app.handoffs import Tables
+from app.observability.otel import operation
 
 _TABLE = """
 CREATE TABLE IF NOT EXISTS tickets (
@@ -41,18 +42,14 @@ class TicketDesk:
 
     async def open(self, proposal: str, user_id: str, terminal_id: str, symptom: str) -> Ticket:
         """The ticket for this proposal: opened by the first call, returned by every later one."""
-        changed = await self._db.execute(
-            "INSERT INTO tickets (proposal, id, user_id, terminal_id, symptom, opened_at) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (proposal) DO NOTHING",
-            (
-                proposal,
-                f"TKT-{proposal[:8].upper()}",
-                user_id,
-                terminal_id,
-                symptom,
-                datetime.now(UTC).isoformat(),
-            ),
-        )
+        row = (proposal, f"TKT-{proposal[:8].upper()}", user_id, terminal_id, symptom)
+        tool = {"gen_ai.tool.name": "open_technical_ticket"}
+        with operation("execute_tool", "open_technical_ticket", **tool):
+            changed = await self._db.execute(
+                "INSERT INTO tickets (proposal, id, user_id, terminal_id, symptom, opened_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (proposal) DO NOTHING",
+                (*row, datetime.now(UTC).isoformat()),
+            )
         ticket = await self.find(proposal, user_id)
         if changed:
             await self._audit.append(user_id, "merchant", "ticket.opened", ticket.id, terminal_id)

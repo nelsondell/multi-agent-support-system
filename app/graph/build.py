@@ -31,7 +31,8 @@ from app.graph.router import route
 from app.graph.state import GraphState, StepResult
 from app.graph.support import answer as support_answer
 from app.observability import get_logger, instrument_node
-from app.providers.llm import LLMProvider, LLMProviderError
+from app.observability.metrics import VENDOR_FAILURES
+from app.providers.llm import LLMProvider, LLMProviderError, LLMTimeout
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 
@@ -58,6 +59,8 @@ async def model_failed(state: GraphState, error: NodeError) -> Command:
     if not isinstance(error.error, MODEL_FAILURES):
         raise error.error
     logger.warning("node.failed", node=error.node, error=type(error.error).__name__)
+    kind = "timeout" if isinstance(error.error, (NodeTimeoutError, LLMTimeout)) else "error"
+    VENDOR_FAILURES.labels(vendor="model", kind=kind).inc()
     update = {"refusal_reason": EscalationReason.MODEL_UNAVAILABLE.value}
     if error.node == "router":
         return Command(update=update, goto="escalate")

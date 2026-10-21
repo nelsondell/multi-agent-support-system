@@ -21,6 +21,9 @@ def isolated_settings(monkeypatch):
     monkeypatch.setitem(Settings.model_config, "env_file", None)
     for name in Settings.model_fields:
         monkeypatch.delenv(name.upper(), raising=False)
+    # langchain-openai opens a local TCP socket at construction to probe keepalive options; the
+    # suite blocks sockets, and the probe tells a test nothing.
+    monkeypatch.setenv("LANGCHAIN_OPENAI_TCP_KEEPALIVE", "0")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

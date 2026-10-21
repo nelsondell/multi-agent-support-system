@@ -11,6 +11,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
 from langgraph.types import Command
+from opentelemetry.trace import SpanKind
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.auth import Merchant, RateLimiter, TokenVerifier
@@ -29,6 +30,9 @@ from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
 from app.locks import ConversationLocks
 from app.observability import configure_logging, mask_pii
+from app.observability.metrics import record_turn
+from app.observability.otel import TRACER, configure_otel
+from app.observability.otel import trace_id as otel_trace_id
 from app.observability.tracing import configure_tracing
 from app.operator import router as operator_router
 from app.operator import settle
@@ -59,6 +63,7 @@ async def lifespan(app: FastAPI):
     configure_logging()
     settings = get_settings()
     configure_tracing(settings)
+    configure_otel(settings)
     retriever = HybridRetriever.from_settings(settings)
     provider = build_provider(settings)
     app.state.verifier = TokenVerifier.from_settings(settings)
@@ -87,15 +92,20 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
     case is closed, how it ended is delivered with the next message, before its answer. A second
     message on the same conversation waits for the first one's turn to finish, on any replica.
     """
-    trace_id = uuid4().hex
     conversation_id = body.conversation_id or uuid4().hex
-    structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
     thread = thread_id(merchant, conversation_id)
-    try:
-        async with request.app.state.locks.hold(thread):
-            return await take_turn(request.app, body, merchant, conversation_id, thread, trace_id)
-    finally:
-        structlog.contextvars.clear_contextvars()
+    with TRACER.start_as_current_span("POST /chat", kind=SpanKind.SERVER) as span:
+        trace_id = otel_trace_id(span)
+        structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
+        try:
+            async with request.app.state.locks.hold(thread):
+                response = await take_turn(
+                    request.app, body, merchant, conversation_id, thread, trace_id
+                )
+        finally:
+            structlog.contextvars.clear_contextvars()
+    record_turn(response.intent.value, response.status, response.escalated)
+    return response
 
 
 async def take_turn(

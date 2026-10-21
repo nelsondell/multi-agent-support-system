@@ -378,9 +378,15 @@ on an unaccepted critical vulnerability; then starts the container with a fake L
 smoke-tests `/health`, `/metrics` and one `/chat`. Base images are pinned by digest and
 Dependabot keeps lockfile, actions and digests current.
 
-**Observability.** JSON logs, masked by a processor. `/metrics` exposes escalations by reason
-and node latency. LangSmith tracing is optional, off by default, and when on it sends only masked
-inputs and outputs.
+**Observability.** JSON logs, masked by a processor, whose `trace_id` is the request's
+OpenTelemetry trace. Spans follow the GenAI conventions (`invoke_agent`, `chat`, `execute_tool`,
+with provider, model and token counts, never content) and go over OTLP when an endpoint is set.
+`/metrics` exposes turns by intent and outcome, model tokens and spend (so cost per resolution and
+cache hit rate), escalations by reason, node latency and vendor failures after retries. Static
+prompts end at an explicit cache breakpoint. The `observability` compose profile adds Prometheus
+with four alert rules (p95, escalation spike, vendor failures, cost per resolution), a Grafana
+dashboard and Jaeger; drills inject vendor faults and record what fired and how fast it recovered.
+LangSmith tracing stays optional, off by default, and masked.
 
 **Evals.** The routing golden set gains multi-turn, human-review and compound cases. An
 LLM-as-judge run scores groundedness and answer relevance over the ten challenge scenarios, two

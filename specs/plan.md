@@ -29,7 +29,7 @@ app/
   tools/               account.py (two support tools), web.py (web search)
   providers/           llm.py (port + OpenAI), fake.py (CI backend), embeddings.py
   prompts/             versioned pt-BR markdown, loaded by id
-  observability/       structlog setup, PII masking, metrics, tracing
+  observability/       structlog setup, PII masking, metrics, LangSmith tracing, OpenTelemetry spans
   locks.py             one turn at a time per conversation, for /chat and operator resume
   storage.py           STORAGE=sqlite|postgres: checkpointer, handoff queue and turn locks
 data/corpus/documents.jsonl   committed extraction snapshot
@@ -321,6 +321,7 @@ test suite.
 | Guardrail: injection and identity refused as separate outcomes, the caller's own id allowed, PII masked, system ids untouched (§10) | `test_guardrail::*`, `test_adversarial::*`, `test_observability::*` |
 | Replicas over Postgres: escalated on one, answered on the other; a dead replica's turn resumes; turns serialize across replicas (§13) | `test_replicas::*` (CI job `replicas`), the `scale` CI job |
 | Node timeout and retry; a model that keeps failing escalates, a bug fails the run (§13) | `test_resilience::*` |
+| One trace per turn named in the logs; model calls record tokens, cache and cost, no content; turn outcomes and vendor failures counted; injected faults escalate and count (§13) | `test_otel::*`, `deploy/prometheus/alerts_test.yml` (`promtool test rules`) |
 | One turn at a time per conversation; other conversations never wait (§3) | `test_locks::*`, `test_flows::test_two_messages_on_one_conversation_take_turns`, `test_different_conversations_do_not_wait_for_each_other` |
 | A failed model call escalates as `model_unavailable`; older stored reasons still load (§11) | `test_router::test_provider_failure_becomes_zero_confidence_not_an_exception`, `test_knowledge::test_generation_failure_refuses_instead_of_raising`, `test_support::test_planning_failure_does_not_raise`, `test_escalation::test_a_model_failure_escalates_with_its_own_notice`, `test_a_reason_stored_before_the_rename_still_loads` |
 | Escalation deterministic, typed reason, masked summary (§11) | `test_escalation::*` |
@@ -366,9 +367,15 @@ replica killed. The image's healthcheck and compose wait on `/ready`; uvicorn ru
 
 - **Logs.** structlog JSON with the masking processor, as in v1. The router logs the masked
   original message and each masked `query_pt`.
-- **Metrics.** `app/observability/metrics.py` defines two families with `prometheus-client`:
-  `support_escalations_total{reason}` and `support_node_latency_seconds{node}` (histogram). Both
-  are recorded in `instrument_node`, which already wraps every node, so no agent can forget them.
+- **Metrics.** `app/observability/metrics.py`: `support_escalations_total{reason}` and
+  `support_node_latency_seconds{node}`, recorded in `instrument_node`; `support_turns_total{intent,
+  outcome}`, recorded by `/chat` and the operator resume; `support_model_tokens_total{kind}` and
+  `support_model_cost_usd_total`, recorded per model call from its usage; and
+  `support_vendor_failures_total{vendor,kind}`, counted once a node's retries are spent or the web
+  search fails. `docs/operations.md` lists the queries the dashboard and the alerts use.
+- **Traces.** `app/observability/otel.py`: a root span per request whose trace id is the log
+  `trace_id`, `invoke_agent` per node (in `instrument_node`), `chat` per model call (in the
+  provider), `execute_tool` per tool call; GenAI attributes only, no content.
 - **Tracing.** `app/observability/tracing.py` sets LangSmith's global switch once in the
   lifespan. With `LANGSMITH_TRACING` on and a key, it points every trace at one client whose
   `hide_inputs` and `hide_outputs` apply `mask_pii`; otherwise it sets the switch off, which also

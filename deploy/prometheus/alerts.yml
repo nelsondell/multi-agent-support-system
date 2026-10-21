@@ -1,0 +1,56 @@
+# Four alerts, each with the one line an on-call engineer needs first (`runbook`).
+# Unit-tested by alerts_test.yml (`promtool test rules`); docs/drills.md shows them fire.
+groups:
+  - name: support
+    rules:
+      - alert: NodeLatencyP95High
+        expr: >
+          histogram_quantile(0.95, sum by (le, node) (rate(support_node_latency_seconds_bucket[5m])))
+          > 8
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "p95 of the {{ $labels.node }} node is above 8 s"
+          runbook: >
+            Open that node's slowest traces in Jaeger: a slow `chat` span is the model vendor (check
+            its status, or move LLM_MODEL), a slow `execute_tool` span is the tool's backend.
+
+      - alert: EscalationSpike
+        expr: >
+          sum(rate(support_turns_total{outcome="escalated"}[10m]))
+          / clamp_min(sum(rate(support_turns_total[10m])), 0.001) > 0.4
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "More than 40% of turns are going to a person"
+          runbook: >
+            Split support_escalations_total by reason: model_unavailable or tool_unavailable means a
+            vendor or the account store is down (see VendorFailures); insufficient_sources or
+            low_retrieval_confidence means questions the corpus does not answer.
+
+      - alert: VendorFailures
+        expr: sum by (vendor) (increase(support_vendor_failures_total[5m])) > 3
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "The {{ $labels.vendor }} vendor keeps failing after retries"
+          runbook: >
+            Check the vendor's status page and the failing spans. Merchants are being escalated
+            (model) or told the search is unavailable (web); nothing to restart, it clears when the
+            vendor answers again.
+
+      - alert: CostPerResolutionHigh
+        expr: >
+          sum(increase(support_model_cost_usd_total[1h]))
+          / clamp_min(sum(increase(support_turns_total{outcome="resolved"}[1h])), 1) > 0.01
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A resolved turn costs more than USD 0.01 in model calls"
+          runbook: >
+            Compare cached with input tokens (support_model_tokens_total): a falling cache hit rate,
+            or more escalations spreading the spend over fewer resolutions, raise the cost.

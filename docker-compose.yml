@@ -1,6 +1,8 @@
 # One node by default: `docker compose up` runs `api` over SQLite files in its own volumes.
 # `make scale` runs the `scale` profile instead: Postgres, two replicas over it and a round-robin
-# load balancer on SCALE_PORT (docs/operations.md).
+# load balancer on SCALE_PORT. `make observe` adds the `observability` profile to the one node:
+# Prometheus with the alert rules, Grafana with the dashboard, and Jaeger for the traces
+# (docs/operations.md).
 
 # The identity provider's public keys, from `make dev-keys`. Only the public half is mounted, and
 # compose stops with an error if it is missing rather than create an empty directory.
@@ -39,6 +41,7 @@ x-replica: &replica
   environment:
     STORAGE: postgres
     DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+    AUTH_JWKS_URL: ${AUTH_JWKS_URL:-.dev/jwks.json}
   depends_on:
     postgres:
       condition: service_healthy
@@ -46,6 +49,11 @@ x-replica: &replica
 services:
   api:
     <<: *api
+    environment:
+      # The public keys compose mounts below, unless .env names another provider.
+      AUTH_JWKS_URL: ${AUTH_JWKS_URL:-.dev/jwks.json}
+      # Set by `make observe` to Jaeger's OTLP endpoint; empty, spans go nowhere.
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
     ports:
       # Host port from API_PORT in .env, for machines where 8000 is already taken.
       - "${API_PORT:-8000}:8000"
@@ -98,6 +106,33 @@ services:
         condition: service_healthy
       api-b:
         condition: service_healthy
+
+  # --- observability profile -------------------------------------------------------------------
+  prometheus:
+    profiles: [observability]
+    image: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+    volumes:
+      - ./deploy/prometheus:/etc/prometheus:ro
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+
+  grafana:
+    profiles: [observability]
+    image: grafana/grafana:13.2.4@sha256:dbbc38ea21103cefb50396340cd88afec779c7e070b0a7bf5a75b4ce46651d3f
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./deploy/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+
+  jaeger:
+    profiles: [observability]
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "${JAEGER_PORT:-16686}:16686"
 
 volumes:
   index:
