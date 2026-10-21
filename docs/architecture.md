@@ -79,7 +79,8 @@ a message back and forth.
 
   `call_tool` also drops any argument the model is not allowed to set, so a smuggled `user_id` never
   reaches the lookup. The support agent plans in one structured call, the code runs exactly one
-  tool, and a second call writes the answer from its result.
+  tool, and a second call writes the answer from its result. Its one write, a technical ticket,
+  waits for the merchant's confirmation in `confirm_action` ([tools.md](tools.md)).
 - **The account data** is mock, written as of one day and read as of the turn's, so "ontem" and
   "amanhã" always land on data. Settlements are filtered by sale date ("the money from yesterday's
   sales") or credit date ("what lands tomorrow"); their status comes from the credit date against

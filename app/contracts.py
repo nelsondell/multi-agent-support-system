@@ -171,16 +171,28 @@ class ChatRequest(BaseModel):
 
     message: str = Field(min_length=1)
     conversation_id: str | None = Field(default=None, pattern=CONVERSATION_ID_PATTERN)
+    confirm_action_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    """Runs the write this conversation proposed, when it is that proposal's id. A message
+    without it cancels the proposal."""
     """Continues a conversation when given; the server starts a new one when absent. It only
     names a thread together with the merchant's id, never on its own."""
+
+
+class PendingAction(BaseModel):
+    """A write the agent proposed and only the merchant can run: its id, and the operation as code
+    renders it from the arguments, never as a model summarised it."""
+
+    id: str
+    operation: str
 
 
 class ChatResponse(BaseModel):
     """Outbound payload. `answer` is always Brazilian Portuguese."""
 
     conversation_id: str
-    status: Literal["answered", "pending_human"] = "answered"
-    """`pending_human` while an operator has the case; the answer is then a handoff notice."""
+    status: Literal["answered", "pending_human", "pending_confirmation"] = "answered"
+    """`pending_human` while an operator has the case; the answer is then a handoff notice.
+    `pending_confirmation` while a proposed write waits for the merchant's `confirm_action_id`."""
     answer: str
     intent: Intent
     agents: list[TargetAgent] = Field(default_factory=list)
@@ -192,6 +204,7 @@ class ChatResponse(BaseModel):
     delivered: list[DeliveredReply] = Field(default_factory=list)
     """How this conversation's cases ended since the merchant last wrote: an operator's reply, or
     a notice that a case was cancelled or expired. Delivered before this turn's answer."""
+    pending_action: PendingAction | None = None
 
     @model_validator(mode="after")
     def check_consistency(self) -> "ChatResponse":

@@ -14,6 +14,8 @@ mint() { uv run --frozen python scripts/dev_token.py "$@"; }
 MERCHANT_TOKEN="${MERCHANT_TOKEN:-$(mint merchant cliente1988)}"
 OPERATOR_TOKEN="${OPERATOR_TOKEN:-$(mint operator ana)}"
 SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN:-$(mint supervisor bia)}"
+# cliente2042's terminal is offline in the mock account data: the write-action walkthrough.
+OFFLINE_TOKEN="${OFFLINE_TOKEN:-$(mint merchant cliente2042)}"
 RUN="demo-$(date +%s)"
 LAST="$(mktemp)"
 trap 'rm -f "$LAST"' EXIT
@@ -79,3 +81,20 @@ printf '\n=== LGPD: the merchant erases the conversation ===\n'
 merchant -o /dev/null -w 'DELETE /me/conversations: %{http_code}\n' -X DELETE "$BASE/me/conversations/$RUN-hitl"
 merchant -o /dev/null -w 'GET /conversations afterwards: %{http_code}\n' "$BASE/conversations/$RUN-hitl"
 
+# The one write action: proposed by the agent, run only on the merchant's confirmation.
+ticket() {
+  local label="$1" message="$2" confirm="${3:-}"
+  printf '\n=== %s ===\n> %s\n' "$label" "$message"
+  curl -sS -X POST "$BASE/chat" -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $OFFLINE_TOKEN" \
+    -d "$(jq -nc --arg m "$message" --arg c "$RUN-ticket" --arg a "$confirm" \
+      '{message: $m, conversation_id: $c} + (if $a == "" then {} else {confirm_action_id: $a} end)')" \
+  | tee "$LAST" | jq '{status, pending_action, answer} | with_entries(select(.value != null))'
+}
+ticket "Write action 1: the agent proposes a technical ticket" \
+  "Minha maquininha continua sem conexão mesmo depois de reiniciar e testar o chip."
+ACTION="$(jq -r '.pending_action.id // empty' "$LAST")"
+if [ -n "$ACTION" ]; then
+  ticket "Write action 2: the merchant confirms it" "Pode abrir, confirmo." "$ACTION"
+  ticket "Write action 3: the same confirmation again returns the same receipt" "Confirmo." "$ACTION"
+fi

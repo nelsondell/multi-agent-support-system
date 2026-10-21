@@ -22,6 +22,7 @@ from app.graph.knowledge import KnowledgeAnswer
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.main import app
+from app.prompts import load_prompt
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 from app.storage import open_storage
@@ -204,7 +205,7 @@ async def test_a_general_question_is_answered_from_the_web_with_a_key(stack, web
         http = await stack(exits, model, web)
         reply = await chat(http, "Como vai estar o tempo em Porto Alegre amanhã?")
 
-    assert reply["answer"] == reply_text
+    assert reply["answer"] == f"{load_prompt('ai_disclosure').text}\n\n{reply_text}"
     assert reply["sources"] == [
         {"source_type": "web", "url": WEATHER["url"], "title": WEATHER["title"]}
     ]

@@ -50,7 +50,7 @@ connection. Supervisors read it at `GET /audit`.
 | Risk | How it applies here | Control | Tested in |
 | --- | --- | --- | --- |
 | ASI01 Agent Goal Hijack | A message, a web page or the history tells the agent to do something else | Deterministic guardrail before any model call; history and pages passed as data, never as instructions; web answers may carry no number or link the pages lack | `test_guardrail.py`, `test_adversarial.py`, `test_followups.py` |
-| ASI02 Tool Misuse and Exploitation | The model calls an account tool with arguments it should not set, or in a loop | One tool call per support step; arguments filtered to the schema; a hop budget per turn; every tool is read-only | `test_tools.py`, `test_plans.py` |
+| ASI02 Tool Misuse and Exploitation | The model calls an account tool with arguments it should not set, or in a loop | One tool call per support step; arguments filtered to the schema; a hop budget per turn; the one write runs only on the merchant's confirmation, idempotently | `test_tools.py`, `test_plans.py`, `test_actions.py` |
 | ASI03 Identity and Privilege Abuse | The model, or a client, picks whose data to read | Merchant id only from a verified token's `sub`, injected into tools; operator roles; 404 across merchants | `test_security.py`, `test_tools.py`, `test_adversarial.py` |
 | ASI04 Agentic Supply Chain Vulnerabilities | A dependency, model asset or base image is compromised or downloaded at runtime | Lockfile with `--frozen`; tokenizer committed and hash-checked; base images by digest; actions by SHA; SBOM, Trivy and gitleaks in CI; Dependabot | `test_offline.py`, CI jobs `verify`, `secrets`, `container` |
 | ASI05 Unexpected Code Execution | A stored checkpoint names a type for the decoder to import | Checkpoint deserializer restricted to the state's own types; the agent runs no generated code | `test_checkpoints.py` |
@@ -74,5 +74,6 @@ three properties without a human approving.
 | Knowledge, corpus | yes (the message) | no (public site) | no | read-only, public data |
 | Knowledge, web | yes (message and pages) | no (masked query, no account data) | outbound search only | the query is masked and carries no number the merchant did not type |
 | Support | yes (the message) | yes (the merchant's account) | no (read-only tools) | A and B, and no state change |
+| Technical ticket | yes (the message) | yes (the account and terminal) | yes (opens a ticket) | all three, so the merchant confirms the code-rendered operation first ([tools.md](tools.md)) |
 | Human review | yes (the message) | yes (the case) | case recorded, reply sent | the reply goes out only after a human decides |
 | Erasure | no (a verified merchant on their own thread) | yes | deletes data | no untrusted input decides it; it is audited |

@@ -53,4 +53,5 @@ def serve(api, settings, storage, graph, retriever) -> None:
     identity provider's keys."""
     api.state.settings, api.state.retriever, api.state.graph = settings, retriever, graph
     api.state.queue, api.state.locks, api.state.audit = storage.queue, storage.locks, storage.audit
+    api.state.desk = storage.desk
     api.state.verifier, api.state.limiter = IDENTITY.verifier, RateLimiter()

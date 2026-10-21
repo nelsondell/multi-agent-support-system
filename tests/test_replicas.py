@@ -112,7 +112,9 @@ def replicas(database, sample_chunks, fake_collection):
             similar = fake_collection({chunk.id: 0.9 for chunk in sample_chunks})
             retriever = HybridRetriever(sample_chunks, similar, top_k=5)
             api = create_app()
-            graph = build_graph(model, settings, retriever, storage.checkpointer, storage.queue)
+            graph = build_graph(
+                model, settings, retriever, storage.checkpointer, storage.queue, None, storage.desk
+            )
             serve(api, settings, storage, graph, retriever)
             client = httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://r")
             clients.append(await exits.enter_async_context(client))
@@ -261,3 +263,21 @@ async def test_the_audit_log_cannot_be_rewritten_in_postgres(database, statement
     async with await psycopg.AsyncConnection.connect(database, autocommit=True) as connection:
         with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
             await connection.execute(statement)
+
+
+async def test_a_ticket_proposed_on_one_replica_is_confirmed_once_on_the_other(replicas, database):
+    """cliente2042's terminal is offline in the mock data."""
+    plan = SupportPlan(action=SupportAction.PROPOSE_TECHNICAL_TICKET, symptom="sem conexão")
+    async with AsyncExitStack() as exits:
+        a, b = await replicas(exits, Model(SupportPlan=plan))
+        headers = IDENTITY.merchant("cliente2042")
+        body = {"message": "Continua sem conexão", "conversation_id": "t1"}
+        action = (await a.post("/chat", json=body, headers=headers)).json()["pending_action"]
+        confirm = {**body, "confirm_action_id": action["id"]}
+        confirmed = await b.post("/chat", json=confirm, headers=headers)
+        replayed = await a.post("/chat", json=confirm, headers=headers)
+
+    assert confirmed.json()["answer"] == replayed.json()["answer"]
+    async with await psycopg.AsyncConnection.connect(database) as connection:
+        cursor = await connection.execute("SELECT count(*) FROM tickets")
+        assert (await cursor.fetchone())[0] == 1

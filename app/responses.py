@@ -2,21 +2,25 @@
 
 from typing import Any
 
-from app.contracts import ChatResponse, Intent
+from app.contracts import ChatResponse, Intent, PendingAction
 from app.graph.state import GraphState
 from app.prompts import load_prompt
 
 PAUSED_AT = "await_operator"
 """The node a thread waits in while a human has its case."""
+CONFIRMING = "confirm_action"
+"""The node a thread waits in while a proposed write waits for the merchant."""
 
 
 def _project(
     state: GraphState, conversation_id: str, pending: bool, answer: str, cite: bool = True
 ) -> ChatResponse:
     decision = state.route
+    action = state.pending_action if pending else None
     return ChatResponse(
         conversation_id=conversation_id,
-        status="pending_human" if pending else "answered",
+        status="pending_confirmation" if action else "pending_human" if pending else "answered",
+        pending_action=PendingAction(id=action.id, operation=action.operation) if action else None,
         answer=answer,
         intent=decision.intent if decision else Intent.OTHER,
         agents=[result.agent for result in state.step_results],

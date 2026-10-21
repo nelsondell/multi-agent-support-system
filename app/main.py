@@ -10,6 +10,7 @@ import structlog
 from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi import Path as PathParam
 from fastapi.responses import JSONResponse
+from langgraph.types import Command
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 from app.auth import Merchant, RateLimiter, TokenVerifier
@@ -19,8 +20,10 @@ from app.contracts import (
     ChatResponse,
     ConversationView,
     HistoryMessage,
+    Intent,
     OperatorInput,
 )
+from app.graph.actions import receipt_of
 from app.graph.build import build_graph
 from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
@@ -29,9 +32,10 @@ from app.observability import configure_logging, mask_pii
 from app.observability.tracing import configure_tracing
 from app.operator import router as operator_router
 from app.operator import settle
+from app.prompts import load_prompt
 from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
-from app.responses import PAUSED_AT, pending_response, to_response
+from app.responses import CONFIRMING, PAUSED_AT, pending_response, to_response
 from app.settings import MERCHANT_TIMEZONE, get_settings
 from app.storage import open_storage
 from app.tools.web import WebSearch
@@ -62,10 +66,10 @@ async def lifespan(app: FastAPI):
     async with open_storage(settings) as storage, httpx.AsyncClient() as http:
         app.state.settings, app.state.retriever = settings, retriever
         app.state.queue, app.state.locks = storage.queue, storage.locks
-        app.state.audit = storage.audit
+        app.state.audit, app.state.desk = storage.audit, storage.desk
         web = WebSearch(settings, http)
         app.state.graph = build_graph(
-            provider, settings, retriever, storage.checkpointer, storage.queue, web
+            provider, settings, retriever, storage.checkpointer, storage.queue, web, storage.desk
         )
         yield
 
@@ -97,12 +101,24 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
 async def take_turn(
     app: Any, body: ChatRequest, merchant: str, conversation_id: str, thread: str, trace_id: str
 ) -> ChatResponse:
-    """One turn, under the conversation's lock. A turn left unfinished, because the replica
-    running it died, is finished first from its last checkpoint; when this message is the
-    merchant's retry of it, that is the answer."""
+    """One turn, under the conversation's lock.
+
+    A proposed write is settled first: its own id runs it, another id is looked up as a replay
+    (the same receipt, or 404), and any other message cancels it and runs as a turn of its own. A
+    turn left unfinished, because the replica running it died, is finished from its last
+    checkpoint; when this message is the merchant's retry of it, that is the answer."""
     graph, config = app.state.graph, {"configurable": {"thread_id": thread}}
     snapshot = await graph.aget_state(config)
-    if snapshot.next and PAUSED_AT not in snapshot.next:
+    first = not snapshot.values  # a conversation with no state yet: this is its first reply
+    proposal = (
+        GraphState.model_validate(snapshot.values).pending_action if snapshot.values else None
+    )
+    if body.confirm_action_id or (proposal and CONFIRMING in snapshot.next):
+        settled = await settle_proposal(app, config, body, merchant, conversation_id, proposal)
+        if settled is not None:
+            return settled
+        snapshot = await graph.aget_state(config)
+    if snapshot.next and not {PAUSED_AT, CONFIRMING} & set(snapshot.next):
         finished = await graph.ainvoke(None, config, durability="sync")
         if finished.get("message") == body.message:
             return to_response(finished, conversation_id)
@@ -117,8 +133,35 @@ async def take_turn(
         trace_id=trace_id,
         today=merchant_today(),
     )
-    final = await graph.ainvoke(turn, config, durability="sync")
-    return to_response(final, conversation_id).model_copy(update={"delivered": delivered})
+    response = to_response(await graph.ainvoke(turn, config, durability="sync"), conversation_id)
+    if response.pending_action:
+        action = response.pending_action.id
+        await app.state.audit.append(merchant, "merchant", "action.proposed", action, "ticket")
+    if first:  # the merchant is told, once, that the replies are automated
+        response.answer = f"{load_prompt('ai_disclosure').text}\n\n{response.answer}"
+    return response.model_copy(update={"delivered": delivered})
+
+
+async def settle_proposal(
+    app: Any, config: dict, body: ChatRequest, merchant: str, conversation_id: str, proposal: Any
+) -> ChatResponse | None:
+    """The receipt when this message confirms the pending proposal or replays a confirmed one;
+    None when it cancelled the proposal, so the message then runs as a turn of its own."""
+    graph, wanted = app.state.graph, body.confirm_action_id
+    if proposal is not None and wanted == proposal.id:
+        resumed = Command(resume={"action_id": wanted})
+        return to_response(await graph.ainvoke(resumed, config, durability="sync"), conversation_id)
+    if wanted:
+        ticket = await app.state.desk.find(wanted, merchant)
+        if ticket is None:
+            raise HTTPException(404, "no such action")
+        text, receipt = receipt_of(ticket)
+        intent = Intent.TROUBLESHOOTING
+        return ChatResponse(
+            conversation_id=conversation_id, answer=text, intent=intent, sources=[receipt]
+        )
+    await graph.ainvoke(Command(resume={"action_id": None}), config, durability="sync")
+    return None
 
 
 async def still_waiting(app: Any, values: dict, message: str) -> bool:

@@ -81,6 +81,14 @@ def _record(user_id: str, today: date | None) -> dict[str, Any] | None:
     return shift_dates(record, (today - RECORDED_ON).days)
 
 
+def offline_terminal(user_id: str) -> str | None:
+    """The serial of the caller's own terminal when it is offline: the only terminal a technical
+    ticket may be opened for, decided here and not by the model."""
+    record = _customers().get(user_id) or {}
+    terminal = record.get("terminal") or {}
+    return terminal.get("serial") if terminal.get("status") == "sem_comunicacao" else None
+
+
 def _with_money(entry: dict[str, Any]) -> dict[str, Any]:
     """The entry with every amount written as the merchant reads it."""
     return {key: brl(value) if key in MONEY_FIELDS else value for key, value in entry.items()}
