@@ -30,7 +30,7 @@ from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
 from app.locks import ConversationLocks
 from app.observability import configure_logging, mask_pii
-from app.observability.metrics import record_turn
+from app.observability.metrics import metered, record_turn
 from app.observability.otel import TRACER, configure_otel
 from app.observability.otel import trace_id as otel_trace_id
 from app.observability.tracing import configure_tracing
@@ -91,6 +91,7 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
     conversation's case, the message is noted on the case and gets the open protocol; once the
     case is closed, how it ended is delivered with the next message, before its answer. A second
     message on the same conversation waits for the first one's turn to finish, on any replica.
+    Every model call the turn makes counts against its budgets (`supervisor.py`).
     """
     conversation_id = body.conversation_id or uuid4().hex
     thread = thread_id(merchant, conversation_id)
@@ -99,9 +100,10 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
         structlog.contextvars.bind_contextvars(trace_id=trace_id, conversation_id=conversation_id)
         try:
             async with request.app.state.locks.hold(thread):
-                response = await take_turn(
-                    request.app, body, merchant, conversation_id, thread, trace_id
-                )
+                with metered():
+                    response = await take_turn(
+                        request.app, body, merchant, conversation_id, thread, trace_id
+                    )
         finally:
             structlog.contextvars.clear_contextvars()
     record_turn(response.intent.value, response.status, response.escalated)

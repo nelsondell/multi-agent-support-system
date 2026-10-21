@@ -79,9 +79,28 @@ def test_card_numbers_are_masked_at_the_source() -> None:
         assert re.fullmatch(r"\*{4} \*{4} \*{4} \d{4}", transaction["card"])
 
 
-def test_both_tools_are_registered() -> None:
-    """The support agent is limited to exactly these two."""
-    assert set(SUPPORT_TOOLS) == {"get_settlement_schedule", "get_transactions"}
+def test_the_three_read_tools_are_registered() -> None:
+    """The support agent is limited to exactly these three, all of them reads."""
+    assert set(SUPPORT_TOOLS) == {
+        "get_settlement_schedule",
+        "get_transactions",
+        "get_account_profile",
+    }
+
+
+def test_the_profile_shows_the_plan_and_terminal_and_never_another_merchant() -> None:
+    """The model and status come from the caller's record; the serial stays out."""
+    profile = call_tool("get_account_profile", {"user_id": "cliente1988"}, "cliente2042")
+
+    assert profile == {
+        "found": True,
+        "plan": "Get Classica",
+        "terminal": {
+            "model": "Get Classica",
+            "status": "sem_comunicacao",
+            "last_seen": "2026-08-28T19:40:00-03:00",
+        },
+    }
 
 
 def test_records_are_read_as_of_the_turns_day() -> None:

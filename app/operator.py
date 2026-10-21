@@ -17,7 +17,7 @@ from langgraph.types import Command
 from app.audit import AuditEntry
 from app.auth import Operator, Supervisor
 from app.contracts import ChatResponse, DeliveredReply, HandoffRecord, OperatorInput, Outcome
-from app.observability.metrics import record_turn
+from app.observability.metrics import metered, record_turn
 from app.responses import to_response
 
 router = APIRouter()
@@ -58,7 +58,8 @@ async def settle(
     config = {"configurable": {"thread_id": thread}}
     try:
         resume = Command(resume=decision.model_dump())
-        final = await app.state.graph.ainvoke(resume, config, durability="sync")
+        with metered():  # the plan's remaining steps run on a budget of their own
+            final = await app.state.graph.ainvoke(resume, config, durability="sync")
     except Exception:
         await queue.reopen(protocol)
         raise

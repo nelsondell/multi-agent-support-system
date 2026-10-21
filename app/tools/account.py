@@ -1,6 +1,6 @@
-"""The support agent's two tools.
+"""The support agent's three read tools.
 
-Both read the caller's own records and nothing else. `user_id` arrives through `InjectedState`,
+Each reads the caller's own records and nothing else. `user_id` arrives through `InjectedState`,
 so it is absent from the schema the model sees: there is no argument a prompt could set to reach
 another merchant's data. Card numbers are already masked in the source file, so no unmasked pan
 ever exists in this process.
@@ -166,9 +166,29 @@ def get_transactions(
     return {"found": True, "transactions": [_with_money(item) for item in latest]}
 
 
+@tool
+def get_account_profile(
+    user_id: Annotated[str, InjectedState("user_id")],
+    today: Annotated[date | None, InjectedState("today")] = None,
+) -> dict[str, Any]:
+    """Consulta o cadastro do cliente: o plano contratado e a maquininha.
+
+    Returns:
+        O plano, o modelo da maquininha, a situação dela ("ativo" ou "sem_comunicacao") e quando
+        ela se comunicou pela última vez.
+    """
+    record = _record(user_id, today)
+    if record is None:
+        return {"found": False}
+    terminal = record.get("terminal") or {}
+    shown = {field: terminal.get(field) for field in ("model", "status", "last_seen")}
+    return {"found": True, "plan": record.get("plan"), "terminal": shown}
+
+
 SUPPORT_TOOLS = {
     get_settlement_schedule.name: get_settlement_schedule,
     get_transactions.name: get_transactions,
+    get_account_profile.name: get_account_profile,
 }
 
 

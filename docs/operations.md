@@ -15,6 +15,8 @@ every setting. The ones that matter most:
 | `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | `openai` / `text-embedding-3-large` | Chosen in [`evals/retrieval_calibration.md`](../evals/retrieval_calibration.md). `local` needs no key (CI uses it). Changing it means rebuilding the index. |
 | `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.52` | Below it, the knowledge agent abstains. Calibrated for the default embedder. |
 | `ROUTER_CONFIDENCE_THRESHOLD` / `MAX_HOPS` | `0.6` / `2` | Below the first, a turn escalates before any specialist. The second bounds hand-backs. |
+| `MAX_PLAN_CHANGES` | `3` | Steps the supervisor may add to a turn's plan for what a step found. `0` runs the router's plan as it is. |
+| `MAX_MODEL_CALLS` / `MAX_COST_USD` | `12` / `0.02` | A turn's model budget, checked before each step after the first and before a replan. A spent turn starts no more steps: its answered part goes out, the rest goes to a person as `budget_exhausted`, and `budget.exhausted` is logged with the budget's name. A turn can go over by the calls of the step already running. |
 | `HISTORY_WINDOW` / `HISTORY_MAX_MESSAGES` | `6` / `12` | Recent messages kept verbatim; past the limit, older ones fold into a summary. |
 | `HANDOFF_TTL_HOURS` | `24` | How long a case waits for an operator before the merchant's next message closes it. |
 | `STORAGE` / `DATABASE_URL` | `sqlite` / — | Where checkpoints, cases and turn locks live: SQLite files on one node, or Postgres shared by replicas. |

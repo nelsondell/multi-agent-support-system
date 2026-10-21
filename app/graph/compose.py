@@ -1,10 +1,11 @@
 """The join point after the last plan step.
 
 One answered step is copied as it is, with no model call, which is how a single-intent turn
-keeps its old path and cost. Two answered steps are merged by one structured call, and the merge
-may not carry a number or a status the step answers lack (hard rule 4); if it does, or the call
-fails, the step answers are joined as written. Sources are the union of every answered step's, never
-something the merge chose.
+keeps its old path and cost. Two or more answered steps are merged by one structured call; a
+step the supervisor added goes in marked as a lookup, the account fact that completes another
+step's answer. The merge may not carry a number or a status the step answers lack (hard rule
+4); if it does, or the call fails, the step answers are joined as written. Sources are the union
+of every answered step's, never something the merge chose.
 
 When a step needs a human, the turn comes here at once: the answered part goes out now, marked
 as delivered, and the turn escalates with that step's reason under one protocol. Once the operator
@@ -45,7 +46,7 @@ _SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+")
 
 
 class ComposedAnswer(BaseModel):
-    """Two step answers, merged into one reply."""
+    """The step answers, merged into one reply."""
 
     answer: str
 
@@ -72,7 +73,12 @@ async def _merge(state: GraphState, answered: list[StepResult], provider: LLMPro
     changes a status."""
     payload = {
         "question": state.message,
-        "parts": [{"question": item.query_pt, "answer": item.answer} for item in answered],
+        "parts": [
+            {"question": item.query_pt, "answer": item.answer, "lookup": True}
+            if item.requested_by
+            else {"question": item.query_pt, "answer": item.answer}
+            for item in answered
+        ],
     }
     try:
         merged = await provider.structured(

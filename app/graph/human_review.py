@@ -42,6 +42,7 @@ STOPPED_BECAUSE = {
     EscalationReason.INDIVIDUAL_CASE: "an individual case, which only a person may decide",
     EscalationReason.TOOL_UNAVAILABLE: "the account data could not be read",
     EscalationReason.MODEL_UNAVAILABLE: "a model call failed before the agent finished",
+    EscalationReason.BUDGET_EXHAUSTED: "the turn spent its model-call or cost budget",
 }
 
 
@@ -61,7 +62,12 @@ def attempts(state: GraphState) -> list[str]:
     """What the agents tried and why it stopped, from what the state recorded."""
     lines = []
     if state.route is not None:
-        plan = " then ".join(step.agent.value for step in state.route.steps)
+        plan = " then ".join(
+            f"{step.agent.value} (asked by {step.requested_by.value})"
+            if step.requested_by
+            else step.agent.value
+            for step in state.steps
+        )
         lines.append(
             f"router: {state.route.intent.value}, plan {plan}, "
             f"confidence {state.route.confidence:.2f}"

@@ -24,6 +24,15 @@ the plan ([`specs/plan.md`](../specs/plan.md)) maps every invariant to the test 
    amanhã?", "dessa venda") and, for a comparison, one search per product. A rewrite that invents
    a number or id absent from the conversation is discarded.
 4. **Specialists** run step by step, each seeing only its own standalone query, never the history.
+   Between steps the **supervisor** (`app/graph/supervisor.py`), which is code and not a model,
+   may revise the plan. A step that answered can report a `Need`, a question only the other
+   specialist can answer (a fee that depends on the merchant's terminal model; the procedure for
+   the state the account shows). The step for it goes right after the current one, at most
+   `MAX_PLAN_CHANGES` times a turn, and it only reads: no web, no write. An added step that does
+   not answer is dropped. Before each step the turn's budgets are checked (`MAX_MODEL_CALLS`,
+   `MAX_COST_USD`). A spent turn starts no more steps: its answered part goes out, and the rest
+   goes to a person as `budget_exhausted`. [ADR 0001](adr/0001-bounded-replanning.md) says why
+   this is bounded, not an open loop.
 5. **Compose** copies a single answer as is, or merges two with one model call that may not add a
    number or change a status. A step that needs a person pauses the turn there, under one
    protocol, and any part already answered goes out now; once the operator answers, the remaining
@@ -63,18 +72,21 @@ evals/                      golden set, model benchmark, retrieval calibration, 
 specs/                      spec, plan and task list (spec-driven development)
 ```
 
-Policy is readable in one file, `app/graph/build.py`: the confidence threshold is a conditional
-edge, not an `if` inside a node, and the hop budget spans the whole plan, so two agents cannot pass
-a message back and forth.
+Policy is readable in two files. In `app/graph/build.py`, the confidence threshold is a
+conditional edge, not an `if` inside a node, and the hop budget spans the whole plan, so two
+agents cannot pass a message back and forth. `app/graph/supervisor.py` holds every rule by which a
+plan may change, and the budgets that stop it.
 
 ## Tools and how the model is used
 
-- **Two support tools**, `get_settlement_schedule` and `get_transactions`, are LangChain tools whose
-  `user_id` is injected from graph state with `InjectedState`. The model never sees it:
+- **Three support tools**, `get_settlement_schedule`, `get_transactions` and
+  `get_account_profile` (plan, terminal model and whether it is communicating), are LangChain tools
+  whose `user_id` is injected from graph state with `InjectedState`. The model never sees it:
 
   ```
   get_settlement_schedule    model sees: ['date_from', 'date_to', 'date_field']
   get_transactions           model sees: ['limit', 'status']
+  get_account_profile        model sees: []
   ```
 
   `call_tool` also drops any argument the model is not allowed to set, so a smuggled `user_id` never
@@ -143,8 +155,9 @@ a test keeps the allowlist in sync with `GraphState`.
 
 **What makes it really multi-agent?** Each agent owns a decision, the evidence behind it and its
 own ways of stopping, and they hand work to each other: the router plans one or two steps; a
-specialist that finds a step isn't its own hands it back once and the router replans; compose joins
-two answers without adding facts; and when one step needs a person, the turn pauses there, and
+specialist that finds a step isn't its own hands it back once and the router replans; a specialist
+that finds it needs the other's data asks for it, and the supervisor adds that step within the
+turn's budgets; compose joins the answers without adding facts; and when one step needs a person, the turn pauses there, and
 after the operator answers, the remaining steps run with that answer in hand. It is not a router
 dispatching to one specialist and ending.
 

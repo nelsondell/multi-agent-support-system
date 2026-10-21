@@ -143,6 +143,15 @@ records the step as a `StepResult` (answer and sources, or a refusal reason) and
 step, or `compose` when none is left. The steps are sequential, so `step_results` is a plain list
 with no reducer.
 
+**Supervisor (T-52).** `app/graph/supervisor.py` runs inside `collect` and `after_specialist`.
+`GraphState.plan` is the list the turn walks; the router's decision stays as it was decided.
+`PlanStep.requested_by` marks a step the supervisor added. It is excluded from the model schema
+(`SkipJsonSchema`) and cleared by the router. Every model call goes through `Metered`, which
+charges the turn's `Spend`, a context variable that `/chat` and the operator resume open around
+the run. `OpenAIProvider` adds each call's cost to it. `exhausted` names the budget a turn has
+reached; `revise` adds the step a `Need` asks for; `dropped` discards an added step that did not
+answer; `halt` stops the plan and records the next planned step as `budget_exhausted`.
+
 `compose` is always the join point. With one answered step it copies the answer and sources and
 makes no model call, which is how single-intent turns keep v1's cost. With two it makes one
 structured call (`ComposedAnswer`), takes the union of both steps' sources deterministically, and
@@ -261,7 +270,7 @@ used it.
 | --- | --- |
 | Model | `LLM_BACKEND` (`openai` or `fake`), `OPENAI_API_KEY`, `LLM_MODEL`, `LLM_REASONING_EFFORT`, `LLM_TEMPERATURE`, `JUDGE_MODEL` |
 | Retrieval | `EMBEDDING_BACKEND`, `EMBEDDING_MODEL`, `INDEX_PATH`, `COLLECTION_NAME`, `RETRIEVAL_TOP_K`, `RETRIEVAL_CONFIDENCE_THRESHOLD` |
-| Routing | `ROUTER_CONFIDENCE_THRESHOLD`, `MAX_HOPS` |
+| Routing | `ROUTER_CONFIDENCE_THRESHOLD`, `MAX_HOPS`, `MAX_PLAN_CHANGES`, `MAX_MODEL_CALLS`, `MAX_COST_USD` |
 | Memory | `STATE_DIR`, `HISTORY_WINDOW`, `HISTORY_MAX_MESSAGES` |
 | Web | `TAVILY_API_KEY`, `WEB_SEARCH_MAX_RESULTS`, `WEB_SEARCH_TIMEOUT_S` |
 | Identity | `AUTH_JWKS_URL`, `AUTH_ISSUER`, `MERCHANT_AUDIENCE`, `OPERATOR_AUDIENCE`, `RATE_LIMIT_PER_MINUTE`, `RETENTION_DAYS` |
@@ -308,6 +317,7 @@ test suite.
 | A plan has one or two steps; one step costs what v1 did (§5) | `test_plans::test_a_three_step_plan_is_rejected_by_the_schema`, `test_a_single_intent_request_makes_the_same_calls_as_before` |
 | Compose keeps every source and adds no number (§5) | `test_plans::test_a_compound_request_runs_support_then_knowledge_and_keeps_both_sources`, `test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answers`, `test_flows::test_a_compound_request_answers_both_parts_with_every_source` |
 | Partial answer plus handoff under one protocol; hop budget spans the plan (§5) | `test_plans::test_one_step_answers_now_and_the_other_goes_to_a_human_under_one_protocol`, `test_the_hop_budget_holds_across_the_plan` |
+| Bounded replanning: a need adds one read step, dropped when it does not answer, never from the web or a write; changes, calls and cost bounded; a stop hands the rest over with the answered part; only code marks a step added (§5.8) | `test_replanning::*` |
 | Router failure is zero confidence (§5) | `test_router::test_provider_failure_becomes_zero_confidence_not_an_exception` |
 | History persists and survives a restart (§6) | `test_memory::test_a_second_turn_finds_the_first_in_the_history`, `test_a_graph_rebuilt_over_the_same_sqlite_file_continues`, `test_flows::test_a_second_turn_reads_the_first`, `test_a_restart_over_the_same_state_directory_continues_the_conversation` |
 | Thread bound to user and conversation (§6) | `test_memory::test_the_same_conversation_id_under_another_user_starts_empty`, `test_flows::test_the_same_conversation_id_under_another_merchant_starts_empty` |

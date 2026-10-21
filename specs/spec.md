@@ -178,6 +178,19 @@ Possessive phrasing does not decide anything. Only the data dependency does.
    whole plan. A second miss is recorded as that step's refusal, `repeated_misroute`.
 7. LLM failure in the router produces a `RouterDecision` with `confidence = 0.0`, which the
    threshold edge already sends to escalation.
+8. **Bounded replanning (T-52).** A specialist that answered may report a `Need`, a question
+   only the other specialist can answer. Between steps the supervisor, which is code, revises the
+   plan:
+   - **add:** the need's step goes right after the current one, at most `MAX_PLAN_CHANGES` per
+     turn, never repeating a planned step and never for a step that did not answer;
+   - **drop:** an added step that does not answer from a read is dropped;
+   - **stop:** before each step after the first, `MAX_MODEL_CALLS` and `MAX_COST_USD` are checked,
+     and a spent turn sends its answered part and hands the router's remaining steps to a person
+     as `budget_exhausted`.
+
+   An added step only reads: no write reaches the merchant from it, a knowledge step added this
+   way never searches the web, and a web answer never adds a step. Only code marks a step as
+   added. `MAX_PLAN_CHANGES=0` runs the router's plan as it is.
 
 ## 6. Conversation memory
 
@@ -314,7 +327,8 @@ exchange-rate questions now have an answer (§7).
 summary, and writes one structured log line. The typed reason doubles as the operational metric.
 
 Reasons: `low_router_confidence`, `repeated_misroute`, `low_retrieval_confidence`,
-`insufficient_sources`, `individual_case`, `tool_unavailable`, `model_unavailable`. A failed model
+`insufficient_sources`, `individual_case`, `tool_unavailable`, `model_unavailable`,
+`budget_exhausted` (§5.8). A failed model
 call (the router, a specialist's plan or answer) escalates as `model_unavailable`, with a notice
 that says something failed, never as low confidence or as nothing found. A case stored as v2's
 earlier `agent_not_implemented` reads as `model_unavailable`.
