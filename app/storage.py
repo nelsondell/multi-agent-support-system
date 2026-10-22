@@ -1,12 +1,5 @@
-"""Where a replica keeps what outlives a request: checkpoints, the handoff queue and the lock that
-runs one turn at a time per conversation.
-
-SQLite, the default, keeps them in files on one node. Postgres keeps them in one database every
-replica shares, so a case escalated on one replica can be answered on another and a turn that
-dies with its replica resumes on the next. The data pool and the lock pool are separate: a turn
-holds a lock connection for its whole length, and must never wait on a data connection held by
-another turn waiting for its lock.
-"""
+"""Checkpoints, the handoff queue and turn locks: SQLite files on one node, or one Postgres every
+replica shares."""
 
 import asyncio
 from collections.abc import AsyncIterator
@@ -22,16 +15,12 @@ from app.locks import ConversationLocks, PostgresLocks
 from app.settings import Settings
 from app.tools.tickets import TicketDesk
 
-_SCHEMA_LOCK = 4_802_001
-"""Advisory lock key for creating the tables, so replicas booting together take turns at it."""
+_SCHEMA_LOCK = 4_802_001  # advisory lock key: replicas booting together create tables in turn
 
 
 async def create_tables(url: str, checkpointer: BaseCheckpointSaver, *tables) -> None:
-    """Create or migrate the tables, one replica at a time.
-
-    LangGraph's migrations build indexes `CONCURRENTLY`, which waits for every open transaction,
-    so the lock is a session lock taken by polling on an autocommit connection: no replica holds a
-    transaction while another one migrates. Closing the connection releases the lock."""
+    """A polled session lock, not a transaction one: LangGraph indexes `CONCURRENTLY`, which waits
+    for every open transaction."""
     import psycopg
 
     async with await psycopg.AsyncConnection.connect(url, autocommit=True) as connection:
@@ -58,7 +47,6 @@ class Storage:
 
 @asynccontextmanager
 async def open_storage(settings: Settings) -> AsyncIterator[Storage]:
-    """Open the configured store, creating its tables on first use."""
     if settings.storage == "postgres":
         async with open_postgres(settings) as storage:
             yield storage
@@ -73,8 +61,8 @@ async def open_storage(settings: Settings) -> AsyncIterator[Storage]:
 
 @asynccontextmanager
 async def open_postgres(settings: Settings) -> AsyncIterator[Storage]:
-    """Two pools on `DATABASE_URL`: data in autocommit with dict rows, as LangGraph's saver needs,
-    and turn locks."""
+    """Separate data and lock pools: a turn holds its lock connection throughout, and must never
+    wait for a data connection held by a turn waiting for that lock."""
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool

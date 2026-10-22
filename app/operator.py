@@ -1,12 +1,10 @@
-"""Operator endpoints: list the cases waiting for a human, read one, and answer it; and, for a
-supervisor, the audit log.
+"""Operator endpoints: list the cases waiting for a human, read one, and answer it.
 
-Every route requires an operator token (app/auth.py) with the role `operator` or `supervisor`,
-and every action is appended to the audit log under the operator's own id. Answering a case
-resumes the paused graph on that case's thread,
-and the agent turns the operator's input into the merchant's reply, which is held until the
-merchant's next message delivers it. A case can also be cancelled, which closes it with a notice.
-The resume holds the conversation's lock, so it never runs alongside a merchant's message.
+Every route requires an operator token with a role (app/auth.py), and every action is audited.
+Answering a case resumes the paused graph on that case's thread, and the agent turns the
+operator's input into the merchant's reply, which is held until the merchant's next message
+delivers it. A case can also be cancelled, which closes it with a notice. The resume holds the
+conversation's lock, so it never runs alongside a merchant's message.
 """
 
 from typing import Any

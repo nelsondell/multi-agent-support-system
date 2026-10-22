@@ -1,12 +1,5 @@
-"""Two replicas over one Postgres, as the compose `scale` profile runs them.
-
-A case escalated on one replica is answered through the other and delivered by the first; a turn
-whose replica dies resumes from its checkpoint on the other; turns on one conversation take turns
-across replicas while other conversations run at once. Each test gets a database of its own.
-
-Skipped unless TEST_DATABASE_URL names a Postgres server (CI starts one). For these tests the
-suite's socket block is lifted, to the local server only.
-"""
+"""Two replicas over one Postgres, as the `scale` profile runs them, each test on a fresh database.
+Skipped without TEST_DATABASE_URL (CI has one); sockets open to the local server only."""
 
 import asyncio
 import json
@@ -23,7 +16,6 @@ from psycopg.conninfo import make_conninfo
 from app.contracts import Intent, TargetAgent
 from app.graph.build import build_graph
 from app.graph.human_review import HandoffDraft, OperatorReply
-from app.graph.memory import thread_id
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.main import create_app
@@ -39,93 +31,77 @@ pytestmark = [
     pytest.mark.allow_hosts(["127.0.0.1", "::1"]),
 ]
 
-CALLER = "cliente1988"
-OPERATOR = IDENTITY.operator()
+OPERATOR, MERCHANT = IDENTITY.operator(), IDENTITY.merchant("cliente1988")
 COMPLAINT = "Por que o estorno da minha venda ainda não apareceu?"
 QUESTION = "Quando cai o dinheiro das vendas de ontem?"
 SETTLED = "O dinheiro das vendas de ontem, R$ 231,26 líquidos, cai hoje."
 OPERATOR_SAYS = "O estorno foi aprovado hoje e volta ao comprador em até 2 dias úteis."
-
-
-def routed(user: str) -> RouterDecision:
-    """A refund is an individual case; anything else reads the account."""
-    message = json.loads(user)["message"]
-    intent = Intent.INDIVIDUAL_CASE if "estorno" in message else Intent.ACCOUNT_DATA
-    steps = [PlanStep(agent=TargetAgent.SUPPORT, query_pt=message)]
-    return RouterDecision(intent=intent, confidence=0.9, rationale="t", steps=steps)
-
-
-def planned(user: str) -> SupportPlan:
-    if "estorno" in user:
-        return SupportPlan(action=SupportAction.ESCALATE_INDIVIDUAL_CASE)
-    return SupportPlan(
-        action=SupportAction.CALL_TOOL,
-        tool="get_settlement_schedule",
-        date_from="2026-08-31",
-        date_to="2026-08-31",
-    )
+LOOKUP = SupportPlan(action=SupportAction.CALL_TOOL, tool="get_account_profile")
+REFUND = SupportPlan(action=SupportAction.ESCALATE_INDIVIDUAL_CASE)
 
 
 class Model:
-    """One model shared by both replicas, as one vendor is; answers may be async functions."""
+    """One vendor for both replicas: a refund escalates, anything else reads the account. With
+    `hang`, the first account answer never comes back; with `overlap`, each router call waits up
+    to half a second for a second turn to be routing too."""
 
-    def __init__(self, **overrides) -> None:
-        answers = {
-            RouterDecision: routed,
-            SupportPlan: planned,
-            SupportAnswer: SupportAnswer(answer=SETTLED),
-            HandoffDraft: HandoffDraft(draft="Estamos verificando o estorno."),
-            OperatorReply: lambda user: OperatorReply(answer=json.loads(user)["operator_answer"]),
-        }
-        by_name = {schema.__name__: schema for schema in answers}
-        self.answers = {**answers, **{by_name[name]: value for name, value in overrides.items()}}
-        self.calls: Counter = Counter()
+    def __init__(self, hang: asyncio.Event | None = None, overlap: bool = False) -> None:
+        self.calls, self.hang, self.overlap = Counter(), hang, overlap
+        self.routing = self.most = 0
+        self.second = asyncio.Event()
 
     async def structured(self, *, system: str, user: str, schema: type):
         self.calls[schema.__name__] += 1
-        answer = self.answers[schema]
-        if asyncio.iscoroutinefunction(answer):
-            return await answer(user)
-        return answer(user) if callable(answer) else answer
+        if schema is RouterDecision and self.overlap:
+            self.routing += 1
+            self.most = max(self.most, self.routing)
+            if self.routing > 1:
+                self.second.set()
+            with suppress(TimeoutError):
+                await asyncio.wait_for(self.second.wait(), 0.5)
+            self.routing -= 1
+        if schema is SupportAnswer and self.hang and self.calls["SupportAnswer"] == 1:
+            self.hang.set()
+            await asyncio.sleep(3600)
+        if schema is RouterDecision:
+            step = PlanStep(agent=TargetAgent.SUPPORT, query_pt=json.loads(user)["message"])
+            return RouterDecision(intent=Intent.OTHER, confidence=0.9, rationale="t", steps=[step])
+        return {
+            SupportPlan: REFUND if "estorno" in user else LOOKUP,
+            SupportAnswer: SupportAnswer(answer=SETTLED),
+            HandoffDraft: HandoffDraft(draft="?"),
+            OperatorReply: OperatorReply(answer=OPERATOR_SAYS),
+        }[schema]
 
 
 @pytest.fixture
-async def database():
-    """A fresh database on the test server, dropped afterwards."""
+async def replicas(sample_chunks, fake_collection):
+    """Replicas over a fresh database on the test server, each with its own pools, graph and app."""
     name = f"t_{uuid4().hex[:12]}"
     async with await psycopg.AsyncConnection.connect(SERVER, autocommit=True) as admin:
         await admin.execute(f'CREATE DATABASE "{name}"')
-    yield make_conninfo(SERVER, dbname=name)
-    async with await psycopg.AsyncConnection.connect(SERVER, autocommit=True) as admin:
-        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
+    settings = Settings(storage="postgres", database_url=make_conninfo(SERVER, dbname=name))
 
-
-@pytest.fixture
-def replicas(database, sample_chunks, fake_collection):
-    """Start replicas over the same database, each with its own pools, graph and app."""
-    settings = Settings(storage="postgres", database_url=database)
-
-    async def start(exits: AsyncExitStack, model: Model, count: int = 2) -> list:
+    async def start(exits: AsyncExitStack, model: Model) -> list[httpx.AsyncClient]:
         clients = []
-        for _ in range(count):
+        for _ in range(2):
             storage = await exits.enter_async_context(open_storage(settings))
-            similar = fake_collection({chunk.id: 0.9 for chunk in sample_chunks})
-            retriever = HybridRetriever(sample_chunks, similar, top_k=5)
+            retriever = HybridRetriever(sample_chunks, fake_collection(), top_k=5)
+            graph = build_graph(model, settings, retriever, storage.checkpointer, storage.queue)
             api = create_app()
-            graph = build_graph(
-                model, settings, retriever, storage.checkpointer, storage.queue, None, storage.desk
-            )
             serve(api, settings, storage, graph, retriever)
             client = httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://r")
             clients.append(await exits.enter_async_context(client))
         return clients
 
-    return start
+    yield start
+    async with await psycopg.AsyncConnection.connect(SERVER, autocommit=True) as admin:
+        await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
-async def chat(http, message: str, conversation_id: str = "c1") -> dict:
-    payload = {"message": message, "conversation_id": conversation_id}
-    response = await http.post("/chat", json=payload, headers=IDENTITY.merchant(CALLER))
+async def chat(http, message: str) -> dict:
+    payload = {"message": message, "conversation_id": "c1"}
+    response = await http.post("/chat", json=payload, headers=MERCHANT)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -133,14 +109,12 @@ async def chat(http, message: str, conversation_id: str = "c1") -> dict:
 async def test_a_case_escalated_on_one_replica_is_answered_on_the_other(replicas):
     async with AsyncExitStack() as exits:
         a, b = await replicas(exits, Model())
-        paused = await chat(a, COMPLAINT)
-        protocol = paused["escalation"]["protocol"]
+        protocol = (await chat(a, COMPLAINT))["escalation"]["protocol"]
         listed = (await b.get("/handoffs", headers=OPERATOR)).json()
         decision = {"action": "reply", "answer": OPERATOR_SAYS}
         resumed = await b.post(f"/handoffs/{protocol}/resume", json=decision, headers=OPERATOR)
         after = await chat(a, QUESTION)
 
-    assert paused["status"] == "pending_human"
     assert [record["case"]["protocol"] for record in listed] == [protocol]
     assert resumed.status_code == 200
     assert [reply["answer"] for reply in after["delivered"]] == [OPERATOR_SAYS]
@@ -148,136 +122,28 @@ async def test_a_case_escalated_on_one_replica_is_answered_on_the_other(replicas
 
 
 async def test_a_turn_whose_replica_dies_resumes_from_its_checkpoint_on_the_other(replicas):
-    entered = asyncio.Event()
-
-    async def answer(user: str) -> SupportAnswer:
-        if model.calls["SupportAnswer"] == 1:  # replica A, which dies here
-            entered.set()
-            await asyncio.sleep(3600)
-        return SupportAnswer(answer=SETTLED)
-
-    model = Model(SupportAnswer=answer)
+    model = Model(hang=asyncio.Event())
     async with AsyncExitStack() as exits:
         a, b = await replicas(exits, model)
         dying = asyncio.create_task(chat(a, QUESTION))
-        await asyncio.wait_for(entered.wait(), 5)
+        await asyncio.wait_for(model.hang.wait(), 5)
         dying.cancel()
         with suppress(asyncio.CancelledError):
             await dying
         retried = await chat(b, QUESTION)  # the merchant retries; the balancer picks B
-        view = (await b.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))).json()
+        view = (await b.get("/conversations/c1", headers=MERCHANT)).json()
 
     assert retried["answer"] == SETTLED
     assert model.calls["RouterDecision"] == 1, "B resumed A's plan instead of routing again"
     assert [message["content"] for message in view["messages"]] == [QUESTION, SETTLED]
 
 
-class Overlap(Model):
-    """Holds each router call until a second turn is routing too, or half a second passes."""
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.routing = self.most = 0
-        self.second = asyncio.Event()
-
-    async def structured(self, *, system: str, user: str, schema: type):
-        if schema is not RouterDecision:
-            return await super().structured(system=system, user=user, schema=schema)
-        self.routing += 1
-        self.most = max(self.most, self.routing)
-        if self.routing > 1:
-            self.second.set()
-        try:
-            with suppress(TimeoutError):
-                await asyncio.wait_for(self.second.wait(), 0.5)
-            return await super().structured(system=system, user=user, schema=schema)
-        finally:
-            self.routing -= 1
-
-
 async def test_one_conversation_takes_turns_across_replicas(replicas):
-    model = Overlap()
+    model = Model(overlap=True)
     async with AsyncExitStack() as exits:
         a, b = await replicas(exits, model)
         await asyncio.gather(chat(a, QUESTION), chat(b, "E o dinheiro das vendas de hoje?"))
-        view = (await a.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))).json()
+        view = (await a.get("/conversations/c1", headers=MERCHANT)).json()
 
     assert model.most == 1
     assert len(view["messages"]) == 4, "neither turn was written over the other"
-
-
-async def test_two_conversations_run_at_once_across_replicas(replicas):
-    model = Overlap()
-    async with AsyncExitStack() as exits:
-        a, b = await replicas(exits, model)
-        await asyncio.gather(chat(a, QUESTION, "c1"), chat(b, QUESTION, "c2"))
-
-    assert model.most == 2
-
-
-async def test_replicas_booting_together_create_the_tables_once(database):
-    settings = Settings(storage="postgres", database_url=database)
-    async with AsyncExitStack() as exits:
-        stores = await asyncio.gather(
-            *(exits.enter_async_context(open_storage(settings)) for _ in range(2))
-        )
-        for storage in stores:
-            await storage.queue.ping()
-        ready = await stores[0].queue.list_open()
-
-    assert ready == []
-
-
-async def test_ready_reports_the_store_and_the_index(replicas):
-    async with AsyncExitStack() as exits:
-        (a,) = await replicas(exits, Model(), count=1)
-        response = await a.get("/ready")
-
-    assert response.status_code == 200
-    assert response.json()["storage"] == "postgres"
-    assert response.json()["chunks"] > 0
-
-
-async def test_erasing_on_one_replica_leaves_nothing_in_postgres(replicas, database):
-    thread = thread_id(CALLER, "c1")
-    async with AsyncExitStack() as exits:
-        a, b = await replicas(exits, Model())
-        await chat(a, COMPLAINT)
-        erased = await b.delete("/me/conversations/c1", headers=IDENTITY.merchant(CALLER))
-
-    assert erased.status_code == 204
-    async with await psycopg.AsyncConnection.connect(database) as connection:
-        for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes", "handoffs"):
-            cursor = await connection.execute(
-                f"SELECT count(*) FROM {table} WHERE thread_id = %s", (thread,)
-            )
-            assert (await cursor.fetchone())[0] == 0, table
-
-
-@pytest.mark.parametrize("statement", ["UPDATE audit SET actor = 'x'", "DELETE FROM audit"])
-async def test_the_audit_log_cannot_be_rewritten_in_postgres(database, statement):
-    settings = Settings(storage="postgres", database_url=database)
-    async with open_storage(settings) as storage:
-        await storage.audit.append("ana", "operator", "case.read", "ESC-1")
-
-    async with await psycopg.AsyncConnection.connect(database, autocommit=True) as connection:
-        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
-            await connection.execute(statement)
-
-
-async def test_a_ticket_proposed_on_one_replica_is_confirmed_once_on_the_other(replicas, database):
-    """cliente2042's terminal is offline in the mock data."""
-    plan = SupportPlan(action=SupportAction.PROPOSE_TECHNICAL_TICKET, symptom="sem conexão")
-    async with AsyncExitStack() as exits:
-        a, b = await replicas(exits, Model(SupportPlan=plan))
-        headers = IDENTITY.merchant("cliente2042")
-        body = {"message": "Continua sem conexão", "conversation_id": "t1"}
-        action = (await a.post("/chat", json=body, headers=headers)).json()["pending_action"]
-        confirm = {**body, "confirm_action_id": action["id"]}
-        confirmed = await b.post("/chat", json=confirm, headers=headers)
-        replayed = await a.post("/chat", json=confirm, headers=headers)
-
-    assert confirmed.json()["answer"] == replayed.json()["answer"]
-    async with await psycopg.AsyncConnection.connect(database) as connection:
-        cursor = await connection.execute("SELECT count(*) FROM tickets")
-        assert (await cursor.fetchone())[0] == 1

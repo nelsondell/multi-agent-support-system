@@ -30,7 +30,6 @@ class StepResult(BaseModel):
     agent: TargetAgent
     query_pt: str
     requested_by: TargetAgent | None = None
-    """The specialist whose finding added this step, when the supervisor added it."""
     answer: str | None = None
     sources: list[Source] = Field(default_factory=list)
     refusal_reason: str | None = None
@@ -71,7 +70,7 @@ class GraphState(BaseModel):
     route: RouterDecision | None = None
 
     plan: list[PlanStep] = Field(default_factory=list)
-    """The steps this turn runs: the router's, plus any the supervisor added for a finding."""
+    """The router's steps plus any the supervisor added."""
 
     hops: int = 0
     """Router passes so far. Bounds the single hand-back budget across the whole plan."""
@@ -83,7 +82,7 @@ class GraphState(BaseModel):
     """The plan step running now."""
 
     need: Need | None = None
-    """What the running step found it cannot answer alone; `collect` may add a step for it."""
+    """What the running step found it cannot answer alone."""
 
     step_results: list[StepResult] = Field(default_factory=list)
     """One entry per finished step, in plan order. Steps run one at a time, so no reducer."""
@@ -112,7 +111,6 @@ class GraphState(BaseModel):
     case: HandoffCase | None = None
     """What the operator sees while this turn waits for a human."""
     pending_action: ProposedAction | None = None
-    """A write this turn proposed, waiting in `confirm_action` for the merchant's confirmation."""
 
     messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
     """Completed exchanges, oldest first: the masked merchant turn and the reply."""
@@ -122,8 +120,7 @@ class GraphState(BaseModel):
 
     @property
     def steps(self) -> list[PlanStep]:
-        """The steps this turn runs: `plan`, or the router's own for a turn checkpointed before
-        `plan` existed."""
+        """`plan`, or the router's steps for a turn checkpointed before `plan` existed."""
         if self.plan or self.route is None:
             return self.plan
         return list(self.route.steps)

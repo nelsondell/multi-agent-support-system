@@ -51,32 +51,25 @@ class Settings(BaseSettings):
     max_hops: int = Field(default=2, ge=1)
     """Router passes per turn: the first plan, and one more after a specialist hands it back."""
     max_plan_changes: int = Field(default=3, ge=0)
-    """Steps the supervisor may add to the router's plan in one turn, each asked for by what a step
-    found. 0 runs the router's plan as it is, which is the planner the eval compares against."""
+    """Read steps a finding may add per turn; 0 runs the router's plan as it is (the baseline)."""
     max_model_calls: int = Field(default=12, ge=1)
-    """Model calls one turn may make before the supervisor stops starting steps."""
     max_cost_usd: float = Field(default=0.02, gt=0)
-    """Model spend one turn may reach, at LLM_PRICE_*, before the supervisor stops starting
-    steps. A stopped turn sends what it answered and hands the rest to a person."""
+    """Past either budget a turn starts no more steps, and hands the rest to a person."""
     llm_call_timeout_s: float = Field(default=20.0, gt=0)
-    """Seconds one model call may take. A slower one fails like any vendor error, so the node that
-    made it retries or degrades, instead of hanging until the node's own timeout."""
+    """Below the node's timeout, so a hung call fails and its node retries or degrades."""
     node_timeout_s: float = Field(default=45.0, gt=0)
-    """Wall-clock cap on one attempt of a graph node: a model call that hangs is cut here."""
     node_attempts: int = Field(default=2, ge=1)
-    """Attempts per node on a model failure or a timeout, before the node's fallback runs."""
 
     index_path: str = "data/processed/chroma"
     collection_name: str = "getnet_kb"
     retrieval_top_k: int = 5
 
     storage: Literal["sqlite", "postgres"] = "sqlite"
-    """Where conversations, cases and per-conversation locks live: SQLite files on one node, or
-    Postgres shared by every replica."""
+    """SQLite files on one node, or one Postgres shared by every replica."""
     database_url: str | None = None
-    """Postgres connection string, for `STORAGE=postgres`. It carries a password: never logged."""
+    """It carries a password: never logged."""
     database_pool_size: int = Field(default=10, ge=2)
-    """Connections per replica, in each of its two pools: one for data, one for turn locks."""
+    """Per replica, in each of its two pools: data and turn locks."""
 
     state_dir: str = "data/state"
     """Conversation checkpoints. Apart from the index on purpose: in the container this is its own
@@ -97,36 +90,24 @@ class Settings(BaseSettings):
     langsmith_api_key: str | None = None
     langsmith_project: str = "getnet-support"
     otel_exporter_otlp_endpoint: str | None = None
-    """OTLP gRPC collector for the OpenTelemetry spans (`make observe` points it at Jaeger).
-    Unset, spans are still created, and name the request in the logs, but go nowhere."""
+    """OTLP gRPC collector; unset, spans still name the request in the logs but go nowhere."""
 
     llm_price_input: float = 0.10
     llm_price_cached_input: float = 0.01
     llm_price_output: float = 0.50
-    """USD per million tokens of the chat model, for the cost metrics. gpt-6-luna's input and
-    output list prices; the cached-input price is an assumption until the price list states it."""
+    """USD per million tokens; the cached-input price is an assumption until listed."""
     prompt_cache: bool = True
-    """Mark the end of each static system prompt as an explicit cache breakpoint."""
-    fault_injection: str = ""
-    """Drills only: comma-separated faults to inject, `model_error`, `model_timeout`, `web_down`."""
-
-    def faults(self) -> set[str]:
-        return {fault.strip() for fault in self.fault_injection.split(",") if fault.strip()}
-
     handoff_ttl_hours: float = Field(default=24.0, gt=0)
     """How long a case waits for an operator. After that, the merchant's next message closes it
     as expired and the conversation goes on, so none waits forever."""
 
     auth_jwks_url: str | None = None
-    """The identity provider's public keys: an https URL, or the file `make dev-keys` writes. The
-    API refuses to start without them."""
+    """The identity provider's public keys (https, or the `make dev-keys` file); required."""
     auth_issuer: str = "getnet-support-dev"
     merchant_audience: str = "support-api"
     operator_audience: str = "support-operators"
     rate_limit_per_minute: int = Field(default=30, ge=1)
-    """Requests a merchant may make in any 60 seconds, per replica; past it, 429."""
     retention_days: int = Field(default=90, ge=1)
-    """Conversations idle for longer, and the cases they opened, are erased by `make purge`."""
 
     @model_validator(mode="after")
     def pick_sampling_control(self) -> "Settings":

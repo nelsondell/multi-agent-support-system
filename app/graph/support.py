@@ -50,8 +50,7 @@ class SupportPlan(BaseModel):
     status: str | None = None
     limit: int = 10
     symptom: str | None = Field(default=None, max_length=200)
-    """For a technical ticket: what the merchant reports, in a sentence. The terminal is never
-    the model's choice; code takes the merchant's own."""
+    """For a ticket: what the merchant reports. The terminal is code's choice, never the model's."""
 
     def arguments(self, today: date | None = None) -> dict[str, Any]:
         """Only the fields the chosen tool accepts. `user_id` is not among them by construction.
@@ -84,8 +83,7 @@ class SupportAnswer(BaseModel):
 
     answer: str
     needs: Need | None = None
-    """When the merchant also asked what to do about what the data shows, such as a terminal
-    offline: the general question for the knowledge agent, with no amount, date or id in it."""
+    """A general question for the knowledge agent about what the data shows, without its values."""
 
 
 def planning_input(state: GraphState, question: str) -> str:
@@ -110,8 +108,7 @@ def answer_input(
 
 
 async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
-    """Plan, call one tool, and answer from its result. A model failure raises: the graph retries
-    the node and then escalates (`build.model_failed`)."""
+    """Plan, call one tool, and answer from its result."""
     question = state.current_query()
     plan = await provider.structured(
         system=load_prompt("support_plan").text,

@@ -5,9 +5,9 @@ graph on the same thread at once: both read the same checkpoint and the later wr
 earlier turn. Each conversation gets a lock, held from reading its state to writing its answer, so
 a second request waits for the first and then sees its result. Other conversations never wait.
 
-On one node over SQLite the locks live in the process, and a lock is dropped once no request
-holds or waits for it, so the registry does not grow with every conversation ever seen. Replicas
-over Postgres share the lock through the database instead (`PostgresLocks`).
+The locks live in this process, and a lock is dropped once no request holds or waits for it, so
+the registry does not grow with every conversation ever seen. Replicas over Postgres share them
+through the database (`PostgresLocks`).
 """
 
 import asyncio
@@ -42,16 +42,13 @@ class ConversationLocks:
 
 
 class PostgresLocks:
-    """The same contract across replicas: a transaction-scoped advisory lock per thread, held on a
-    pooled connection of its own for the whole turn. It is released when the turn ends, or by the
-    server when the replica holding it dies, so another replica can take the conversation over."""
+    """An advisory lock per thread, which the server releases if the replica holding it dies."""
 
     def __init__(self, pool: Any) -> None:
         self._pool = pool
 
     @asynccontextmanager
     async def hold(self, thread: str) -> AsyncIterator[None]:
-        """Run the block alone on this thread, on any replica."""
         async with self._pool.connection() as connection, connection.transaction():
             await connection.execute(
                 "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (thread,)

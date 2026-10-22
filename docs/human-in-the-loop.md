@@ -9,7 +9,7 @@ of the step that paused. The graph then goes back into the plan: its remaining s
 operator's text as evidence, within the hop budget, and compose joins everything into the reply.
 
 ```bash
-token() { uv run python scripts/dev_token.py "$@"; }   # signed with the `make dev-keys` key
+token() { uv run python scripts/dev_auth.py token "$@"; }   # signed with the `make dev-keys` key
 MERCHANT="Authorization: Bearer $(token merchant cliente1988)"
 OPERATOR="Authorization: Bearer $(token operator ana)"
 # 1. an individual case pauses: status pending_human, with a protocol

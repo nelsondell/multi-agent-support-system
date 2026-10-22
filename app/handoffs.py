@@ -4,10 +4,7 @@ The row is written before the graph pauses, so no conversation can be waiting fo
 without its case being listed. Claiming a case is a single conditional update, so two operators
 resuming the same protocol cannot both win. The row also carries what the merchant wrote while
 waiting, as notes for the operator, and the reply the case ended with until the merchant's next
-message delivers it.
-
-The same SQL runs on SQLite, one node's file and the default, and on Postgres, shared by every
-replica: each database is a two-method adapter, `execute` and `fetch`.
+message delivers it. The same SQL runs on SQLite and on Postgres (`Tables`).
 """
 
 import json
@@ -159,8 +156,7 @@ class HandoffQueue:
         )
 
     async def add_note(self, protocol: str, message: str) -> None:
-        """Append what the merchant wrote while waiting, already masked, for the operator. Called
-        under the conversation's lock, so two notes on one case never interleave."""
+        """Append what the merchant wrote while waiting, already masked, for the operator."""
         note = CaseNote(at=datetime.now(UTC), message=message).model_dump(mode="json")
         rows = await self._db.fetch("SELECT notes FROM handoffs WHERE protocol = ?", (protocol,))
         if rows:

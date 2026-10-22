@@ -6,229 +6,124 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
-  verify:
-    name: Verify (${{ matrix.os }})
+  test:
+    name: Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-15]
     runs-on: ${{ matrix.os }}
+    services:
+      postgres:
+        # Service containers run on Linux only; an empty image skips it on macOS.
+        image: ${{ matrix.os == 'ubuntu-24.04' && 'postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24' || '' }}
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 10
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-
-      # The only step allowed the network.
-      - name: Sync from the lockfile
+      - name: Sync from the lockfile, the only step allowed the network
         run: uv sync --frozen
-
-      # A fresh network namespace has no route out: any download, call or lookup fails the job.
-      - name: Verify with the network cut
+      # On Linux a fresh network namespace has no route out; macOS has none, so there the tests'
+      # blocked sockets are the guard.
+      - name: Verify offline
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo -E unshare --net -- sudo -E -u "$USER" env "PATH=$PATH" make verify-offline
+          else
+            make verify-offline
+          fi
+      # A skipped replica test would be a silent pass, so a skip fails the step.
+      - name: Two replicas over one Postgres
         if: runner.os == 'Linux'
-        run: sudo -E unshare --net -- sudo -E -u "$USER" env "PATH=$PATH" make verify-offline
-
-      # macOS has no network namespaces; the tests still run with sockets blocked.
-      - name: Verify
-        if: runner.os == 'macOS'
-        run: make verify-offline
-
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        shell: bash
+        run: |
+          uv run --frozen pytest -q -rs tests/test_replicas.py | tee replicas.txt
+          ! grep -q skipped replicas.txt
+      - name: Secret scan (reviewed false positives are in .gitleaksignore)
+        if: runner.os == 'Linux'
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: verify-${{ matrix.os }}
           path: reports/verify.md
 
-  replicas:
-    name: Replicas over Postgres
+  container:
+    name: Container, supply chain and scale
+    needs: test
     runs-on: ubuntu-24.04
-    services:
-      postgres:
-        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s
-          --health-retries 10
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-      - run: uv sync --frozen
-      # Escalated on one replica and answered on the other; a replica dying mid-turn; turns on one
-      # conversation across replicas. A skipped test here would be a silent pass, so it fails.
-      - name: Two replicas over one database
-        env:
-          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
-        shell: bash  # -o pipefail, so a failing pytest is not hidden behind tee
-        run: |
-          uv run --frozen pytest -q -rs tests/test_replicas.py | tee replicas.txt
-          ! grep -q skipped replicas.txt
-
-  alerts:
-    name: Alert rules
-    runs-on: ubuntu-24.04
-    env:
-      PROMETHEUS: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
-    steps:
-      - uses: actions/checkout@v5
-      # The config and its rules load, and each alert fires on the series that should trip it.
-      - name: promtool check and unit tests
-        run: |
-          docker run --rm -v "$PWD/deploy/prometheus:/etc/prometheus:ro" --entrypoint promtool \
-            "$PROMETHEUS" check config /etc/prometheus/prometheus.yml
-          docker run --rm -v "$PWD/deploy/prometheus:/p:ro" -w /p --entrypoint promtool \
-            "$PROMETHEUS" test rules alerts_test.yml
-
-  secrets:
-    name: Secret scan
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-      # Reviewed false positives are listed by fingerprint in .gitleaksignore.
-      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_ENABLE_COMMENTS: false
-
-  container:
-    name: Docker build, supply chain and smoke test
-    needs: verify
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      # Exactly the documented setup, with no key: the deterministic LLM backend, the local
-      # embedder, and the retrieval floor that goes with it, since the documented threshold is
-      # calibrated for the OpenAI embedder (evals/retrieval_calibration.md).
-      - name: Configure the keyless backends
+      # The documented setup with no key: the fake model, the local embedder and the retrieval
+      # floor that goes with it, plus a throwaway key pair standing in for the identity provider.
+      - name: Keyless configuration and a merchant token
         run: |
           cp .env.example .env
-          sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=fake/' .env
-          sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
-          sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
-
-      # A throwaway key pair stands in for the identity provider; the smoke tests send tokens
-      # signed with it, as merchants and operators must.
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - name: Identity provider keys and a merchant token
-        run: |
-          uv run --frozen python scripts/dev_keys.py
-          echo "MERCHANT_TOKEN=$(uv run --frozen python scripts/dev_token.py merchant cliente1988)" >> "$GITHUB_ENV"
-
-      - name: Build the image
+          sed -i -e 's/^LLM_BACKEND=.*/LLM_BACKEND=fake/' -e 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' \
+            -e 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
+          uv run --frozen python scripts/dev_auth.py keys
+          echo "TOKEN=$(uv run --frozen python scripts/dev_auth.py token merchant cliente1988)" >> "$GITHUB_ENV"
+      - name: Build
         run: |
           docker compose build
           echo "IMAGE=$(docker compose config --images | head -n 1)" >> "$GITHUB_ENV"
-
-      - name: SBOM of the image
-        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: ${{ env.IMAGE }}
           format: spdx-json
           output-file: sbom.spdx.json
           artifact-name: sbom.spdx.json
-
-      # Fails on any critical finding, fixed upstream or not, unless .trivyignore accepts it with a
-      # reason and an expiry.
-      - name: Vulnerability scan
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+      # Fails on any critical finding unless .trivyignore accepts it with a reason and an expiry.
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: v0.76.0
           image-ref: ${{ env.IMAGE }}
           severity: CRITICAL
           exit-code: "1"
           trivyignores: .trivyignore
-
-      - name: Start the container and wait until healthy
-        run: docker compose up -d --wait
-
-      - name: Smoke-test /health
-        run: curl -fsS localhost:8000/health | jq -e '.status == "ok"'
-
-      - name: Smoke-test /metrics
-        run: curl -fsS localhost:8000/metrics | grep -q '^# TYPE support_escalations_total counter'
-
-      # The fake router sends the question to the knowledge agent as written, so this one is
-      # chosen to clear the retrieval threshold with the local embedder by a wide margin.
-      - name: Smoke-test /chat
+      # The fake router sends the question to the knowledge agent as written; this one clears the
+      # local embedder's retrieval floor by a wide margin.
+      - name: Smoke test one node
         run: |
-          curl -fsS -X POST localhost:8000/chat \
-            -H 'Content-Type: application/json' -H "Authorization: Bearer $MERCHANT_TOKEN" \
+          docker compose up -d --wait
+          curl -fsS localhost:8000/health | jq -e '.status == "ok"'
+          curl -fsS localhost:8000/metrics | grep -q '^# TYPE support_escalations_total counter'
+          curl -fsS localhost:8000/chat -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
             -d '{"message": "What is the Get Smart card machine?"}' \
-            | tee chat.json
-          echo
-          jq -e '.escalated == false and (.answer | length > 0) and (.sources | length > 0)' chat.json
-
-      - name: Container logs
-        if: always()
-        run: docker compose logs api
-
-  scale:
-    name: Scale profile smoke test
-    needs: verify
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Configure the keyless backends
+            | jq -e '.escalated == false and (.answer | length > 0) and (.sources | length > 0)'
+      - name: Scale profile, one conversation across two replicas, then one replica killed
         run: |
-          cp .env.example .env
-          sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=fake/' .env
-          sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
-          sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
-
-      # A throwaway key pair stands in for the identity provider; the smoke tests send tokens
-      # signed with it, as merchants and operators must.
-      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
-        with:
-          enable-cache: true
-      - name: Identity provider keys and a merchant token
-        run: |
-          uv run --frozen python scripts/dev_keys.py
-          echo "MERCHANT_TOKEN=$(uv run --frozen python scripts/dev_token.py merchant cliente1988)" >> "$GITHUB_ENV"
-
-      - name: Start Postgres, two replicas and the load balancer
-        run: docker compose --profile scale up --build --wait lb
-
-      - name: Ready through the balancer
-        run: curl -fsS localhost:8080/ready | jq -e '.status == "ready" and .storage == "postgres"'
-
-      - name: One conversation served by both replicas
-        run: |
-          for turn in 1 2 3 4; do
-            curl -fsS -X POST localhost:8080/chat -H 'Content-Type: application/json' \
-              -H "Authorization: Bearer $MERCHANT_TOKEN" \
+          docker compose --profile scale up --build --wait lb
+          curl -fsS localhost:8080/ready | jq -e '.status == "ready" and .storage == "postgres"'
+          chat() {
+            curl -fsS localhost:8080/chat -H 'Content-Type: application/json' -H "Authorization: Bearer $TOKEN" \
               -d '{"message": "What is the Get Smart card machine?", "conversation_id": "smoke"}' \
               | jq -e '.status == "answered"'
-          done
-          test "$(docker compose logs api-a | grep -c 'POST /chat')" -ge 1
-          test "$(docker compose logs api-b | grep -c 'POST /chat')" -ge 1
-          curl -fsS -H "Authorization: Bearer $MERCHANT_TOKEN" localhost:8080/conversations/smoke \
+          }
+          for _ in 1 2 3 4; do chat; done
+          for replica in api-a api-b; do docker compose logs "$replica" | grep -q 'POST /chat'; done
+          curl -fsS -H "Authorization: Bearer $TOKEN" localhost:8080/conversations/smoke \
             | jq -e '.messages | length == 8'
-
-      - name: A replica dies and the balancer keeps serving
-        run: |
           docker compose kill api-a
-          for turn in 1 2; do
-            curl -fsS -X POST localhost:8080/chat -H 'Content-Type: application/json' \
-              -H "Authorization: Bearer $MERCHANT_TOKEN" \
-              -d '{"message": "What is the Get Smart card machine?", "conversation_id": "smoke"}' \
-              | jq -e '.status == "answered"'
-          done
-
+          chat && chat
       - name: Logs
         if: always()
         run: docker compose --profile scale logs

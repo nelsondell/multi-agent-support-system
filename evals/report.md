@@ -79,3 +79,7 @@ S09 (crediário) retrieved at 0.726, 0.726, 0.726 across the runs, against a thr
 > Com o Link de Pagamento, você cria um link para vender online e compartilha onde quiser, como pelo WhatsApp ou pelas redes sociais. Para criar: acesse o Portal Minha Conta ou o Aplicativo Getnet Brasil, selecione “Link de Pagamento” em Produtos e Serviços, preencha as informações do produto, frete e formas de pagamento e, por fim, copie ou compartilhe o link. O comprador pode pagar com débito, crédito, Pix ou boleto; também é possível personalizar o link com a imagem do produto e incluir frete.
 > 
 > Há opções Inicial, grátis, com cobrança de R$ 1,00 por link pago, e Básico, por R$ 28 por mês, com 60 transações de cartão mensais e cobrança de R$ 0,50 por transação excedente. As condições e taxas estão sujeitas às regras publicadas para cada oferta.
+
+## Prompt cache
+
+Static prompts end at an explicit cache breakpoint with a per-prompt cache key (T-54). Its effect on latency and cost is not measured yet: the benchmark needed a working OpenAI key, which was not available.

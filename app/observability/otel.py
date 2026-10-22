@@ -1,12 +1,4 @@
-"""OpenTelemetry traces in the GenAI semantic conventions.
-
-Each request is one trace: a root span for the HTTP call, an `invoke_agent` span per graph node,
-a `chat` span per model call (provider, model, input, cached and output tokens) and an
-`execute_tool` span per tool call. No prompt, message or answer is ever recorded: names, models
-and counts only. The GenAI conventions are still in Development status, so attribute names may
-change with them. Spans go to `OTEL_EXPORTER_OTLP_ENDPOINT` when it is set; the root span's trace
-id is also the `trace_id` of every log line of the request.
-"""
+"""Spans in the OTel GenAI conventions (in Development): names, models and counts, no content."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -24,7 +16,6 @@ TRACER = trace.get_tracer("support")
 
 
 def configure_otel(settings: Settings) -> None:
-    """Install the tracer provider, exporting over OTLP only when an endpoint is configured."""
     provider = TracerProvider(resource=Resource.create({"service.name": "support-api"}))
     if settings.otel_exporter_otlp_endpoint:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -35,15 +26,14 @@ def configure_otel(settings: Settings) -> None:
 
 
 def trace_id(span: trace.Span) -> str:
-    """The span's trace id as 32 hex digits, or a fresh id when no tracer is installed."""
+    """32 hex digits, or a fresh id when no tracer is installed."""
     context = span.get_span_context()
     return format(context.trace_id, "032x") if context.is_valid else uuid4().hex
 
 
 @contextmanager
 def operation(kind: str, name: str, **attributes: Any) -> Iterator[trace.Span]:
-    """A GenAI span: `invoke_agent <agent>`, `chat <model>` or `execute_tool <tool>`. A graph
-    interrupt passes through as control flow, not as an error."""
+    """A GenAI span; a graph interrupt is control flow, not an error."""
     from langgraph.errors import GraphBubbleUp
 
     span_attributes = {"gen_ai.operation.name": kind, **attributes}

@@ -1,13 +1,6 @@
-"""Prometheus metrics for the operational questions: why do turns leave the automated path,
-where does the time go, what does a resolution cost, and are the vendors failing.
-
-Node latency and escalations are recorded in `instrument_node`, so no node can forget them;
-tokens and cost in the model provider; turn outcomes in `/chat` and the operator resume. A
-resolution is a turn answered without a human. Cost per resolution is spend over resolutions,
-so the cost of the turns that escalated is carried by the ones that did not.
-
-The same calls are also counted per turn (`metered`), which is what the turn's budgets read.
-"""
+"""Prometheus metrics for the operational questions: why turns leave the automated path, where the
+time goes, what a resolution costs, and whether the vendors fail. A turn's own spend (`metered`)
+is what its budgets read."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -63,8 +56,6 @@ def record_turn(intent: str, status: str, escalated: bool) -> None:
 
 @dataclass
 class Spend:
-    """What one turn has spent on the model so far."""
-
     model_calls: int = 0
     cost_usd: float = 0.0
 
@@ -74,7 +65,7 @@ _SPEND: ContextVar[Spend | None] = ContextVar("turn_spend", default=None)
 
 @contextmanager
 def metered() -> Iterator[Spend]:
-    """Open one turn's spend: every model call made inside it, in any node, counts against it."""
+    """Every model call made inside, in any node, counts against this turn's spend."""
     token = _SPEND.set(Spend())
     try:
         yield _SPEND.get()
@@ -83,7 +74,6 @@ def metered() -> Iterator[Spend]:
 
 
 def charge(*, calls: int = 0, cost_usd: float = 0.0) -> None:
-    """Add to the current turn's spend; outside a turn there is nothing to charge."""
     spend = _SPEND.get()
     if spend is not None:
         spend.model_calls += calls
@@ -91,5 +81,4 @@ def charge(*, calls: int = 0, cost_usd: float = 0.0) -> None:
 
 
 def turn_spend() -> Spend | None:
-    """The current turn's spend, or None outside a metered turn."""
     return _SPEND.get()

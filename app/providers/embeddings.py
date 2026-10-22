@@ -3,10 +3,8 @@
 Ingestion and retrieval must embed with the same function, so both ask for it here. With an API
 key configured this is OpenAI, which handles an English question against a Portuguese corpus
 well. Without one it falls back to Chroma's bundled multilingual-weak local model, so the system
-can be built and tested with no account at all.
-
-The local model is fetched once, by the image build or `make models` (`python -m
-app.providers.embeddings`), never at runtime: Chroma would otherwise download it on first use.
+can be built and tested with no account at all. Its model is fetched by the image build or
+`make models`, never at runtime.
 """
 
 from pathlib import Path

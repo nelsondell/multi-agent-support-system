@@ -1,5 +1,4 @@
 # Four alerts, each with the one line an on-call engineer needs first (`runbook`).
-# Unit-tested by alerts_test.yml (`promtool test rules`); docs/drills.md shows them fire.
 groups:
   - name: support
     rules:

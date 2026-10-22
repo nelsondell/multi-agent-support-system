@@ -1,4 +1,4 @@
-"""The support agent's three read tools.
+"""The support agent's read tools.
 
 Each reads the caller's own records and nothing else. `user_id` arrives through `InjectedState`,
 so it is absent from the schema the model sees: there is no argument a prompt could set to reach
@@ -84,8 +84,7 @@ def _record(user_id: str, today: date | None) -> dict[str, Any] | None:
 
 
 def offline_terminal(user_id: str) -> str | None:
-    """The serial of the caller's own terminal when it is offline: the only terminal a technical
-    ticket may be opened for, decided here and not by the model."""
+    """The caller's own offline terminal: the only one a ticket may name, chosen by code."""
     record = _customers().get(user_id) or {}
     terminal = record.get("terminal") or {}
     return terminal.get("serial") if terminal.get("status") == "sem_comunicacao" else None
@@ -171,12 +170,7 @@ def get_account_profile(
     user_id: Annotated[str, InjectedState("user_id")],
     today: Annotated[date | None, InjectedState("today")] = None,
 ) -> dict[str, Any]:
-    """Consulta o cadastro do cliente: o plano contratado e a maquininha.
-
-    Returns:
-        O plano, o modelo da maquininha, a situação dela ("ativo" ou "sem_comunicacao") e quando
-        ela se comunicou pela última vez.
-    """
+    """Consulta o plano do cliente e o modelo, a situação e a última comunicação da maquininha."""
     record = _record(user_id, today)
     if record is None:
         return {"found": False}

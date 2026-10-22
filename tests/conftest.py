@@ -146,6 +146,30 @@ def build_test_graph(sample_chunks, fake_collection):
 
 
 @pytest.fixture
+def api(tmp_path, sample_chunks, fake_collection):
+    """The real app over SQLite stores in `tmp_path` and a model, behind the suite's identity."""
+    from app.graph.build import build_graph
+    from app.main import create_app
+    from app.rag.retrieve import HybridRetriever
+    from app.settings import Settings
+    from app.storage import open_storage
+    from tests.identity import serve
+
+    async def start(exits, model, **overrides) -> httpx.AsyncClient:
+        settings = Settings(state_dir=str(tmp_path / "state"), **overrides)
+        storage = await exits.enter_async_context(open_storage(settings))
+        retriever = HybridRetriever(sample_chunks, fake_collection(), top_k=5)
+        queue, desk = storage.queue, storage.desk
+        graph = build_graph(model, settings, retriever, storage.checkpointer, queue, None, desk)
+        app = create_app()
+        serve(app, settings, storage, graph, retriever)
+        client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://t")
+        return await exits.enter_async_context(client)
+
+    return start
+
+
+@pytest.fixture
 def web_search():
     """A web search client over a mocked transport. Nothing leaves the process.
 

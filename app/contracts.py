@@ -32,8 +32,7 @@ class TargetAgent(StrEnum):
 
 
 class Need(BaseModel):
-    """A question a specialist found only the other one can answer, such as the merchant's
-    terminal model for a fee that depends on it. The supervisor may add a step for it."""
+    """A question a specialist found only the other one can answer."""
 
     agent: TargetAgent
     query_pt: str = Field(min_length=3, max_length=300)
@@ -174,23 +173,20 @@ CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 
 class ChatRequest(BaseModel):
-    """Inbound payload. The merchant is whoever the bearer token names (app/auth.py); a body
-    that tries to name one is rejected."""
+    """Inbound payload. The merchant is whoever the bearer token names, never a body field."""
 
     model_config = ConfigDict(extra="forbid")
 
     message: str = Field(min_length=1)
     conversation_id: str | None = Field(default=None, pattern=CONVERSATION_ID_PATTERN)
-    confirm_action_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
-    """Runs the write this conversation proposed, when it is that proposal's id. A message
-    without it cancels the proposal."""
     """Continues a conversation when given; the server starts a new one when absent. It only
     names a thread together with the merchant's id, never on its own."""
+    confirm_action_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
+    """Runs the proposed write when it is that proposal's id; any other message cancels it."""
 
 
 class PendingAction(BaseModel):
-    """A write the agent proposed and only the merchant can run: its id, and the operation as code
-    renders it from the arguments, never as a model summarised it."""
+    """A write only the merchant can run, rendered by code, never summarised by a model."""
 
     id: str
     operation: str
@@ -202,7 +198,7 @@ class ChatResponse(BaseModel):
     conversation_id: str
     status: Literal["answered", "pending_human", "pending_confirmation"] = "answered"
     """`pending_human` while an operator has the case; the answer is then a handoff notice.
-    `pending_confirmation` while a proposed write waits for the merchant's `confirm_action_id`."""
+    `pending_confirmation` while a proposed write waits for its `confirm_action_id`."""
     answer: str
     intent: Intent
     agents: list[TargetAgent] = Field(default_factory=list)

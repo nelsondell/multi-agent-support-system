@@ -1,258 +1,54 @@
 {
   "uid": "support-overview",
   "title": "Support: cost, resolution and vendors",
-  "tags": [
-    "support"
-  ],
+  "tags": ["support"],
   "timezone": "browser",
   "schemaVersion": 39,
   "refresh": "10s",
-  "time": {
-    "from": "now-1h",
-    "to": "now"
-  },
+  "time": {"from": "now-1h", "to": "now"},
   "panels": [
     {
-      "id": 1,
-      "type": "timeseries",
-      "title": "Cost per resolution",
+      "title": "Cost per resolution", "type": "timeseries", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
       "description": "Model spend over turns answered without a human: escalated turns' spend is carried by the resolved ones.",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 0,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
+      "fieldConfig": {"defaults": {"unit": "currencyUSD"}},
       "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(increase(support_model_cost_usd_total[1h])) / clamp_min(sum(increase(support_turns_total{outcome=\"resolved\"}[1h])), 1)",
-          "legendFormat": "USD per resolved turn"
-        }
+        {"refId": "A", "expr": "sum(increase(support_model_cost_usd_total[1h])) / clamp_min(sum(increase(support_turns_total{outcome=\"resolved\"}[1h])), 1)", "legendFormat": "USD per resolved turn"}
       ]
     },
     {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Resolved without a human, by intent",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
+      "title": "Resolved without a human, by intent", "type": "timeseries", "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
       "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (intent) (rate(support_turns_total{outcome=\"resolved\"}[15m])) / sum by (intent) (rate(support_turns_total[15m]))",
-          "legendFormat": "{{intent}}"
-        }
+        {"refId": "A", "expr": "sum by (intent) (rate(support_turns_total{outcome=\"resolved\"}[15m])) / sum by (intent) (rate(support_turns_total[15m]))", "legendFormat": "{{intent}}"}
       ]
     },
     {
-      "id": 3,
-      "type": "timeseries",
-      "title": "Escalations by reason",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
+      "title": "Escalations by reason", "type": "timeseries", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "short"}},
       "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (reason) (increase(support_escalations_total[5m]))",
-          "legendFormat": "{{reason}}"
-        }
+        {"refId": "A", "expr": "sum by (reason) (increase(support_escalations_total[5m]))", "legendFormat": "{{reason}}"}
       ]
     },
     {
-      "id": 4,
-      "type": "timeseries",
-      "title": "Prompt cache hit rate",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 8,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
+      "title": "Prompt cache hit rate", "type": "timeseries", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "percentunit"}},
       "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(support_model_tokens_total{kind=\"cached\"}[15m])) / clamp_min(sum(rate(support_model_tokens_total{kind=\"input\"}[15m])), 1)",
-          "legendFormat": "cached / input tokens"
-        }
+        {"refId": "A", "expr": "sum(rate(support_model_tokens_total{kind=\"cached\"}[15m])) / clamp_min(sum(rate(support_model_tokens_total{kind=\"input\"}[15m])), 1)", "legendFormat": "cached / input tokens"}
       ]
     },
     {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Node latency p50 and p95",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
+      "title": "Node latency p50 and p95", "type": "timeseries", "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "s"}},
       "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.5, sum by (le, node) (rate(support_node_latency_seconds_bucket[5m])))",
-          "legendFormat": "p50 {{node}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "histogram_quantile(0.95, sum by (le, node) (rate(support_node_latency_seconds_bucket[5m])))",
-          "legendFormat": "p95 {{node}}"
-        }
+        {"refId": "A", "expr": "histogram_quantile(0.5, sum by (le, node) (rate(support_node_latency_seconds_bucket[5m])))", "legendFormat": "p50 {{node}}"},
+        {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le, node) (rate(support_node_latency_seconds_bucket[5m])))", "legendFormat": "p95 {{node}}"}
       ]
     },
     {
-      "id": 6,
-      "type": "timeseries",
-      "title": "Vendor failures after retries",
-      "description": "",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 16,
-        "w": 12,
-        "h": 8
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        }
-      },
+      "title": "Vendor failures after retries", "type": "timeseries", "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+      "fieldConfig": {"defaults": {"unit": "short"}},
       "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (vendor, kind) (increase(support_vendor_failures_total[5m]))",
-          "legendFormat": "{{vendor}} {{kind}}"
-        }
+        {"refId": "A", "expr": "sum by (vendor, kind) (increase(support_vendor_failures_total[5m]))", "legendFormat": "{{vendor}} {{kind}}"}
       ]
     }
   ]

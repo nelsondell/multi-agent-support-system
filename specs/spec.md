@@ -399,7 +399,8 @@ with provider, model and token counts, never content) and go over OTLP when an e
 cache hit rate), escalations by reason, node latency and vendor failures after retries. Static
 prompts end at an explicit cache breakpoint. The `observability` compose profile adds Prometheus
 with four alert rules (p95, escalation spike, vendor failures, cost per resolution), a Grafana
-dashboard and Jaeger; drills inject vendor faults and record what fired and how fast it recovered.
+dashboard and Jaeger. Each vendor failure (model error, model hang, web search down) has a test
+that stubs it.
 LangSmith tracing stays optional, off by default, and masked.
 
 **Evals.** The routing golden set gains multi-turn, human-review and compound cases. An
