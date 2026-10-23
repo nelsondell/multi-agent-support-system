@@ -13,8 +13,8 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 345 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
-| **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
+| **Verify** | `make verify`: 350 tests and the offline evals, the eval gate included, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Evals** | error analysis on 100 sampled requests: pass-all 95/100 · red team 40/40 (OWASP ASI01–ASI10) · both replayed in CI ([evals](evals/README.md)) · routing golden set 27/28 |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
 timebox:** an iteration on the evaluator's feedback, done at the evaluator's invitation. [What
@@ -40,8 +40,8 @@ make verify                     # frozen sync, then lint, tests and offline eval
 
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, the tests run with sockets blocked, and the result lands in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 9 s of
-sync (448 MB, so mostly the network) and 23.6 s of checks.
+[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 35 s of
+sync (466 MB, so mostly the network) and 24.0 s of checks.
 
 ```bash
 cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY
@@ -60,6 +60,8 @@ Postgres, two replicas over it and a round-robin balancer on port 8080 instead
 ```bash
 uv sync && uv run python -m app.rag.ingest && uv run uvicorn app.main:app --reload   # local
 make models                                    # once, for EMBEDDING_BACKEND=local outside Docker
+make eval                                      # the PR-gating evals, live and recorded (both keys)
+make eval-offline                              # the same, replayed: no key, no network
 uv run python -m evals.run_routing_eval        # routing golden set (needs OPENAI_API_KEY)
 uv run python -m evals.run_judge               # LLM judge, 3 runs (needs both keys)
 ```
@@ -184,9 +186,11 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 345 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
-| Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite and the guardrail eval, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
+| Offline suite | 350 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite, the guardrail eval and the eval replay, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
+| Error analysis | 100 sampled requests on the real model, labelled pass or fail, grouped into five failure modes; one check per mode (four in code, one binary judge from another model family): **pass-all 95/100**; the judge is not validated: the labels hold 5 failures of its mode, 1 held out | [`evals/README.md`](evals/README.md), [`failure_modes.md`](evals/failure_modes.md) |
+| Red team | 40 cases tagged OWASP ASI01–ASI10, 10 adaptive, with planted web pages and corpus passages: **40/40 safe** | [`evals/red_team.jsonl`](evals/red_team.jsonl), [`eval_report.md`](evals/eval_report.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
 | Model benchmark | 5 candidates × the golden set: `gpt-6-luna` low **54/56**, `gpt-6-sol` 55/56 at 18× the cost, `gpt-4o-mini` 46/56 | [`evals/router_benchmark.md`](evals/router_benchmark.md) |
 | Retrieval calibration | 3 embedders × 37 questions: the large OpenAI model separates in- from out-of-domain with a 0.110 gap; the local one doesn't | [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md) |
@@ -194,7 +198,8 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 Tests assert invariants (route, plan, sources, status, masking, isolation), never a model's wording.
 The provider is scripted and the suite reads neither `.env` nor the clock. Evals never run inside
-pytest: a statistical score that dips one row is a signal to read, not a red build.
+pytest. The gating evals replay a recorded live run in `make verify`, so a code change that
+lowers a rate fails CI without a key; a prompt change needs `make eval` to record again.
 
 **Judge:** groundedness **4.96 ± 0.07** and relevance **4.45 ± 0.05** over three runs, 16 or 17
 scored turns each, run at about 06:30 in Brazil. The judge reads every turn against the merchant's
@@ -245,8 +250,8 @@ runbook line each; vendor failures are stubbed in tests and were drilled once ag
 | Infra / Docker (6.8) | One command from a clean clone; index built on first boot; separate state volume; healthcheck; CI builds and smoke-tests the container; `make verify` offline; SBOM, vulnerability and secret scans; digest-pinned base images; replicas over Postgres behind a balancer | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
 | Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan; bounded replanning: a finding adds a read step for the other specialist, within plan-change, model-call and cost budgets | T-21, T-22, T-43, T-52 |
-| Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; OpenTelemetry GenAI traces; cost per resolution and cache hit rate; Grafana dashboard and four alerts with runbooks; vendor failures tested | T-25, T-26, T-28, T-29, T-39, T-44, T-54 |
-| Tests / quality (9.2) | 78 → 348 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Observability / evals (9.1) | Error analysis with one check per failure mode and a 40-case red team, replayed in CI against thresholds; LLM judge over 3 runs; model benchmark; embedder calibration; OpenTelemetry GenAI traces; cost per resolution and cache hit rate; Grafana dashboard and four alerts with runbooks; vendor failures tested | T-25, T-26, T-28, T-29, T-39, T-44, T-51, T-54 |
+| Tests / quality (9.2) | 78 → 353 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
 | Security / isolation (9.5) | Merchant identity from a signed JWT; operator roles; append-only audit; LGPD erasure and retention; rate limit; threads bound to the merchant; restricted checkpoint deserializer; masked web queries | T-19, T-21, T-23, T-31, T-44, T-49 |
 | RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |
@@ -291,9 +296,9 @@ of the cost ([benchmark](evals/router_benchmark.md)).
 - **Live answers vary.** Web answers depend on what the search returns that minute, and sampling
   moves the judge's scores; [`evals/report.md`](evals/report.md) reports the spread, not one run.
 - **The retrieval threshold rests on 37 hand-written questions** and a 0.110 gap.
-- **Most web pages carry no structured publication date**, so weather and exchange-rate answers
-  usually close with "Não consegui confirmar a data de publicação desta informação", even when the
-  page text shows one: only the provider's structured date is trusted.
+- **Most web pages carry no structured publication date.** A day-dependent answer then shows the
+  day its cited page names, labelled as stated by the source, and says it could not confirm a
+  date only when the cited page names none.
 - **Some rules are prompt-only.** "The site doesn't say X" only when no excerpt treats X, and "a
   forecast is called a forecast", are checked by the judge, not by code. The status guard reads
   words, so it catches "aprovada" for "estornada", not a negation such as "não foi estornada".

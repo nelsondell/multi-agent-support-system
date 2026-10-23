@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
 _WITH_DIGIT = re.compile(r"\S*\d\S*")
+_DAY_MONTH_YEAR = re.compile(r"\b(\d{1,2})/(\d{1,2})/(\d{4})\b")
+_YEAR_MONTH_DAY = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_WRITTEN = re.compile(r"\b(\d{1,2}) de ([a-zç]{3})[a-zç]*\.? de (\d{4})\b", re.IGNORECASE)
+_MONTHS = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"]
 _SPACES = re.compile(r"\s+")
 _EDGES = ".,;:!?()[]{}\"'"
 
@@ -49,6 +53,24 @@ class WebResult:
     content: str
     published: str | None = None
     """When the provider knows it, the page's publication date, as the provider writes it."""
+
+    def stated_days(self) -> list[date]:
+        """The calendar days the page's own text names: untrusted, and never a publication date."""
+        text = f"{self.title} {self.content}"
+        found = [(int(d), int(m), int(y)) for d, m, y in _DAY_MONTH_YEAR.findall(text)]
+        found += [(int(d), int(m), int(y)) for y, m, d in _YEAR_MONTH_DAY.findall(text)]
+        found += [
+            (int(d), _MONTHS.index(m.lower()) + 1, int(y))
+            for d, m, y in _WRITTEN.findall(text)
+            if m.lower() in _MONTHS
+        ]
+        days = []
+        for day, month, year in found:
+            try:
+                days.append(date(year, month, day))
+            except ValueError:
+                continue  # 10/14/2024 is a month-first date, not one this site would write
+        return days
 
     @property
     def published_on(self) -> date | None:

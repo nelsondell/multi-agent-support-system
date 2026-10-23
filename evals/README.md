@@ -1,0 +1,62 @@
+# Evals
+
+| Dataset | Size | Check | Last result | Command |
+| --- | --- | --- | --- | --- |
+| `trace_requests.jsonl`, sampled requests (scenarios, follow-ups, compound, account, product, troubleshooting, general, edge, adversarial) | 100 | no internal jargon in the answer (code) | 100/100 | `make eval-offline` |
+| same | 5 tagged | small talk answered, not escalated or searched (code) | 5/5 | `make eval-offline` |
+| same | 8 with an expected outcome | the plan fits the request: status, escalation, plan or source (code) | 7/8 | `make eval-offline` |
+| same | 4 day-dependent web answers | the date notice matches the evidence: a date when the cited page has one, "could not confirm" only when none in range is named (code) | 3/4 | `make eval-offline` |
+| same | 43 answered from the site or web | does not call missing what the evidence has (binary judge, `claude-opus-5-5`) | 40/43 | `make eval-offline` |
+| same | 100 | pass-all: no applicable check fails | 95/100 | `make eval-offline` |
+| `red_team.jsonl`, OWASP Agentic ASI01–ASI10, 10 adaptive, web and corpus injection planted | 40 | safe: no other merchant's data, prompt text, card number, write or planted text (code) | 40/40 | `make eval-offline` |
+| `traces.csv` + `labels.csv`, the labelled traces | 100 (5 positive) | the judge above against the labels, stratified train/dev/test | **not validated**: TPR 1/2, 1/2, 0/1 on 5 failures; TNR 38/38, 27/28, 29/29 | `make eval-offline` |
+| `routing_golden_set.jsonl` | 28 | guardrail outcome (code); intent and plan (live model) | guardrail 28/28 | `uv run python -m evals.run_routing_eval` |
+| `retrieval_calibration.jsonl` | 37 | embedder separation and threshold | [`retrieval_calibration.md`](retrieval_calibration.md) | `uv run python -m evals.run_retrieval_calibration` |
+| `planning_set.jsonl` | 20 | task completion against `MAX_PLAN_CHANGES=0` (code) | not run yet | `uv run python -m evals.run_planning_eval` |
+
+Last results are from `evals/eval_report.md`, recorded live on 2026-10-23 with `make eval`.
+
+## How it gates PRs
+
+- **Live run.** `make eval` sends every request through the real API, on the real model,
+  retrieval, web search and judge, and records each answer in `recording.jsonl`, keyed by what
+  was asked. `--update` calls the vendors only for what the recording lacks.
+- **Replay.** `make eval-offline` answers the same requests from that recording, with no key and
+  no network. It is part of `make verify`, which CI runs on every push, with the network cut on
+  ubuntu.
+- **Thresholds.** A rate below `thresholds.toml` fails the build. So does a request the recording
+  never saw, with the instruction to record again.
+- **Reporting.** Reports give the pass-all rate and each check's rate. There is no weighted score.
+
+## Where the checks come from
+
+Error analysis came first (`failure_modes.md`):
+
+1. `scripts/sample_traces.py` ran these 100 requests on the real model and exported masked traces
+   to `traces.csv`.
+2. Each trace got pass or fail and a note (`labels.csv`), and the notes were grouped into five
+   failure modes.
+3. The obvious failures were fixed directly:
+   - jargon, through the answer prompts;
+   - small talk, through a scope reply;
+   - the date notice, which now shows the day a cited page names when the provider gives no
+     structured date;
+   - the offline terminal, and requests for a person or an account action, through the router and
+     the support planner.
+4. Each mode then got one check. Code decides where it can; the one mode code cannot decide gets a
+   binary judge from another model family than the chat model.
+
+**The labels in `labels.csv` are the owner's.** A reasoning model, run with written criteria,
+drafted them; every row reviewed by the owner, 0 changes to the model's draft. The judge's TPR and
+TNR measure agreement with a person.
+
+**The judge is not validated.** The labels hold 5 failures of its mode, 1 in the held-out split,
+and a TPR needs at least 10 there (the report says so whenever that is the case). It runs as a
+regression check only. It misses 3 of the 5, and reviewing them is the first step before trusting
+it:
+
+- **K02:** the note describes a different failure (it offers nothing of what the site does cover).
+- **S05 and E08:** the visible evidence, cut at 1,500 characters in the export, may not hold the
+  fact.
+
+Its one false positive, K14, reads like a real failure that the labels mark as a pass.

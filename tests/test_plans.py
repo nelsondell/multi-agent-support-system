@@ -19,6 +19,7 @@ from app.graph.memory import thread_id, turn_input
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.handoffs import open_handoff_queue
+from app.prompts import load_prompt
 from app.rag.retrieve import HybridRetriever
 from app.responses import to_response
 from app.settings import Settings
@@ -153,6 +154,16 @@ async def test_a_single_intent_request_makes_the_same_calls_as_before(graph_for,
 
     assert stand_in.schemas() == expected
     assert response.agents == [agent]
+
+
+async def test_small_talk_gets_the_scope_reply_without_a_specialist_or_a_person(graph_for):
+    small_talk = plan((TargetAgent.KNOWLEDGE, "oi")).model_copy(update={"intent": Intent.OTHER})
+    stand_in = model(RouterDecision=small_talk)
+
+    final = await send(graph_for(stand_in), "oi")
+
+    assert final["answer"] == load_prompt("scope").text and final.get("escalation") is None
+    assert stand_in.schemas() == ["RouterDecision"]
 
 
 def test_a_three_step_plan_is_rejected_by_the_schema():

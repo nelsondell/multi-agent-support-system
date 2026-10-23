@@ -572,6 +572,25 @@ dashboard drops fields Grafana defaults.
 in `evals/report.md`); app coverage is not lower; CI is under 130 lines; the PR reports v3's added
 lines per area before and after, against the plan's target of about 3,000.
 
+### T-51 — `test(T-51): error analysis and evals that gate PRs`
+Error analysis first (Husain & Shankar, AI Evals FAQ, Sep 2026), in two sessions. Session 1:
+`scripts/sample_traces.py` runs the 100 requests in `evals/trace_requests.jsonl` (the ten
+scenarios, follow-ups, compound requests, account and product questions, troubleshooting, general
+questions, edge cases and adversarial ones) through `/chat` on the real model, each as its
+merchant, and exports masked traces to `evals/traces.csv`. A person annotates at least 30 with
+pass or fail and a note, and the notes are clustered into `evals/failure_modes.md` with counts.
+Session 2: the obvious failures are fixed directly; each remaining mode (3 to 5) gets one check, a
+code assertion where possible, otherwise a binary judge from another model family
+(`JUDGE_PROVIDER`, `JUDGE_MODEL`) validated with TPR and TNR on the person's labels
+(train/dev/test); 40 red-team cases carry OWASP Agentic ids, 10 of them adaptive. Reports give the
+pass-all rate and each check's rate, no weighted composite. Recorded responses let
+`make eval-offline` replay everything in CI and fail a PR past `evals/thresholds.toml`;
+`make eval` runs live. `evals/README.md` is one table: dataset, size, check, last result, command.
+**Done when:** the labels' provenance is stated (a person's, or a model's and how many a person
+ratified); each judge's TPR and TNR are reported on a held-out split, and the report calls a judge
+not validated while that split holds fewer than 10 of its failures; a regression past a threshold
+fails CI with no key.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -581,7 +600,7 @@ lines per area before and after, against the plan's target of about 3,000.
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
 | Multi-agent / orchestration (8.8) | T-22, T-43, T-52 |
-| Observability / evals (9.1) | T-25, T-26, T-31, T-54 |
+| Observability / evals (9.1) | T-25, T-26, T-31, T-51, T-54 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines; T-56 |
 | Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47, T-49 |

@@ -466,6 +466,47 @@ async def test_without_a_structured_date_the_answer_says_it_could_not_confirm_on
     assert not re.search(r"não informa|sem data|não tem data|não traz", stamp, re.IGNORECASE)
 
 
+@pytest.mark.parametrize(
+    ("content", "stamp"),
+    [
+        (
+            "Euro comercial a R$ 6,12 em 14/10/2026.",
+            "Data informada pela própria fonte: 14/10/2026.",
+        ),
+        (
+            "Euro comercial a R$ 6,12 em 14 de out. de 2026.",
+            "Data informada pela própria fonte: 14/10/2026.",
+        ),
+        (
+            "Euro comercial a R$ 6,12 em 10/10/2026.",
+            "Não consegui confirmar a data de publicação desta informação.",
+        ),
+        (
+            "Euro comercial a R$ 6,12; próxima reunião em 04/11/2026.",
+            "Não consegui confirmar a data de publicação desta informação.",
+        ),
+    ],
+    ids=["today", "written", "older", "later"],
+)
+async def test_without_a_structured_date_the_day_the_page_names_is_shown_as_stated(
+    run, web_search, content, stamp
+):
+    """Only a day from the one asked about counts, and it is labelled as the source's own."""
+    page = {"url": "https://cambio.example/euro", "title": "Cotação do euro", "content": content}
+    web, _ = web_search([page])
+    reply = "O euro comercial está a R$ 6,12."
+    model = Model(
+        {
+            RouterDecision: general("cotação do euro hoje", "today"),
+            KnowledgeAnswer: web_reply(reply, page["url"]),
+        }
+    )
+
+    response = to_response(await run(model, web, "Qual a cotação do euro hoje?"), "c1")
+
+    assert response.answer == f"{reply}\n\n{stamp}"
+
+
 async def test_a_question_that_does_not_depend_on_the_day_gets_no_filter_and_no_notice(
     run, web_search
 ):
