@@ -53,20 +53,21 @@ parallel plan steps, plans longer than two steps.
 `Authorization: Bearer <merchant JWT>`
 
 ```json
-{ "message": "string", "conversation_id": "string (optional)" }
+{ "message": "string", "conversation_id": "string (optional)", "confirm_action_id": "string (optional)" }
 ```
 
 ```json
 {
   "conversation_id": "string",
-  "status": "answered | pending_human",
+  "status": "answered | pending_human | pending_confirmation",
   "answer": "string (pt-BR)",
   "intent": "product_info | troubleshooting | account_data | individual_case | general_info | other",
   "agents": ["support", "knowledge"],
   "confidence": 0.0,
   "sources": [{ "source_type": "kb | web | account | operator", "url": "string | null", "title": "string" }],
   "escalated": false,
-  "escalation": { "protocol": "ESC-...", "reason": "string", "summary": "string" }
+  "escalation": { "protocol": "ESC-...", "reason": "string", "summary": "string" },
+  "pending_action": { "id": "string", "operation": "string" }
 }
 ```
 
@@ -78,6 +79,13 @@ parallel plan steps, plans longer than two steps.
   protocol, preceded by any part of the request already answered, whose sources it keeps.
 - `status = answered` with `escalated = true` is a reply resolved by an operator; it cites one
   `operator` source whose `url` is null and whose `title` is the protocol.
+- `status = pending_confirmation` means the agent proposed a write, today only a technical ticket
+  for the merchant's own offline terminal. `pending_action` carries its id and the operation as
+  code renders it from the arguments. Only a `/chat` with that `confirm_action_id` runs it; any
+  other message cancels it. A replayed confirmation returns the same receipt, and an id that is
+  not this merchant's is a 404 (`docs/tools.md`).
+- The first reply of a conversation says the assistant is automated, and every handoff notice
+  says the operator already has the conversation's summary.
 - `kb` and `web` sources always carry a `url`. An `account` source has no url; its `title` names
   the tool that read the merchant's account.
 
@@ -242,6 +250,9 @@ Exactly two, both read-only:
   against today — `liquidado` before today, `previsto` from today on — so it can never contradict
   the date. A sale date after today is read as a credit date: no sale has happened yet.
 - `get_transactions` — the caller's most recent transactions, optionally filtered by status.
+- `open_technical_ticket` — the one write: proposed by the agent, run only on the merchant's
+  confirmation, idempotent on the proposal id, for the caller's own terminal when the account
+  shows it offline.
 
 Both take `user_id`, the verified token's `sub`, from injected graph state. There is no identity parameter in either schema,
 so a message naming another merchant's id cannot change what is queried. An unknown id yields an

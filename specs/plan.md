@@ -8,6 +8,8 @@ app/
   auth.py              JWT verification, merchant and operator dependencies, roles, rate limit
   audit.py             the append-only audit log
   retention.py         `make purge`: erase conversations idle past RETENTION_DAYS
+  graph/actions.py     the proposed write and the `confirm_action` node
+  tools/tickets.py     the ticket backend: idempotent on the proposal id, audited
   contracts.py         API and cross-node Pydantic models, typed enums
   main.py              FastAPI: POST /chat, GET /health, GET /metrics; lifespan wiring
   operator.py          GET /handoffs, POST /handoffs/{protocol}/resume, bearer check
@@ -326,6 +328,7 @@ test suite.
 | Hard rule 1 and 4: no number or status its source lacks (§9) | `test_numbers::*`, `test_statuses::*`, `test_plans::test_a_composed_answer_with_a_new_number_falls_back_to_the_step_answers`, `test_a_composed_answer_that_flips_a_status_falls_back_to_the_step_answers`, `test_human_review::test_a_rephrasing_with_a_new_number_falls_back_to_the_operator_text`, `test_a_rephrasing_that_flips_a_status_falls_back_to_the_operator_text`, `test_web::test_an_answer_with_a_number_the_results_lack_degrades` |
 | Hard rule 3: declines answered from the recorded reason, otherwise a person (§9) | `test_support::test_a_decline_is_explained_with_the_reason_the_issuer_recorded`, `test_a_decline_the_data_cannot_explain_goes_to_a_person` |
 | Hard rule 5: a person is promised only with a protocol (§9) | `test_plans::test_an_answer_never_promises_a_person_when_no_protocol_opens`, `test_an_answer_that_only_promises_a_person_opens_the_protocol` |
+| One write behind confirmation: none without it, one per proposal, 404 across merchants, nothing partial on a vendor failure; first reply discloses automation (§3) | `test_actions::*`, `test_replicas::test_a_ticket_proposed_on_one_replica_is_confirmed_once_on_the_other` |
 | Merchant only from a verified token; forged, expired or misaddressed tokens 401; roles; rate limit; erasure leaves nothing; audit append-only; retention (§3) | `test_security::*`, `test_replicas::test_erasing_on_one_replica_leaves_nothing_in_postgres`, `test_the_audit_log_cannot_be_rewritten_in_postgres` |
 | Identity injected, never in a tool schema (§8) | `test_tools::test_user_id_is_not_in_the_schema_the_model_sees`, `test_a_smuggled_user_id_cannot_reach_another_customer`, `test_adversarial::test_another_customers_data_is_unreachable_through_the_graph` |
 | Settlements by sale or credit date, derived status, merchant's money notation (§8) | `test_tools::test_yesterdays_sales_are_found_by_sale_date_and_credit_today`, `test_records_are_read_as_of_the_turns_day`, `test_amounts_reach_the_model_in_the_merchants_notation`, `test_support::test_tomorrows_sales_are_read_as_the_money_crediting_tomorrow` |

@@ -503,12 +503,29 @@ files and applies the Rule of Two to each flow. Tests authenticate through one h
 merchant's conversation is 404; the role matrix holds; erasure leaves no row of the conversation
 in SQLite or Postgres; the audit log cannot be updated or deleted.
 
+### T-50 — `feat(T-50): one write action behind confirmation`
+A support turn mixes untrusted input and private data, so a state change needs a human to approve
+it (Meta's Agents Rule of Two). The support planner may propose `open_technical_ticket` for a
+terminal still offline after the basic steps; code picks the merchant's own terminal and checks
+it is offline, or the case goes to a person. The graph pauses in `confirm_action` with
+`interrupt(response_schema=ActionDecision)`, and `/chat` answers `pending_confirmation` with
+`pending_action`: an id and the operation rendered from the arguments. Only a `/chat` with that
+`confirm_action_id` runs it; any other message cancels it and then runs as its own turn. The
+ticket backend (`app/tools/tickets.py`) opens one ticket per proposal id, so a replay or a second
+confirmation returns the same receipt, and another merchant's id is a 404; a failure mid-write
+leaves no ticket and escalates as `tool_unavailable`. Proposals, tickets and cancellations are
+audited. The first reply of a conversation says it is automated, and every handoff says the
+operator already has the summary. `docs/tools.md` lists every tool with its schema, side effects,
+idempotency and failure modes; the demo shows the proposal, the confirmation and the replay.
+**Done when:** no confirmation, no write; a replayed or concurrent confirmation, one ticket;
+another merchant's id, 404; a vendor failure mid-write, no ticket.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
-| Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44 |
+| Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44, T-50 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
 | Multi-agent / orchestration (8.8) | T-22, T-43 |

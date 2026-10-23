@@ -13,7 +13,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 326 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Verify** | `make verify`: 333 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
 | **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
@@ -28,8 +28,8 @@ changed since v1](#8-what-changed-since-v1) maps each change to the criterion it
 
 **Go deeper** — [architecture](docs/architecture.md) (workflow, tools, memory, failures) ·
 [RAG and web search](docs/rag.md) · [human in the loop](docs/human-in-the-loop.md) ·
-[demo output](docs/demo.md) · [security](docs/security.md) (identity, audit, LGPD, OWASP agentic
-map) · [operations](docs/operations.md) (configuration, Docker,
+[demo output](docs/demo.md) · [tools](docs/tools.md) · [security](docs/security.md) (identity,
+audit, LGPD, OWASP agentic map) · [operations](docs/operations.md) (configuration, Docker,
 observability) · [spec](specs/spec.md) · [plan](specs/plan.md) · [tasks](specs/tasks.md)
 
 ## 1. Quick start
@@ -40,7 +40,7 @@ make verify                     # frozen sync, then lint, tests and offline eval
 
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, the tests run with sockets blocked, and the result lands in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 92 s of
+[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 97 s of
 sync (453 MB, so mostly the network) and 24.1 s of checks.
 
 ```bash
@@ -120,7 +120,10 @@ spans the whole plan, so two agents cannot pass a message back and forth.
    standalone Portuguese query that resolves "e o de amanhã?" or "dessa venda" from the history,
    which it reads as data. A rewrite that invents a number or id is discarded.
 4. **Specialists** run step by step on their own query, never the history: knowledge retrieves
-   (or searches the web for weather and exchange rates), support calls one account tool.
+   (or searches the web for weather and exchange rates), support calls one account tool. The one
+   write, a technical ticket for an offline terminal, is only proposed: the turn answers
+   `pending_confirmation` with the operation as code renders it, and it runs once the merchant
+   sends its `confirm_action_id` ([tools](docs/tools.md)).
 5. **Compose** copies one answer, or merges two with a call that may not add a number or change a
    status. A step that needs a person pauses the turn there; the part already answered goes out.
 6. **Human review** opens a case and pauses; when the operator answers, the plan resumes (§4).
@@ -173,7 +176,7 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 326 tests, about 10 s, sockets blocked, plus 9 that run two replicas over Postgres in CI: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 333 tests, about 10 s, sockets blocked, plus 10 that run two replicas over Postgres in CI: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite and the guardrail eval, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
@@ -227,12 +230,12 @@ Escalations are counted by typed reason on `GET /metrics`; LangSmith tracing is 
 | Criterion (v1 score) | v2 | Tasks |
 | --- | --- | --- |
 | Memory / multi-turn (1.5) | Persistent threads keyed by merchant and conversation; follow-ups rewritten into standalone queries with history as data; rolling summary; history endpoint; survives restarts | T-19, T-20, T-34, T-42 |
-| Human in the loop (5.8) | A fourth agent: case and draft before `interrupt()`; approve, reply or cancel; guarded rephrasing; reply delivered with the next message; notes while waiting; expiry; the plan finishes after the reply | T-21, T-42, T-43 |
+| Human in the loop (5.8) | A fourth agent: case and draft before `interrupt()`; approve, reply or cancel; guarded rephrasing; reply delivered with the next message; notes while waiting; expiry; the plan finishes after the reply; the merchant confirms the one write action | T-21, T-42, T-43, T-50 |
 | Infra / Docker (6.8) | One command from a clean clone; index built on first boot; separate state volume; healthcheck; CI builds and smoke-tests the container; `make verify` offline; SBOM, vulnerability and secret scans; digest-pinned base images; replicas over Postgres behind a balancer | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
 | Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan | T-21, T-22, T-43 |
 | Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; Prometheus counters by honest reason; masked tracing | T-25, T-26, T-28, T-29, T-39, T-44 |
-| Tests / quality (9.2) | 78 → 335 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Tests / quality (9.2) | 78 → 343 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
 | Security / isolation (9.5) | Merchant identity from a signed JWT; operator roles; append-only audit; LGPD erasure and retention; rate limit; threads bound to the merchant; restricted checkpoint deserializer; masked web queries | T-19, T-21, T-23, T-31, T-44, T-49 |
 | RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |

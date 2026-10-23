@@ -19,6 +19,7 @@ from app.contracts import (
     SourceType,
     TargetAgent,
 )
+from app.graph.actions import ProposedAction
 from app.graph.router import PlanStep, RouterDecision
 
 
@@ -98,6 +99,8 @@ class GraphState(BaseModel):
     escalation: Escalation | None = None
     case: HandoffCase | None = None
     """What the operator sees while this turn waits for a human."""
+    pending_action: ProposedAction | None = None
+    """A write this turn proposed, waiting in `confirm_action` for the merchant's confirmation."""
 
     messages: Annotated[list[AnyMessage], add_messages] = Field(default_factory=list)
     """Completed exchanges, oldest first: the masked merchant turn and the reply."""

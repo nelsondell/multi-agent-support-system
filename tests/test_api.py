@@ -17,10 +17,12 @@ from app.graph.knowledge import KnowledgeAnswer
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.main import app
+from app.prompts import load_prompt
 from app.settings import Settings
 from tests.identity import IDENTITY
 
 CALLER = "cliente1988"
+DISCLOSURE = load_prompt("ai_disclosure").text
 
 
 class NoCases:
@@ -86,7 +88,7 @@ def test_knowledge_answer_comes_back_with_its_sources(client) -> None:
     assert body["escalated"] is False
     assert body["agents"] == ["knowledge"]
     assert body["sources"] and body["sources"][0]["url"].startswith("https://")
-    assert body["answer"] == "Depende do emissor do cartão."
+    assert body["answer"] == f"{DISCLOSURE}\n\nDepende do emissor do cartão.", "first reply"
 
 
 def test_support_answer_uses_the_tool_result(client) -> None:

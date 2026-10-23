@@ -20,6 +20,7 @@ from app.checkpoints import checkpoint_serializer, open_checkpointer
 from app.handoffs import HandoffQueue, PostgresTables, open_sqlite_tables
 from app.locks import ConversationLocks, PostgresLocks
 from app.settings import Settings
+from app.tools.tickets import TicketDesk
 
 _SCHEMA_LOCK = 4_802_001
 """Advisory lock key for creating the tables, so replicas booting together take turns at it."""
@@ -52,6 +53,7 @@ class Storage:
     queue: HandoffQueue
     locks: ConversationLocks | PostgresLocks
     audit: AuditLog
+    desk: TicketDesk
 
 
 @asynccontextmanager
@@ -63,8 +65,10 @@ async def open_storage(settings: Settings) -> AsyncIterator[Storage]:
         return
     async with open_checkpointer(settings) as checkpointer, open_sqlite_tables(settings) as tables:
         audit = AuditLog(tables)
-        await audit.create_table()
-        yield Storage(checkpointer, HandoffQueue(tables), ConversationLocks(), audit)
+        desk = TicketDesk(tables, audit)
+        for table in (audit, desk):
+            await table.create_table()
+        yield Storage(checkpointer, HandoffQueue(tables), ConversationLocks(), audit, desk)
 
 
 @asynccontextmanager
@@ -84,6 +88,8 @@ async def open_postgres(settings: Settings) -> AsyncIterator[Storage]:
         AsyncConnectionPool(settings.database_url, max_size=size, open=False) as lock_pool,
     ):
         checkpointer = AsyncPostgresSaver(pool, serde=checkpoint_serializer())
-        queue, audit = HandoffQueue(PostgresTables(pool)), AuditLog(PostgresTables(pool))
-        await create_tables(settings.database_url, checkpointer, queue, audit)
-        yield Storage(checkpointer, queue, PostgresLocks(lock_pool), audit)
+        tables = PostgresTables(pool)
+        queue, audit = HandoffQueue(tables), AuditLog(tables)
+        desk = TicketDesk(tables, audit)
+        await create_tables(settings.database_url, checkpointer, queue, audit, desk)
+        yield Storage(checkpointer, queue, PostgresLocks(lock_pool), audit, desk)

@@ -13,9 +13,10 @@ from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.contracts import EscalationReason, Source, SourceType
+from app.graph.actions import propose_ticket
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider
 from app.tools.account import DateField, call_tool
@@ -34,6 +35,7 @@ class SupportAction(StrEnum):
     CALL_TOOL = "call_tool"
     HANDOFF_TO_KNOWLEDGE = "handoff_to_knowledge"
     ESCALATE_INDIVIDUAL_CASE = "escalate_individual_case"
+    PROPOSE_TECHNICAL_TICKET = "propose_technical_ticket"
 
 
 class SupportPlan(BaseModel):
@@ -47,6 +49,9 @@ class SupportPlan(BaseModel):
     """For the settlement schedule: filter by the sale date or by the credit date."""
     status: str | None = None
     limit: int = 10
+    symptom: str | None = Field(default=None, max_length=200)
+    """For a technical ticket: what the merchant reports, in a sentence. The terminal is never
+    the model's choice; code takes the merchant's own."""
 
     def arguments(self, today: date | None = None) -> dict[str, Any]:
         """Only the fields the chosen tool accepts. `user_id` is not among them by construction.
@@ -110,6 +115,8 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     )
     if plan.action is SupportAction.ESCALATE_INDIVIDUAL_CASE:
         return {"refusal_reason": EscalationReason.INDIVIDUAL_CASE.value}
+    if plan.action is SupportAction.PROPOSE_TECHNICAL_TICKET:
+        return propose_ticket(state, plan.symptom or question)
     if plan.action is SupportAction.HANDOFF_TO_KNOWLEDGE or plan.tool is None:
         return {"handoff_reason": EscalationReason.REPEATED_MISROUTE.value}
 

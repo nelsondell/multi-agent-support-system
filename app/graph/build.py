@@ -18,6 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, RetryPolicy, TimeoutPolicy
 
 from app.contracts import EscalationReason, Intent
+from app.graph.actions import confirm_action
 from app.graph.compose import compose
 from app.graph.escalation import escalate
 from app.graph.guardrail import after_guardrail
@@ -36,6 +37,7 @@ from app.settings import Settings
 
 if TYPE_CHECKING:
     from app.handoffs import HandoffQueue
+    from app.tools.tickets import TicketDesk
     from app.tools.web import WebSearch
 
 logger = get_logger(__name__)
@@ -85,7 +87,9 @@ async def knowledge(
     return await knowledge_answer(state, provider, retrieve(state, retriever), threshold)
 
 
-def after_specialist(state: GraphState, max_hops: int) -> Literal["router", "collect"]:
+def after_specialist(
+    state: GraphState, max_hops: int
+) -> Literal["router", "collect", "confirm_action"]:
     """Where a specialist's outcome goes next.
 
     A hand-off means the specialist believes its step belongs to the other one, so the plan was
@@ -95,7 +99,7 @@ def after_specialist(state: GraphState, max_hops: int) -> Literal["router", "col
     """
     if state.handoff_reason and state.hops < max_hops:
         return "router"
-    return "collect"
+    return "confirm_action" if state.pending_action else "collect"
 
 
 async def collect(state: GraphState) -> dict[str, Any]:
@@ -155,9 +159,11 @@ def graph_nodes(
     retriever: HybridRetriever,
     queue: "HandoffQueue | None",
     web: "WebSearch | None",
+    desk: "TicketDesk | None",
 ) -> dict[str, Callable]:
     """Every node of the graph, with its dependencies bound."""
     return {
+        "confirm_action": partial(confirm_action, desk=desk),
         "guardrail": guardrail_inspect,
         "router": partial(route, provider=provider, window=settings.history_window),
         "knowledge": partial(
@@ -199,7 +205,13 @@ def _wire(graph: StateGraph, settings: Settings) -> None:
     )
     outcome = partial(after_specialist, max_hops=settings.max_hops)
     for specialist in specialists:
-        graph.add_conditional_edges(specialist, outcome, {"router": "router", "collect": "collect"})
+        graph.add_conditional_edges(
+            specialist,
+            outcome,
+            {"router": "router", "collect": "collect", "confirm_action": "confirm_action"},
+        )
+    # A proposed write waits there for the merchant, then joins the plan like any step result.
+    graph.add_edge("confirm_action", "collect")
     graph.add_conditional_edges("collect", after_collect, {**specialists, "compose": "compose"})
     graph.add_conditional_edges(
         "compose", after_compose, {"escalate": "escalate", "remember": "remember"}
@@ -223,6 +235,7 @@ def build_graph(
     checkpointer: BaseCheckpointSaver | None = None,
     queue: "HandoffQueue | None" = None,
     web: "WebSearch | None" = None,
+    desk: "TicketDesk | None" = None,
 ):
     """Compile the orchestration graph, persisting each thread when a checkpointer is given.
 
@@ -236,7 +249,7 @@ def build_graph(
         retry_policy=RetryPolicy(max_attempts=settings.node_attempts, retry_on=MODEL_FAILURES),
         timeout=TimeoutPolicy(run_timeout=settings.node_timeout_s),
     )
-    for name, node in graph_nodes(provider, settings, retriever, queue, web).items():
+    for name, node in graph_nodes(provider, settings, retriever, queue, web, desk).items():
         handler = model_failed if name in ESCALATE_ON_FAILURE else None
         graph.add_node(name, instrument_node(name, node), error_handler=handler)
     _wire(graph, settings)
