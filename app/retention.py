@@ -1,9 +1,5 @@
-"""`make purge`: erase the conversations idle for longer than RETENTION_DAYS, with every case they
-opened, and record that in the audit log. Meant to run on a schedule.
-
-Each conversation is erased under its turn lock. With Postgres that lock is shared with the
-running replicas; with SQLite it belongs to this process only, so run it when the API is idle.
-"""
+"""`make purge`: erase conversations idle past RETENTION_DAYS. With SQLite, run it while the API is
+idle: the turn locks it takes are this process's own."""
 
 import asyncio
 from datetime import UTC, datetime, timedelta

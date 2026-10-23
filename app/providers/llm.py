@@ -5,7 +5,6 @@ vendor SDK, so moving to Azure AI Foundry means rewriting this file and nothing 
 implementation, `app/providers/fake.py`, exists only for the CI smoke test.
 """
 
-import asyncio
 import hashlib
 from typing import Any, Protocol, TypeVar
 
@@ -37,12 +36,7 @@ class LLMProvider(Protocol):
 
 
 class OpenAIProvider:
-    """Current implementation, backed by OpenAI chat completions.
-
-    The static system prompt always comes first and, with `cache`, ends at an explicit cache
-    breakpoint, the request's own data after it, so each prompt's calls reuse its cached prefix.
-    Every call runs in a `chat` span and records its tokens and cost.
-    """
+    """Current implementation, backed by OpenAI chat completions."""
 
     def __init__(
         self,
@@ -75,7 +69,7 @@ class OpenAIProvider:
     async def structured(self, *, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
         """Call the model and validate its answer against `schema`."""
         prefix: dict[str, Any] = {"type": "text", "text": system}
-        if self._cache:
+        if self._cache:  # the static prompt first, so each prompt's calls reuse its cached prefix
             prefix["prompt_cache_breakpoint"] = {"mode": "explicit"}
         key = hashlib.sha256(system.encode()).hexdigest()[:16]
         attributes = {"gen_ai.provider.name": "openai", "gen_ai.request.model": self._model}
@@ -114,32 +108,8 @@ class OpenAIProvider:
         charge(cost_usd=cost / 1_000_000)
 
 
-class FaultyProvider:
-    """Drills only: a vendor that fails the way `FAULT_INJECTION` says. A timeout takes the whole
-    `timeout` first, as a vendor that never answers does."""
-
-    def __init__(self, inner: LLMProvider, faults: set[str], timeout: float = 20.0) -> None:
-        self._inner, self._faults, self._timeout = inner, faults, timeout
-
-    async def structured(self, *, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
-        if "model_timeout" in self._faults:
-            await asyncio.sleep(self._timeout)
-            raise LLMTimeout("injected fault: the model vendor did not answer in time")
-        if "model_error" in self._faults:
-            raise LLMProviderError("injected fault: the model vendor answered 500")
-        return await self._inner.structured(system=system, user=user, schema=schema)
-
-
 def build_provider(settings: Settings) -> LLMProvider:
     """Build the configured provider, failing fast when a required secret is missing."""
-    provider = _vendor(settings)
-    faults = settings.faults() & {"model_error", "model_timeout"}
-    if not faults:
-        return provider
-    return FaultyProvider(provider, faults, settings.llm_call_timeout_s)
-
-
-def _vendor(settings: Settings) -> LLMProvider:
     if settings.llm_backend == "fake":
         from app.providers.fake import FakeProvider
 

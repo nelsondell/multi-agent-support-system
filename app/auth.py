@@ -1,12 +1,4 @@
-"""Who is calling, proven by a signed token: never by a field the client fills in.
-
-Merchants and operators send `Authorization: Bearer <JWT>`, RS256, signed by the identity
-provider whose public keys are at `AUTH_JWKS_URL` (an https URL, or a file that `make dev-keys`
-writes). Issuer, audience and expiry are checked. Merchant tokens carry `MERCHANT_AUDIENCE` and
-the merchant id in `sub`, the only place it comes from; the graph still receives it through
-InjectedState. Operator tokens carry `OPERATOR_AUDIENCE` and a `role`: `operator` acts on cases,
-`supervisor` may also read the audit log. A merchant is held to `RATE_LIMIT_PER_MINUTE` requests.
-"""
+"""Who is calling, proven by an RS256 token from AUTH_JWKS_URL, never by a field in the body."""
 
 import json
 import math
@@ -26,21 +18,17 @@ Role = Literal["operator", "supervisor"]
 
 
 class Principal(BaseModel):
-    """An authenticated operator: who, and what they may do."""
-
     subject: str
     role: Role
 
 
 class TokenVerifier:
-    """Checks a token against the provider's public keys, issuer and an audience."""
-
     def __init__(self, keys: jwt.PyJWKSet, issuer: str) -> None:
         self._keys, self._issuer = keys, issuer
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "TokenVerifier":
-        """Load the public keys once, at start-up, failing fast without them."""
+        """Loads the keys once, at start-up; without them the API refuses to start."""
         source = settings.auth_jwks_url
         if not source:
             raise ValueError("AUTH_JWKS_URL is not set; run `make dev-keys` for a local key pair")
@@ -51,7 +39,6 @@ class TokenVerifier:
         return cls(jwt.PyJWKSet.from_dict(document), settings.auth_issuer)
 
     def claims(self, token: str, audience: str) -> dict:
-        """The token's claims, or `jwt.PyJWTError` for a forged, expired or misaddressed one."""
         kid = jwt.get_unverified_header(token).get("kid")
         key = self._keys[kid] if kid else self._keys.keys[0]
         return jwt.decode(
@@ -65,14 +52,14 @@ class TokenVerifier:
 
 
 class RateLimiter:
-    """At most `per_minute` requests per subject in any 60 seconds, counted on this replica."""
+    """At most `per_minute` requests per subject in any 60 s, counted per replica."""
 
     def __init__(self, per_minute: int = 30) -> None:
         self._limit = per_minute
         self._seen: dict[str, deque[float]] = {}
 
     def retry_after(self, subject: str) -> int | None:
-        """Seconds until this subject may call again, or None, counting this call, when it may."""
+        """Seconds until the subject may call again, or None, counting this call."""
         now = time.monotonic()
         window = self._seen.setdefault(subject, deque())
         while window and now - window[0] >= 60:
@@ -94,7 +81,7 @@ def _claims(request: Request, audience: str) -> dict:
 
 
 def merchant(request: Request) -> str:
-    """The calling merchant's id, from a merchant token's `sub`, within its rate limit."""
+    """The merchant id is the token's `sub`, the only place it comes from."""
     subject = _claims(request, request.app.state.settings.merchant_audience)["sub"]
     wait = request.app.state.limiter.retry_after(subject)
     if wait is not None:
@@ -103,7 +90,6 @@ def merchant(request: Request) -> str:
 
 
 def operator(request: Request) -> Principal:
-    """The calling operator, from an operator token with a known role."""
     claims = _claims(request, request.app.state.settings.operator_audience)
     if claims.get("role") not in ("operator", "supervisor"):
         raise HTTPException(403, "an operator or supervisor role is required")
@@ -111,7 +97,6 @@ def operator(request: Request) -> Principal:
 
 
 def supervisor(principal: Annotated[Principal, Depends(operator)]) -> Principal:
-    """An operator whose role is supervisor."""
     if principal.role != "supervisor":
         raise HTTPException(403, "a supervisor role is required")
     return principal

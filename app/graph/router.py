@@ -42,9 +42,7 @@ class PlanStep(BaseModel):
     """For a general-information step whose answer depends on the day, such as a forecast or an
     exchange rate: the day asked about. The web query then carries that day's date."""
     requested_by: SkipJsonSchema[TargetAgent | None] = None
-    """Set by the supervisor, never by a model, and absent from the router's schema: the
-    specialist whose finding added this step. Such a step only reads, never goes to the web, and
-    is dropped rather than escalated when it does not answer."""
+    """Set by the supervisor only, and hidden from the model: whose finding added this step."""
 
 
 class RouterDecision(BaseModel):

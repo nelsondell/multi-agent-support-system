@@ -15,31 +15,17 @@ schema the model sees, and `call_tool` drops any argument the model may not set.
 
 ## The write, step by step
 
-A support turn already combines untrusted input (the message) with private data (the account).
-Adding a state change would make it all three of Meta's Agents Rule of Two, so a human approves
-it: the merchant whose terminal it is.
+The ticket would make a support turn all three of Meta's Rule of Two (untrusted input, private
+data, a state change), so the merchant approves it.
 
-1. **Proposal.** The support planner may answer `propose_technical_ticket` when the merchant
-   reports a terminal still offline after the basic steps. Code checks eligibility: the merchant
-   has a terminal, and the account data shows it offline (`sem_comunicacao`). If not, the turn
-   goes to a person instead.
-2. **Pause.** The graph pauses in `confirm_action` with
-   `interrupt(response_schema=ActionDecision)`. `/chat` answers `pending_confirmation`, and
-   `pending_action` carries an id and the operation rendered by code from the arguments, for
-   example `open_technical_ticket(terminal_id="GC-1180-7742", symptom="...")`. It is never a
-   model's summary.
-3. **Confirmation.** Only a `/chat` whose `confirm_action_id` is that id runs the write. Any
-   other message cancels the proposal, which is audited, and then runs as a turn of its own.
-4. **Receipt and replay.** The receipt names the ticket. Sending the same confirmation again
-   returns the same receipt without writing. Another merchant's id, or one that matches nothing,
-   is a 404.
+| Step | What happens |
+| --- | --- |
+| Proposal | the planner answers `propose_technical_ticket`; code checks the merchant's own terminal is offline (`sem_comunicacao`), or the turn goes to a person |
+| Pause | `confirm_action` interrupts; `/chat` answers `pending_confirmation` with an id and the operation rendered by code, e.g. `open_technical_ticket(terminal_id="GC-1180-7742", symptom="...")` |
+| Confirmation | only a `/chat` with that `confirm_action_id` runs it; any other message cancels it (audited) and runs as a turn of its own |
+| Replay | the same id returns the same receipt without writing; another merchant's or an unknown id is a 404 |
 
-Proposals, tickets opened and cancellations are in the audit log ([security.md](security.md)).
-Tickets are business records of the terminal; erasing a conversation does not delete them.
-
-## Steps a finding adds
-
-A step the supervisor added for another step's `Need` reaches the same tools with one
-difference: it only reads. A write it proposes never reaches the merchant; the step is dropped
-instead. A knowledge step added that way searches the corpus and never the web, because its
-question may carry what the account showed ([ADR 0001](adr/0001-bounded-replanning.md)).
+Proposals, tickets and cancellations are audited ([security.md](security.md)). Tickets are
+business records of the terminal; erasing a conversation does not delete them. A step the
+supervisor added for a finding only reads: its write proposals are dropped, and a knowledge step
+added that way never searches the web ([ADR 0001](adr/0001-bounded-replanning.md)).

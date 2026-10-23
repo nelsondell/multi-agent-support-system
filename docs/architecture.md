@@ -114,7 +114,7 @@ history, and it reads it as data; specialists get a standalone query and stay st
 imports the checkpointer: it is attached when the graph is compiled, and a test enforces that.
 
 ```bash
-MERCHANT="Authorization: Bearer $(uv run python scripts/dev_token.py merchant cliente1988)"
+MERCHANT="Authorization: Bearer $(uv run python scripts/dev_auth.py token merchant cliente1988)"
 curl -s localhost:8000/chat -H "$MERCHANT" -H 'Content-Type: application/json' \
   -d '{"message": "Quando cai o dinheiro das vendas de ontem?", "conversation_id": "c1"}'
 curl -s localhost:8000/chat -H "$MERCHANT" -H 'Content-Type: application/json' \

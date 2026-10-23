@@ -278,26 +278,20 @@ async def test_different_conversations_do_not_wait_for_each_other(stack):
     assert model.most == 2
 
 
-async def test_ready_reports_the_store_and_the_index(stack, sample_chunks):
-    async with AsyncExitStack() as exits:
-        http = await stack(exits, Model())
-        response = await http.get("/ready")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ready", "storage": "sqlite", "chunks": len(sample_chunks)}
-
-
-async def test_ready_is_503_while_the_store_does_not_answer(stack, monkeypatch):
+async def test_ready_reports_the_store_and_the_index_and_503_while_the_store_is_down(
+    stack, sample_chunks, monkeypatch
+):
     async def unreachable() -> None:
         raise ConnectionError("database unreachable")
 
     async with AsyncExitStack() as exits:
         http = await stack(exits, Model())
+        ready = await http.get("/ready")
         monkeypatch.setattr(app.state.queue, "ping", unreachable)
-        response = await http.get("/ready")
+        down = await http.get("/ready")
 
-    assert response.status_code == 503
-    assert response.json()["problems"] == ["storage: ConnectionError"]
+    assert ready.json() == {"status": "ready", "storage": "sqlite", "chunks": len(sample_chunks)}
+    assert down.status_code == 503 and down.json()["problems"] == ["storage: ConnectionError"]
 
 
 async def test_the_evidence_never_reaches_the_response_or_the_history(stack):

@@ -1,12 +1,14 @@
-"""LangGraph's own retry, timeout and error handler, in place of a try/except in each node: a
-model failure is retried, then escalated as model_unavailable; a hung call is cut by the node
-timeout; a bug still fails the run instead of passing for an escalation."""
+"""LangGraph's retry, timeout and error handler instead of a try/except per node, and what a
+failing vendor costs the merchant: a model is retried then escalates, a hung step is cut, a bug
+fails the run, web search down degrades; each vendor failure is counted once."""
 
 import asyncio
 from collections import Counter
 
+import httpx
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from prometheus_client import REGISTRY
 
 from app.contracts import EscalationReason, Intent, TargetAgent
 from app.graph.human_review import HandoffDraft
@@ -14,97 +16,100 @@ from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.prompts import load_prompt
-from app.providers.llm import LLMProviderError
+from app.providers.llm import LLMProviderError, LLMTimeout
+from app.settings import Settings
+from app.tools.web import WebSearch, WebSearchUnavailable
 
-TODAY_ANSWER = "O dinheiro das vendas de ontem, R$ 231,26 líquidos, cai hoje."
-ANSWERED = SupportAnswer(answer=TODAY_ANSWER)
-
-
-def plan(*queries: str) -> RouterDecision:
-    steps = [PlanStep(agent=TargetAgent.SUPPORT, query_pt=query) for query in queries]
-    return RouterDecision(intent=Intent.ACCOUNT_DATA, confidence=0.9, rationale="t", steps=steps)
+ANSWER = "O dinheiro das vendas de ontem, R$ 231,26 líquidos, cai hoje."
+LOOKUP = SupportPlan(
+    action=SupportAction.CALL_TOOL,
+    tool="get_settlement_schedule",
+    date_from="2026-08-31",
+    date_to="2026-08-31",
+)
 
 
 class Model:
-    """Scripted answers; a schema in `failures` fails that many times first, and an answer may be
-    an async function of the input, to hang or to raise."""
+    """A plan of one support step per query. Each schema fails `failures[schema]` times first; an
+    answer may be an async function of the input, to hang or to raise."""
 
-    def __init__(self, answers: dict, failures: dict | None = None) -> None:
-        self.answers, self.failures, self.calls = answers, failures or {}, Counter()
+    def __init__(self, *queries: str, answer=None, failures=None, error=LLMProviderError) -> None:
+        steps = [PlanStep(agent=TargetAgent.SUPPORT, query_pt=query) for query in queries or ["q"]]
+        router = RouterDecision(
+            intent=Intent.ACCOUNT_DATA, confidence=0.9, rationale="t", steps=steps
+        )
+        self.answers = {
+            RouterDecision: router,
+            SupportPlan: LOOKUP,
+            HandoffDraft: HandoffDraft(draft="?"),
+        }
+        self.answers[SupportAnswer] = answer or SupportAnswer(answer=ANSWER)
+        self.failures, self.error, self.calls = failures or {}, error, Counter()
 
     async def structured(self, *, system: str, user: str, schema: type):
         self.calls[schema.__name__] += 1
         if self.calls[schema.__name__] <= self.failures.get(schema, 0):
-            raise LLMProviderError("vendor 503")
+            raise self.error("vendor 500, or no answer in time")
         answer = self.answers[schema]
         return await answer(user) if callable(answer) else answer
 
 
-def account_model(router, answer=ANSWERED, failures: dict | None = None) -> Model:
-    looked_up = SupportPlan(
-        action=SupportAction.CALL_TOOL,
-        tool="get_settlement_schedule",
-        date_from="2026-08-31",
-        date_to="2026-08-31",
-    )
-    draft = HandoffDraft(draft="Estamos verificando.")
-    answers = {RouterDecision: router, SupportPlan: looked_up, SupportAnswer: answer}
-    return Model({**answers, HandoffDraft: draft}, failures)
-
-
-async def turn(graph, message: str = "Quando cai o dinheiro de ontem?") -> dict:
+async def turn(build_test_graph, model: Model, message: str = "Quando cai?", **settings) -> dict:
+    graph = build_test_graph(provider=model, checkpointer=InMemorySaver(), **settings)
     state = GraphState(message=message, user_id="cliente1988")
     return await graph.ainvoke(state, {"configurable": {"thread_id": "c1"}})
 
 
-async def test_a_transient_model_failure_is_retried_and_the_turn_answers(build_test_graph):
-    model = account_model(plan("quando cai o dinheiro de ontem"), failures={RouterDecision: 1})
-    graph = build_test_graph(provider=model, checkpointer=InMemorySaver())
-
-    final = await turn(graph)
-
-    assert model.calls["RouterDecision"] == 2
-    assert final["answer"] == TODAY_ANSWER
-    assert final.get("escalation") is None
+def vendor_failures(vendor: str, kind: str) -> float:
+    labels = {"vendor": vendor, "kind": kind}
+    return REGISTRY.get_sample_value("support_vendor_failures_total", labels) or 0.0
 
 
-async def test_a_model_that_keeps_failing_escalates_as_model_unavailable(build_test_graph):
-    model = account_model(plan("quando cai o dinheiro de ontem"), failures={RouterDecision: 9})
-    graph = build_test_graph(provider=model, checkpointer=InMemorySaver(), node_attempts=2)
+@pytest.mark.parametrize(("error", "kind"), [(LLMProviderError, "error"), (LLMTimeout, "timeout")])
+async def test_a_model_that_keeps_failing_escalates_and_counts_once(build_test_graph, error, kind):
+    """Every call fails, the draft's too, and the merchant still gets the handoff notice."""
+    model = Model(failures={RouterDecision: 9, HandoffDraft: 9}, error=error)
+    before = vendor_failures("model", kind)
 
-    final = await turn(graph)
+    final = await turn(build_test_graph, model, node_attempts=2)
 
     assert model.calls["RouterDecision"] == 2, "one retry, then the fallback"
     assert final["escalation"].reason is EscalationReason.MODEL_UNAVAILABLE
     assert final["answer"].startswith(load_prompt("model_unavailable").text)
+    assert vendor_failures("model", kind) - before == 1
 
 
 async def test_a_hung_step_times_out_and_the_answered_step_still_goes_out(build_test_graph):
     async def hangs_on_tomorrow(user: str) -> SupportAnswer:
         if "amanhã" in user:
             await asyncio.sleep(3600)
-        return SupportAnswer(answer=TODAY_ANSWER)
+        return SupportAnswer(answer=ANSWER)
 
-    model = account_model(
-        plan("quando cai o dinheiro de ontem", "quando cai o dinheiro de amanhã"),
-        answer=hangs_on_tomorrow,
-    )
-    graph = build_test_graph(provider=model, checkpointer=InMemorySaver(), node_timeout_s=0.2)
+    model = Model("o de ontem", "o de amanhã", answer=hangs_on_tomorrow)
 
-    final = await turn(graph, "Quando cai o dinheiro de ontem e o de amanhã?")
+    final = await turn(build_test_graph, model, node_timeout_s=0.2)
 
     assert model.calls["SupportAnswer"] == 3, "the first step once, the hung one twice"
     assert final["escalation"].reason is EscalationReason.MODEL_UNAVAILABLE
-    assert final["partial_answer"] == TODAY_ANSWER
+    assert final["partial_answer"] == ANSWER
 
 
 async def test_a_bug_fails_the_run_instead_of_passing_for_an_escalation(build_test_graph):
     async def broken(user: str) -> SupportAnswer:
         raise KeyError("net_amount")
 
-    model = account_model(plan("quando cai o dinheiro de ontem"), answer=broken)
-    graph = build_test_graph(provider=model, checkpointer=InMemorySaver())
+    model = Model(answer=broken)
 
     with pytest.raises(KeyError, match="net_amount"):
-        await turn(graph)
+        await turn(build_test_graph, model)
     assert model.calls["SupportAnswer"] == 1, "a bug is not retried"
+
+
+async def test_web_search_down_raises_for_the_degraded_answer_and_counts():
+    before = vendor_failures("web", "error")
+    transport = httpx.MockTransport(lambda request: httpx.Response(500))
+    async with httpx.AsyncClient(transport=transport) as client:
+        with pytest.raises(WebSearchUnavailable):
+            await WebSearch(Settings(tavily_api_key="tvly-test"), client).search("cotação do euro")
+
+    assert vendor_failures("web", "error") - before == 1

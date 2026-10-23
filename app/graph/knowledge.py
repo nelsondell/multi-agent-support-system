@@ -55,9 +55,7 @@ class KnowledgeAnswer(BaseModel):
     answer: str
     used_urls: list[str] = Field(default_factory=list)
     needs: Need | None = None
-    """For a corpus answer that depends on the merchant's own account, such as a fee that varies
-    by terminal model: the account question it needs. Read from a corpus answer only; a web
-    answer's is ignored, so a page can never add a step."""
+    """Read from a corpus answer only: a web page can never add a step."""
 
 
 def format_context(hits: list[Hit]) -> str:

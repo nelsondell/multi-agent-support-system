@@ -10,7 +10,7 @@
 set -euo pipefail
 
 BASE="${1:-http://localhost:8000}"
-mint() { uv run --frozen python scripts/dev_token.py "$@"; }
+mint() { uv run --frozen python scripts/dev_auth.py token "$@"; }
 MERCHANT_TOKEN="${MERCHANT_TOKEN:-$(mint merchant cliente1988)}"
 OPERATOR_TOKEN="${OPERATOR_TOKEN:-$(mint operator ana)}"
 SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN:-$(mint supervisor bia)}"

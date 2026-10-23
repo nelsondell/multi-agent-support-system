@@ -1,9 +1,8 @@
 """Graph assembly.
 
 Routing policy is readable here rather than hidden inside nodes: the confidence threshold is the
-conditional edge out of the router, the plan is walked one step at a time by `collect`, which
-lets the supervisor revise it within the turn's budgets (`supervisor.py`), and `compose` joins
-the steps. A step that needs a person pauses the turn right there; once the
+conditional edge out of the router, the plan is walked one step at a time by `collect`, and
+`compose` joins the steps. A step that needs a person pauses the turn right there; once the
 operator answers, the plan picks up where it stopped. Persistence is attached here too, and only
 here: the checkpointer arrives from the caller and no node sees it.
 """
@@ -55,9 +54,7 @@ text, a summary fold keeps the history whole."""
 
 
 async def model_failed(state: GraphState, error: NodeError) -> Command:
-    """Once every attempt failed or timed out, the turn escalates as `model_unavailable`: from the
-    router straight away, from a plan step through `collect`, so an answered step still goes out.
-    Any other exception is a bug, and fails the run."""
+    """Attempts spent: escalate as `model_unavailable` (through `collect`, so answers go out)."""
     if not isinstance(error.error, MODEL_FAILURES):
         raise error.error
     logger.warning("node.failed", node=error.node, error=type(error.error).__name__)
@@ -87,11 +84,9 @@ async def knowledge(
     """A general-purpose question goes to the web; anything else is retrieved from the corpus.
 
     Never both: a product question the corpus cannot answer abstains, it does not search the web.
-    A step the supervisor added always reads the corpus: its question may carry what the
-    merchant's account showed, which never goes into a web query.
     """
     step = state.current_step()
-    added = step is not None and step.requested_by is not None
+    added = step is not None and step.requested_by is not None  # may carry account data
     if state.route is not None and state.route.intent is Intent.GENERAL_INFO and not added:
         return await answer_from_web(state, provider, web)
     return await knowledge_answer(state, provider, retrieve(state, retriever), threshold)
@@ -103,14 +98,13 @@ def after_specialist(
     """Where a specialist's outcome goes next.
 
     A hand-off means the specialist believes its step belongs to the other one, so the plan was
-    wrong: the router replans the whole turn, but only while the hop and model budgets last, so
-    two agents cannot pass the same message back and forth. Anything else is that step's result:
-    an answer, a refusal, or a hand-off with a budget spent. A step the supervisor added goes to
-    `collect` whatever it did: it neither replans the turn nor proposes a write.
+    wrong: the router replans the whole turn, but only while the hop budget lasts, so two agents
+    cannot pass the same message back and forth. Anything else is that step's result: an answer,
+    a refusal, or a hand-off with the budget spent.
     """
     step = state.current_step()
     if step is not None and step.requested_by is not None:
-        return "collect"
+        return "collect"  # an added step neither replans the turn nor proposes a write
     if state.handoff_reason:
         budget = "max_hops" if state.hops >= settings.max_hops else exhausted(settings)
         if budget is None:
@@ -120,8 +114,7 @@ def after_specialist(
 
 
 async def collect(state: GraphState, settings: Settings) -> dict[str, Any]:
-    """Record the step that just ran, let the supervisor revise the rest of the plan, and clear
-    the per-step fields for the next step."""
+    """Record the step that just ran, let the supervisor revise the rest, clear the step fields."""
     cleared = {
         "step_index": state.step_index + 1,
         "answer": None,
@@ -268,9 +261,6 @@ def build_graph(
 
     An escalated turn pauses for a human, which needs the checkpointer; the queue is where the
     operator finds the case. Without `web`, general-purpose questions get the degraded answer.
-    Every node gets LangGraph's own timeout and retry, and the nodes in `ESCALATE_ON_FAILURE` its
-    error handler, in place of a try/except in each. Every model call counts against the turn's
-    budget.
     """
     graph = StateGraph(GraphState)
     graph.set_node_defaults(

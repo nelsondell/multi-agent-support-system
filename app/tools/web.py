@@ -87,11 +87,10 @@ class WebSearch:
         self._max_results = settings.web_search_max_results
         self._timeout = settings.web_search_timeout_s
         self._client = client
-        self._down = "web_down" in settings.faults()
 
     async def search(self, query: str, recent: bool = False) -> list[WebResult]:
         """Up to `web_search_max_results` pages for an already-sanitised query; with `recent`,
-        only pages from the last day. A failure of the vendor itself is counted."""
+        only pages from the last day."""
         if not self._key:
             raise WebSearchUnavailable("TAVILY_API_KEY is not set")
         with operation("execute_tool", "web_search", **{"gen_ai.tool.name": "web_search"}):
@@ -105,8 +104,6 @@ class WebSearch:
                 raise
 
     async def _search(self, query: str, recent: bool) -> list[WebResult]:
-        if self._down:
-            raise WebSearchUnavailable("injected fault: the web search vendor is down")
         body = {"query": query, "max_results": self._max_results, "search_depth": "basic"}
         if recent:
             body["time_range"] = "day"

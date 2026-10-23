@@ -1,5 +1,5 @@
 # Thin wrappers over the commands in the README.
-.PHONY: verify verify-offline models dev-keys up scale observe drill purge test eval demo
+.PHONY: verify verify-offline models dev-keys up scale observe purge test eval demo
 
 # From a clean clone, with no key: the frozen sync is the only step that uses the network; then
 # lint, the offline suite and the offline evals, recorded in reports/verify.md.
@@ -16,10 +16,9 @@ verify-offline:
 models:
 	uv run --frozen python -m app.providers.embeddings
 
-# A local RS256 key pair standing in for the identity provider: .dev/jwks.json for the API,
-# the private key for scripts/dev_token.py. Kept if it exists.
+# A local RS256 key pair standing in for the identity provider, kept if it exists.
 dev-keys:
-	uv run --frozen python scripts/dev_keys.py
+	uv run --frozen python scripts/dev_auth.py keys
 
 # Build the image and start the API in the background, returning once it is healthy.
 up: dev-keys
@@ -34,10 +33,6 @@ scale: dev-keys
 # 9090, 3000 and 16686.
 observe: dev-keys
 	OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 docker compose --profile observability up --build --wait
-
-# A vendor drill: `make drill FAULT=model_error` (or model_timeout, web_down). docs/drills.md.
-drill:
-	./scripts/drills/run.sh $(FAULT)
 
 # Erase conversations idle for longer than RETENTION_DAYS, with the cases they opened.
 purge:

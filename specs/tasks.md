@@ -556,6 +556,22 @@ this is bounded replanning, not an open loop.
 a spent budget sends the answered part and escalates as `budget_exhausted` through `/chat`;
 `evals/planning_report.md` compares replanning with the baseline, and the default follows it.
 
+### T-56 — `refactor(T-56): trim what v3 added`
+Only what T-47 to T-54 added shrinks; everything v2 had stays, and every behaviour the tasks asked
+for stays. The fault-injection setting, its provider wrapper and the drill script go: each vendor
+failure (model error, model hang, web search down) is a test that stubs it, and the drill results
+become a table in `docs/operations.md`. The cache benchmark goes (two lines in `evals/report.md`
+say it never ran), and so do the promtool tests and their CI job. CI becomes two jobs, test
+(ubuntu and macOS, with Postgres and gitleaks on ubuntu) and container (build, SBOM, Trivy, smoke,
+scale profile). `scripts/dev_auth.py` replaces the two dev identity scripts, and `scripts/verify.py`
+keeps only what `make verify` needs. v3's tests keep one test per invariant, share an `api`
+fixture, and gain two for code no test reached. Docstrings in v3 code are one line; the ADR is under
+25 lines; operations, security and tools are tables. The tokenizer ships gzipped, and the Grafana
+dashboard drops fields Grafana defaults.
+**Done when:** `git diff origin/main` touches v2 code only where v3 changed it (and the two lines
+in `evals/report.md`); app coverage is not lower; CI is under 130 lines; the PR reports v3's added
+lines per area before and after, against the plan's target of about 3,000.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -567,7 +583,7 @@ a spent budget sends the answered part and escalates as `budget_exhausted` throu
 | Multi-agent / orchestration (8.8) | T-22, T-43, T-52 |
 | Observability / evals (9.1) | T-25, T-26, T-31, T-54 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
-| Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
+| Architecture / code (9.5) | every task: no new framework, no function over 40 lines; T-56 |
 | Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47, T-49 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
 | Trade-offs / engineering (10.0) | T-27, T-28, T-45 |

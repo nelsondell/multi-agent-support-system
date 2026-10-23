@@ -1,9 +1,4 @@
-"""The one write the agents can make: a technical ticket for a terminal that stays offline.
-
-The mock backend is a table next to the cases. Opening is idempotent on the proposal id, so a
-second confirmation of one proposal returns the first ticket, and the ticket is a single insert,
-so a failure leaves none behind. Every ticket opened and every proposal cancelled is audited.
-"""
+"""The one write: a technical ticket in a mock backend table, audited, once per proposal."""
 
 from datetime import UTC, datetime
 
@@ -32,8 +27,6 @@ class Ticket(BaseModel):
 
 
 class TicketDesk:
-    """Open a ticket once per proposal, and find it again by proposal and merchant."""
-
     def __init__(self, tables: Tables, audit: AuditLog) -> None:
         self._db, self._audit = tables, audit
 
@@ -41,7 +34,7 @@ class TicketDesk:
         await self._db.execute(_TABLE)
 
     async def open(self, proposal: str, user_id: str, terminal_id: str, symptom: str) -> Ticket:
-        """The ticket for this proposal: opened by the first call, returned by every later one."""
+        """A single idempotent insert: a replay returns the first ticket, a failure leaves none."""
         row = (proposal, f"TKT-{proposal[:8].upper()}", user_id, terminal_id, symptom)
         tool = {"gen_ai.tool.name": "open_technical_ticket"}
         with operation("execute_tool", "open_technical_ticket", **tool):
@@ -56,7 +49,6 @@ class TicketDesk:
         return ticket
 
     async def find(self, proposal: str, user_id: str) -> Ticket | None:
-        """This merchant's ticket for this proposal; another merchant's is None."""
         rows = await self._db.fetch(
             "SELECT id, terminal_id, symptom FROM tickets WHERE proposal = ? AND user_id = ?",
             (proposal, user_id),

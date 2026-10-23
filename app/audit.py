@@ -1,8 +1,4 @@
-"""An append-only record of every operator action and every write: who, in which role, did what,
-to which case or conversation, and when. It holds no message text, so erasing a conversation
-never has to touch it. The table refuses UPDATE and DELETE by trigger, on SQLite and on Postgres,
-so not even the API can rewrite it; a supervisor reads it through `GET /audit`.
-"""
+"""Append-only by trigger on both backends: who did what to which case, never message text."""
 
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -49,8 +45,6 @@ class AuditEntry(BaseModel):
 
 
 class AuditLog:
-    """Append and read; there is no third operation."""
-
     def __init__(self, tables: Tables) -> None:
         self._db = tables
 
@@ -69,7 +63,6 @@ class AuditLog:
         )
 
     async def read(self, limit: int = 200) -> list[AuditEntry]:
-        """The most recent entries, newest first."""
         rows = await self._db.fetch(
             "SELECT at, actor, role, action, target, detail FROM audit ORDER BY at DESC LIMIT ?",
             (limit,),

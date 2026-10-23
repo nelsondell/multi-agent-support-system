@@ -53,12 +53,10 @@ def merchant_today() -> date:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Build the provider, open the store (checkpoints, handoff queue, turn locks) and the web
-    client, and compile the graph once, failing fast on bad configuration.
+    """Build the provider, open the conversation store, the handoff queue and the web client,
+    and compile the graph once, failing fast on bad configuration.
 
-    The index is never built here: a missing one raises with the command that creates it. On
-    shutdown uvicorn stops accepting connections and lets in-flight turns finish
-    (`--timeout-graceful-shutdown`) before this closes the store under them.
+    The index is never built here: a missing one raises with the command that creates it.
     """
     configure_logging()
     settings = get_settings()
@@ -91,7 +89,6 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
     conversation's case, the message is noted on the case and gets the open protocol; once the
     case is closed, how it ended is delivered with the next message, before its answer. A second
     message on the same conversation waits for the first one's turn to finish, on any replica.
-    Every model call the turn makes counts against its budgets (`supervisor.py`).
     """
     conversation_id = body.conversation_id or uuid4().hex
     thread = thread_id(merchant, conversation_id)
@@ -113,12 +110,7 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
 async def take_turn(
     app: Any, body: ChatRequest, merchant: str, conversation_id: str, thread: str, trace_id: str
 ) -> ChatResponse:
-    """One turn, under the conversation's lock.
-
-    A proposed write is settled first: its own id runs it, another id is looked up as a replay
-    (the same receipt, or 404), and any other message cancels it and runs as a turn of its own. A
-    turn left unfinished, because the replica running it died, is finished from its last
-    checkpoint; when this message is the merchant's retry of it, that is the answer."""
+    """One turn, under the conversation's lock; a turn a dead replica left is finished first."""
     graph, config = app.state.graph, {"configurable": {"thread_id": thread}}
     snapshot = await graph.aget_state(config)
     first = not snapshot.values  # a conversation with no state yet: this is its first reply
@@ -157,8 +149,7 @@ async def take_turn(
 async def settle_proposal(
     app: Any, config: dict, body: ChatRequest, merchant: str, conversation_id: str, proposal: Any
 ) -> ChatResponse | None:
-    """The receipt when this message confirms the pending proposal or replays a confirmed one;
-    None when it cancelled the proposal, so the message then runs as a turn of its own."""
+    """The receipt for a confirmation or a replay; None when the message cancelled the proposal."""
     graph, wanted = app.state.graph, body.confirm_action_id
     if proposal is not None and wanted == proposal.id:
         resumed = Command(resume={"action_id": wanted})
@@ -228,9 +219,7 @@ async def conversation(
 
 @routes.delete("/me/conversations/{conversation_id}", status_code=204)
 async def erase(conversation_id: ConversationId, request: Request, merchant: Merchant) -> Response:
-    """LGPD erasure: the conversation's checkpoints and every case it opened, payloads, notes and
-    replies included, under its lock so no turn writes it back. The audit log keeps that it
-    happened, by thread hash, and nothing of what was said."""
+    """LGPD erasure, under the lock so no turn writes it back; only an audit entry stays."""
     app, thread = request.app, thread_id(merchant, conversation_id)
     async with app.state.locks.hold(thread):
         graph = app.state.graph
@@ -244,8 +233,7 @@ async def erase(conversation_id: ConversationId, request: Request, merchant: Mer
 
 @routes.get("/ready")
 async def ready(request: Request) -> JSONResponse:
-    """Readiness, for a load balancer: the store answers and the index is loaded. 503 names what
-    is not ready; `/health` only says the process is up."""
+    """For a load balancer: 503 names what is not ready; `/health` only says the process is up."""
     problems = []
     try:
         await request.app.state.queue.ping()
