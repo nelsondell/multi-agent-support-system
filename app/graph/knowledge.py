@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.contracts import EscalationReason, Source, SourceType
+from app.contracts import EscalationReason, Need, Source, SourceType
 from app.graph.numbers import adds_numbers
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
@@ -54,6 +54,10 @@ class KnowledgeAnswer(BaseModel):
     was found."""
     answer: str
     used_urls: list[str] = Field(default_factory=list)
+    needs: Need | None = None
+    """For a corpus answer that depends on the merchant's own account, such as a fee that varies
+    by terminal model: the account question it needs. Read from a corpus answer only; a web
+    answer's is ignored, so a page can never add a step."""
 
 
 def format_context(hits: list[Hit]) -> str:
@@ -129,6 +133,7 @@ async def answer(
     return {
         "answer": generated.answer,
         "sources": _sources(result.hits, generated.used_urls),
+        "need": generated.needs,
         **looked_at,
     }
 

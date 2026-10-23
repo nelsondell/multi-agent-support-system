@@ -15,6 +15,7 @@ from app.contracts import (
     Escalation,
     GuardrailOutcome,
     HandoffCase,
+    Need,
     Source,
     SourceType,
     TargetAgent,
@@ -28,6 +29,8 @@ class StepResult(BaseModel):
 
     agent: TargetAgent
     query_pt: str
+    requested_by: TargetAgent | None = None
+    """The specialist whose finding added this step, when the supervisor added it."""
     answer: str | None = None
     sources: list[Source] = Field(default_factory=list)
     refusal_reason: str | None = None
@@ -67,11 +70,20 @@ class GraphState(BaseModel):
     guardrail_outcome: GuardrailOutcome | None = None
     route: RouterDecision | None = None
 
+    plan: list[PlanStep] = Field(default_factory=list)
+    """The steps this turn runs: the router's, plus any the supervisor added for a finding."""
+
     hops: int = 0
     """Router passes so far. Bounds the single hand-back budget across the whole plan."""
 
+    plan_changes: int = 0
+    """Steps the supervisor added this turn, against `MAX_PLAN_CHANGES`."""
+
     step_index: int = 0
     """The plan step running now."""
+
+    need: Need | None = None
+    """What the running step found it cannot answer alone; `collect` may add a step for it."""
 
     step_results: list[StepResult] = Field(default_factory=list)
     """One entry per finished step, in plan order. Steps run one at a time, so no reducer."""
@@ -108,11 +120,18 @@ class GraphState(BaseModel):
     summary: str = ""
     """Rolling summary of the exchanges that left the history window."""
 
+    @property
+    def steps(self) -> list[PlanStep]:
+        """The steps this turn runs: `plan`, or the router's own for a turn checkpointed before
+        `plan` existed."""
+        if self.plan or self.route is None:
+            return self.plan
+        return list(self.route.steps)
+
     def current_step(self) -> PlanStep | None:
         """The step a specialist is answering, or None before a plan exists."""
-        if self.route is None or self.step_index >= len(self.route.steps):
-            return None
-        return self.route.steps[self.step_index]
+        steps = self.steps
+        return steps[self.step_index] if self.step_index < len(steps) else None
 
     def current_query(self) -> str:
         """The standalone question of the running step, or the raw message without a plan."""

@@ -12,6 +12,7 @@ import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+from pydantic.json_schema import SkipJsonSchema
 
 from app.contracts import Intent, TargetAgent
 from app.observability import get_logger
@@ -40,6 +41,10 @@ class PlanStep(BaseModel):
     target_day: Literal["yesterday", "today", "tomorrow"] | None = None
     """For a general-information step whose answer depends on the day, such as a forecast or an
     exchange rate: the day asked about. The web query then carries that day's date."""
+    requested_by: SkipJsonSchema[TargetAgent | None] = None
+    """Set by the supervisor, never by a model, and absent from the router's schema: the
+    specialist whose finding added this step. Such a step only reads, never goes to the web, and
+    is dropped rather than escalated when it does not answer."""
 
 
 class RouterDecision(BaseModel):
@@ -89,7 +94,8 @@ def _grounded_step(step: PlanStep, message: str, conversation: str) -> PlanStep:
     searches = [
         search for search in step.search_queries if not invented_identifiers(search, conversation)
     ]
-    return step.model_copy(update={"query_pt": query, "search_queries": searches})
+    update = {"query_pt": query, "search_queries": searches, "requested_by": None}
+    return step.model_copy(update=update)  # only the supervisor marks a step as added
 
 
 def _grounded(decision: RouterDecision, state: GraphState, window: int) -> RouterDecision:
@@ -121,6 +127,7 @@ async def route(state: GraphState, provider: LLMProvider, window: int) -> dict[s
     )
     return {
         "route": decision,
+        "plan": decision.steps,
         "hops": state.hops + 1,
         "handoff_reason": None,
         "step_index": 0,

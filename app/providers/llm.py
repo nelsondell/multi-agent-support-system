@@ -11,7 +11,7 @@ from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel
 
-from app.observability.metrics import MODEL_COST, MODEL_TOKENS
+from app.observability.metrics import MODEL_COST, MODEL_TOKENS, charge
 from app.observability.otel import operation
 from app.settings import Settings
 
@@ -111,6 +111,7 @@ class OpenAIProvider:
         price_input, price_cached, price_output = self._prices
         cost = (inputs - cached) * price_input + cached * price_cached + outputs * price_output
         MODEL_COST.inc(cost / 1_000_000)
+        charge(cost_usd=cost / 1_000_000)
 
 
 class FaultyProvider:

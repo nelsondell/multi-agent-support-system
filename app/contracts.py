@@ -31,6 +31,15 @@ class TargetAgent(StrEnum):
     SUPPORT = "support"
 
 
+class Need(BaseModel):
+    """A question a specialist found only the other one can answer, such as the merchant's
+    terminal model for a fee that depends on it. The supervisor may add a step for it."""
+
+    agent: TargetAgent
+    query_pt: str = Field(min_length=3, max_length=300)
+    """The question, as a standalone Portuguese sentence."""
+
+
 class GuardrailOutcome(StrEnum):
     """What the guardrail decided before routing."""
 
@@ -49,6 +58,7 @@ class EscalationReason(StrEnum):
     INDIVIDUAL_CASE = "individual_case"
     TOOL_UNAVAILABLE = "tool_unavailable"
     MODEL_UNAVAILABLE = "model_unavailable"
+    BUDGET_EXHAUSTED = "budget_exhausted"
 
     @classmethod
     def _missing_(cls, value: object) -> "EscalationReason | None":

@@ -49,6 +49,15 @@ class Settings(BaseSettings):
     It belongs to that embedder. The local fallback embedder separates nothing, so with it no
     threshold can do this job and the knowledge answer's sufficiency flag is the only gate."""
     max_hops: int = Field(default=2, ge=1)
+    """Router passes per turn: the first plan, and one more after a specialist hands it back."""
+    max_plan_changes: int = Field(default=3, ge=0)
+    """Steps the supervisor may add to the router's plan in one turn, each asked for by what a step
+    found. 0 runs the router's plan as it is, which is the planner the eval compares against."""
+    max_model_calls: int = Field(default=12, ge=1)
+    """Model calls one turn may make before the supervisor stops starting steps."""
+    max_cost_usd: float = Field(default=0.02, gt=0)
+    """Model spend one turn may reach, at LLM_PRICE_*, before the supervisor stops starting
+    steps. A stopped turn sends what it answered and hands the rest to a person."""
     llm_call_timeout_s: float = Field(default=20.0, gt=0)
     """Seconds one model call may take. A slower one fails like any vendor error, so the node that
     made it retries or degrades, instead of hanging until the node's own timeout."""

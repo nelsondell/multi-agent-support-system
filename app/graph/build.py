@@ -1,8 +1,9 @@
 """Graph assembly.
 
 Routing policy is readable here rather than hidden inside nodes: the confidence threshold is the
-conditional edge out of the router, the plan is walked one step at a time by `collect`, and
-`compose` joins the steps. A step that needs a person pauses the turn right there; once the
+conditional edge out of the router, the plan is walked one step at a time by `collect`, which
+lets the supervisor revise it within the turn's budgets (`supervisor.py`), and `compose` joins
+the steps. A step that needs a person pauses the turn right there; once the
 operator answers, the plan picks up where it stopped. Persistence is attached here too, and only
 here: the checkpointer arrives from the caller and no node sees it.
 """
@@ -29,6 +30,7 @@ from app.graph.knowledge import answer_from_web, retrieve
 from app.graph.memory import remember
 from app.graph.router import route
 from app.graph.state import GraphState, StepResult
+from app.graph.supervisor import Metered, dropped, exhausted, halt, report, revise
 from app.graph.support import answer as support_answer
 from app.observability import get_logger, instrument_node
 from app.observability.metrics import VENDOR_FAILURES
@@ -69,9 +71,10 @@ async def model_failed(state: GraphState, error: NodeError) -> Command:
 
 def dispatch(state: GraphState, threshold: float) -> Literal["knowledge", "support", "escalate"]:
     """Start the plan only when the router is confident enough."""
-    if state.route is None or state.route.confidence < threshold:
+    step = state.current_step()
+    if state.route is None or step is None or state.route.confidence < threshold:
         return "escalate"
-    return state.route.steps[state.step_index].agent.value
+    return step.agent.value
 
 
 async def knowledge(
@@ -84,45 +87,66 @@ async def knowledge(
     """A general-purpose question goes to the web; anything else is retrieved from the corpus.
 
     Never both: a product question the corpus cannot answer abstains, it does not search the web.
+    A step the supervisor added always reads the corpus: its question may carry what the
+    merchant's account showed, which never goes into a web query.
     """
-    if state.route is not None and state.route.intent is Intent.GENERAL_INFO:
+    step = state.current_step()
+    added = step is not None and step.requested_by is not None
+    if state.route is not None and state.route.intent is Intent.GENERAL_INFO and not added:
         return await answer_from_web(state, provider, web)
     return await knowledge_answer(state, provider, retrieve(state, retriever), threshold)
 
 
 def after_specialist(
-    state: GraphState, max_hops: int
+    state: GraphState, settings: Settings
 ) -> Literal["router", "collect", "confirm_action"]:
     """Where a specialist's outcome goes next.
 
     A hand-off means the specialist believes its step belongs to the other one, so the plan was
-    wrong: the router replans the whole turn, but only while the hop budget lasts, so two agents
-    cannot pass the same message back and forth. Anything else is that step's result: an answer,
-    a refusal, or a hand-off with the budget spent.
+    wrong: the router replans the whole turn, but only while the hop and model budgets last, so
+    two agents cannot pass the same message back and forth. Anything else is that step's result:
+    an answer, a refusal, or a hand-off with a budget spent. A step the supervisor added goes to
+    `collect` whatever it did: it neither replans the turn nor proposes a write.
     """
-    if state.handoff_reason and state.hops < max_hops:
-        return "router"
+    step = state.current_step()
+    if step is not None and step.requested_by is not None:
+        return "collect"
+    if state.handoff_reason:
+        budget = "max_hops" if state.hops >= settings.max_hops else exhausted(settings)
+        if budget is None:
+            return "router"
+        report(budget)
     return "confirm_action" if state.pending_action else "collect"
 
 
-async def collect(state: GraphState) -> dict[str, Any]:
-    """Record the step that just ran, then clear the per-step fields for the next one."""
-    step = state.current_step()
-    result = StepResult(
-        agent=step.agent,
-        query_pt=state.current_query(),
-        answer=state.answer,
-        sources=state.sources,
-        refusal_reason=state.refusal_reason or state.handoff_reason,
-    )
-    return {
-        "step_results": [*state.step_results, result],
+async def collect(state: GraphState, settings: Settings) -> dict[str, Any]:
+    """Record the step that just ran, let the supervisor revise the rest of the plan, and clear
+    the per-step fields for the next step."""
+    cleared = {
         "step_index": state.step_index + 1,
         "answer": None,
         "sources": [],
         "refusal_reason": None,
         "handoff_reason": None,
+        "need": None,
     }
+    if dropped(state):
+        logger.info("plan.step_dropped", agent=state.current_step().agent.value)
+        return {**cleared, "pending_action": None}
+    step = state.current_step()
+    result = StepResult(
+        agent=step.agent,
+        query_pt=state.current_query(),
+        requested_by=step.requested_by,
+        answer=state.answer,
+        sources=state.sources,
+        refusal_reason=state.refusal_reason or state.handoff_reason,
+    )
+    update = {**cleared, "step_results": [*state.step_results, result], **revise(state, settings)}
+    if result.refusal_reason:  # the turn pauses here for a person, budget or not
+        return update
+    plan = update.get("plan", state.steps)
+    return {**update, **halt(plan, update["step_index"], update["step_results"], settings)}
 
 
 def after_collect(state: GraphState) -> Literal["knowledge", "support", "compose"]:
@@ -177,7 +201,7 @@ def graph_nodes(
             web=web,
         ),
         "support": partial(support, provider=provider),
-        "collect": collect,
+        "collect": partial(collect, settings=settings),
         "compose": partial(compose, provider=provider),
         "escalate": escalate,
         "prepare_handoff": partial(
@@ -206,7 +230,7 @@ def _wire(graph: StateGraph, settings: Settings) -> None:
         partial(dispatch, threshold=settings.router_confidence_threshold),
         {**specialists, "escalate": "escalate"},
     )
-    outcome = partial(after_specialist, max_hops=settings.max_hops)
+    outcome = partial(after_specialist, settings=settings)
     for specialist in specialists:
         graph.add_conditional_edges(
             specialist,
@@ -245,14 +269,16 @@ def build_graph(
     An escalated turn pauses for a human, which needs the checkpointer; the queue is where the
     operator finds the case. Without `web`, general-purpose questions get the degraded answer.
     Every node gets LangGraph's own timeout and retry, and the nodes in `ESCALATE_ON_FAILURE` its
-    error handler, in place of a try/except in each.
+    error handler, in place of a try/except in each. Every model call counts against the turn's
+    budget.
     """
     graph = StateGraph(GraphState)
     graph.set_node_defaults(
         retry_policy=RetryPolicy(max_attempts=settings.node_attempts, retry_on=MODEL_FAILURES),
         timeout=TimeoutPolicy(run_timeout=settings.node_timeout_s),
     )
-    for name, node in graph_nodes(provider, settings, retriever, queue, web, desk).items():
+    metered = Metered(provider)
+    for name, node in graph_nodes(metered, settings, retriever, queue, web, desk).items():
         handler = model_failed if name in ESCALATE_ON_FAILURE else None
         graph.add_node(name, instrument_node(name, node), error_handler=handler)
     _wire(graph, settings)

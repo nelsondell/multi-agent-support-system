@@ -20,6 +20,7 @@ from app.graph.router import PlanStep, RouterDecision
 from app.graph.state import GraphState
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan, answer
 from app.providers.llm import LLMProviderError
+from app.settings import Settings
 
 CALLER = "cliente1988"
 
@@ -113,7 +114,7 @@ def test_handoff_is_bounded_by_the_hop_budget(hops: int, expected: str) -> None:
     state.handoff_reason = EscalationReason.REPEATED_MISROUTE.value
     state.hops = hops
 
-    assert after_specialist(state, max_hops=2) == expected
+    assert after_specialist(state, Settings(max_hops=2)) == expected
 
 
 def test_refusal_never_re_routes() -> None:
@@ -122,12 +123,12 @@ def test_refusal_never_re_routes() -> None:
     state = _state()
     state.refusal_reason = EscalationReason.INDIVIDUAL_CASE.value
 
-    assert after_specialist(state, max_hops=2) == "collect"
+    assert after_specialist(state, Settings(max_hops=2)) == "collect"
 
 
 def test_an_answer_is_recorded_as_the_step_result() -> None:
     """Nothing set means the specialist answered its step."""
-    assert after_specialist(_state(), max_hops=2) == "collect"
+    assert after_specialist(_state(), Settings(max_hops=2)) == "collect"
 
 
 def test_response_cannot_claim_an_answer_and_an_escalation() -> None:

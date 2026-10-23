@@ -538,6 +538,24 @@ provisioned Grafana dashboard and Jaeger. `FAULT_INJECTION` (`model_error`, `mod
 resolution, cache hit rate and p50/p95 per node are on the dashboard; each alert's unit test
 fires; the model drills show the vendor alert firing and the recovery time.
 
+### T-52 — `feat(T-52): replan on findings, within a budget`
+The workflow stays where the steps are known; agency is added only where the next step depends
+on a finding. A specialist's structured answer may carry a `Need` (knowledge needs the merchant's
+terminal model; support found an offline terminal and the merchant asked what to do). Between
+steps the supervisor (`app/graph/supervisor.py`) adds the step for it, drops an added step that
+does not answer, and stops the turn on a budget: `MAX_HOPS`, `MAX_PLAN_CHANGES` (3),
+`MAX_MODEL_CALLS` (12) and `MAX_COST_USD` (0.02), enforced in code. A stop logs the budget and
+returns the answered part with a `budget_exhausted` escalation. Added steps only read, never
+search the web, and only code marks them. Support gains `get_account_profile` (plan, terminal
+model and status). `evals/planning_set.jsonl` holds 20 requests whose next step depends on a
+finding; `evals/run_planning_eval.py` compares task completion, steps, model calls, p95 (and the
+p95 of simple requests) and cost against `MAX_PLAN_CHANGES=0`. Independent steps stay sequential
+until the eval shows `Send` would gain latency. `docs/adr/0001-bounded-replanning.md` records why
+this is bounded replanning, not an open loop.
+**Done when:** every supervisor rule has a test; the router's schema carries no `requested_by`;
+a spent budget sends the answered part and escalates as `budget_exhausted` through `/chat`;
+`evals/planning_report.md` compares replanning with the baseline, and the default follows it.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -546,7 +564,7 @@ fires; the model drills show the vendor alert firing and the recovery time.
 | Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44, T-50 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
-| Multi-agent / orchestration (8.8) | T-22, T-43 |
+| Multi-agent / orchestration (8.8) | T-22, T-43, T-52 |
 | Observability / evals (9.1) | T-25, T-26, T-31, T-54 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |

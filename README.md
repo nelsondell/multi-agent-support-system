@@ -13,7 +13,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 340 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Verify** | `make verify`: 360 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
 | **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
@@ -40,8 +40,8 @@ make verify                     # frozen sync, then lint, tests and offline eval
 
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, the tests run with sockets blocked, and the result lands in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 120 s of
-sync (453 MB, so mostly the network) and 27.8 s of checks.
+[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 94 s of
+sync (452 MB, so mostly the network) and 40.9 s of checks.
 
 ```bash
 cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY
@@ -99,14 +99,20 @@ flowchart TD
 | --- | --- | --- | --- |
 | **Router** | intent, a plan of one or two steps, a standalone Portuguese query per step | the message, plus the conversation as data | `low_router_confidence`; `model_unavailable` if its call fails |
 | **Knowledge** | answers from the website corpus, or from a web search for `general_info` | retrieved excerpts, or search results | `low_retrieval_confidence`, `insufficient_sources` |
-| **Support** | which account tool to call, with which arguments | the merchant's settlements or transactions | `individual_case`, `tool_unavailable` |
+| **Support** | which account tool to call, with which arguments | the merchant's settlements, transactions, or plan and terminal | `individual_case`, `tool_unavailable` |
+| **Supervisor** (code, not a model) | between steps: adds a read step a finding asks for, drops an added step that did not answer, stops a turn that spent its budget | each step's structured `needs` and the turn's spend | `budget_exhausted` |
 | **Human review** | builds a case and a draft, pauses, turns the operator's reply into the paused step's answer | the case's evidence and the operator's text | — (it is where escalations end) |
 
 The dividing question between knowledge and support is *does answering require reading this
 merchant's account?* "My machine won't connect" is the published procedure; "when does yesterday's
-money land" reads the account. A compound message gets both, in the order asked. Policy lives in
-one file, `app/graph/build.py`: the confidence threshold is a conditional edge, and the hop budget
-spans the whole plan, so two agents cannot pass a message back and forth.
+money land" reads the account. A compound message gets both, in the order asked. A request whose
+next step depends on what a step finds ("quanto custa a mensalidade da minha maquininha?" needs the
+merchant's terminal model) gets that step added by the supervisor, bounded
+([ADR 0001](docs/adr/0001-bounded-replanning.md)). Policy lives in two files.
+`app/graph/build.py` holds the confidence threshold, as a conditional edge, and the hop budget,
+which spans the whole plan so two agents cannot pass a message back and forth.
+`app/graph/supervisor.py` holds every rule by which a plan may change, and the budgets that stop
+it.
 
 ## 3. How a message flows
 
@@ -123,9 +129,11 @@ spans the whole plan, so two agents cannot pass a message back and forth.
    (or searches the web for weather and exchange rates), support calls one account tool. The one
    write, a technical ticket for an offline terminal, is only proposed: the turn answers
    `pending_confirmation` with the operation as code renders it, and it runs once the merchant
-   sends its `confirm_action_id` ([tools](docs/tools.md)).
-5. **Compose** copies one answer, or merges two with a call that may not add a number or change a
-   status. A step that needs a person pauses the turn there; the part already answered goes out.
+   sends its `confirm_action_id` ([tools](docs/tools.md)). Between steps, the supervisor may add
+   the read step a finding asks for, and checks the turn's call and cost budgets.
+5. **Compose** copies one answer, or merges several with a call that may not add a number or
+   change a status. A step that needs a person pauses the turn there; the part already answered
+   goes out.
 6. **Human review** opens a case and pauses; when the operator answers, the plan resumes (§4).
 7. **Remember** stores the masked turn. The response cites typed sources: `kb` and `web` with a
    url, `account` with the tool, `operator` with the protocol.
@@ -176,7 +184,7 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 340 tests, about 10 s, sockets blocked, plus 10 that run two replicas over Postgres in CI: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 360 tests, under 40 s, sockets blocked, plus 10 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite and the guardrail eval, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
@@ -236,9 +244,9 @@ runbook line each, and `make drill` injects vendor faults ([operations](docs/ope
 | Human in the loop (5.8) | A fourth agent: case and draft before `interrupt()`; approve, reply or cancel; guarded rephrasing; reply delivered with the next message; notes while waiting; expiry; the plan finishes after the reply; the merchant confirms the one write action | T-21, T-42, T-43, T-50 |
 | Infra / Docker (6.8) | One command from a clean clone; index built on first boot; separate state volume; healthcheck; CI builds and smoke-tests the container; `make verify` offline; SBOM, vulnerability and secret scans; digest-pinned base images; replicas over Postgres behind a balancer | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
-| Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan | T-21, T-22, T-43 |
+| Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan; bounded replanning: a finding adds a read step for the other specialist, within plan-change, model-call and cost budgets | T-21, T-22, T-43, T-52 |
 | Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; OpenTelemetry GenAI traces; cost per resolution and cache hit rate; Grafana dashboard and four alerts with runbooks; vendor drills | T-25, T-26, T-28, T-29, T-39, T-44, T-54 |
-| Tests / quality (9.2) | 78 → 350 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Tests / quality (9.2) | 78 → 370 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
 | Security / isolation (9.5) | Merchant identity from a signed JWT; operator roles; append-only audit; LGPD erasure and retention; rate limit; threads bound to the merchant; restricted checkpoint deserializer; masked web queries | T-19, T-21, T-23, T-31, T-44, T-49 |
 | RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |

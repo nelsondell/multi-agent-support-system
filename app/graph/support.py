@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.contracts import EscalationReason, Source, SourceType
+from app.contracts import EscalationReason, Need, Source, SourceType
 from app.graph.actions import propose_ticket
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ToolName = Literal["get_settlement_schedule", "get_transactions"]
+ToolName = Literal["get_settlement_schedule", "get_transactions", "get_account_profile"]
 
 
 class SupportAction(StrEnum):
@@ -59,6 +59,8 @@ class SupportPlan(BaseModel):
         A sale date after today cannot have sales yet, so "the money from tomorrow's sales" is
         read as the money crediting tomorrow.
         """
+        if self.tool == "get_account_profile":
+            return {}
         if self.tool != "get_settlement_schedule":
             return {"status": self.status, "limit": self.limit}
         date_from, date_to = self.date_from or "", self.date_to or ""
@@ -81,6 +83,9 @@ class SupportAnswer(BaseModel):
     """The second structured step: prose grounded in the tool result."""
 
     answer: str
+    needs: Need | None = None
+    """When the merchant also asked what to do about what the data shows, such as a terminal
+    offline: the general question for the knowledge agent, with no amount, date or id in it."""
 
 
 def planning_input(state: GraphState, question: str) -> str:
@@ -136,4 +141,9 @@ async def answer(state: GraphState, provider: LLMProvider) -> dict[str, Any]:
     )
 
     account = Source(source_type=SourceType.ACCOUNT, title=plan.tool)
-    return {"answer": generated.answer, "sources": [account], "evidence": evidence}
+    return {
+        "answer": generated.answer,
+        "sources": [account],
+        "evidence": evidence,
+        "need": generated.needs,
+    }
