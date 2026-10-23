@@ -324,6 +324,7 @@ test suite.
 | Settlements by sale or credit date, derived status, merchant's money notation (§8) | `test_tools::test_yesterdays_sales_are_found_by_sale_date_and_credit_today`, `test_records_are_read_as_of_the_turns_day`, `test_amounts_reach_the_model_in_the_merchants_notation`, `test_support::test_tomorrows_sales_are_read_as_the_money_crediting_tomorrow` |
 | A tool error escalates, never a stack trace (§14) | `test_flows::test_an_unreadable_account_escalates_instead_of_failing_the_request` |
 | First boot: no key, no half index (§13) | `test_ingest::test_a_first_boot_without_a_key_stops_with_the_fix_and_writes_nothing`, `test_a_build_that_fails_halfway_keeps_neither_half` |
+| Nothing downloads at runtime; the suite opens no socket (§13) | `test_offline::*`, `pytest-socket` with `--disable-socket` in `pyproject.toml`, `scripts/verify.py` failing on a blocked attempt |
 | The suite reads no developer configuration and no clock | `test_model_settings::test_the_suite_never_reads_the_developers_configuration`, the `pinned_today` fixture |
 
 Hard rule 2 (a forecast is labelled as one) lives in the support prompt and is checked by the
@@ -332,17 +333,20 @@ judge, not offline: no scripted model can show that a real one labels it.
 ## 12. Docker and CI
 
 Multi-stage build with uv, no API key at build time. The image includes the committed corpus
-snapshot, and the local embedding model is fetched during the build so the first boot needs no
-download besides the LLM calls themselves. The container command runs
+snapshot, and the local embedding model is fetched during the build (`python -m
+app.providers.embeddings`) so the first boot needs no download besides the LLM calls themselves;
+the chunker's tokenizer is committed under `app/rag/assets/`. Base images are pinned by digest. The container command runs
 `python -m app.rag.ingest --if-missing`, then starts uvicorn. Ingestion checks the embedder before
 reading anything and writes the vectors before the BM25 corpus, dropping the collection if the
 vectors fail, so a keyless or rejected first boot stops with one line and leaves no half index. Compose declares two named volumes,
 `index` and `state`, so the index can be dropped and rebuilt without touching a conversation; it
 loads `.env` and has a healthcheck whose start period covers the first index build.
 
-`.github/workflows/ci.yml`, on push and pull request: `uv sync`, ruff, pytest, `docker build`,
-`docker run` with `LLM_BACKEND=fake`, wait for `/health`, post one `/chat` and validate the
-response shape. The README carries the workflow badge.
+`.github/workflows/ci.yml`, on push and pull request: `make verify-offline` on ubuntu (inside
+`unshare --net` after `uv sync --frozen`) and macOS; gitleaks over the history; `docker compose
+build`, a syft SBOM and a Trivy scan failing on critical findings outside `.trivyignore`; then the
+container with `LLM_BACKEND=fake`, `/health`, `/metrics` and one `/chat`. `make verify` is the same
+offline phase after a frozen sync, from a clean clone. The README carries the workflow badge.
 
 ## 13. Observability
 

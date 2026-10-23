@@ -107,6 +107,7 @@ def build_steps(monkeypatch, tmp_path):
     """Replace the expensive build steps with recorders, so main() runs offline."""
     calls: list[str] = []
     monkeypatch.setattr(ingest, "get_settings", lambda: Settings(index_path=str(tmp_path / "db")))
+    monkeypatch.setattr(ingest, "require_embedder", lambda settings: None)
     monkeypatch.setattr(ingest, "load_documents", lambda: (STALE, "from a test", []))
     monkeypatch.setattr(
         ingest, "chunk_documents", lambda documents: ([], ChunkStats(generated=0, discarded=0))
@@ -162,6 +163,9 @@ def test_a_first_boot_without_a_key_stops_with_the_fix_and_writes_nothing(monkey
 def test_a_build_that_fails_halfway_keeps_neither_half(monkeypatch, tmp_path):
     """The collection exists by the time the vectors fail, as with a rejected key."""
     settings = Settings(index_path=str(tmp_path / "db" / "chroma"), embedding_backend="local")
+    model = tmp_path / "model.onnx"  # never loaded: the upsert fails before anything is embedded
+    model.touch()
+    monkeypatch.setattr("app.providers.embeddings.local_model_path", lambda: model)
 
     def unreachable(*args, **kwargs):
         raise ConnectionError("embedding api unreachable")

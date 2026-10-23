@@ -4,22 +4,62 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
-  checks:
-    name: Lint and offline tests
-    runs-on: ubuntu-24.04
+  verify:
+    name: Verify (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v10.3.0
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
-      - run: uv sync --frozen
-      - run: uv run ruff check .
-      - run: uv run pytest -q
+
+      # The only step allowed the network.
+      - name: Sync from the lockfile
+        run: uv sync --frozen
+
+      # A fresh network namespace has no route out: any download, call or lookup fails the job.
+      - name: Verify with the network cut
+        if: runner.os == 'Linux'
+        run: sudo -E unshare --net -- sudo -E -u "$USER" env "PATH=$PATH" make verify-offline
+
+      # macOS has no network namespaces; the tests still run with sockets blocked.
+      - name: Verify
+        if: runner.os == 'macOS'
+        run: make verify-offline
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: verify-${{ matrix.os }}
+          path: reports/verify.md
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Reviewed false positives are listed by fingerprint in .gitleaksignore.
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: false
 
   container:
-    name: Docker build and smoke test
-    needs: checks
+    name: Docker build, supply chain and smoke test
+    needs: verify
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -35,7 +75,28 @@ jobs:
           sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
 
       - name: Build the image
-        run: docker compose build
+        run: |
+          docker compose build
+          echo "IMAGE=$(docker compose config --images | head -n 1)" >> "$GITHUB_ENV"
+
+      - name: SBOM of the image
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.IMAGE }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+          artifact-name: sbom.spdx.json
+
+      # Fails on any critical finding, fixed upstream or not, unless .trivyignore accepts it with a
+      # reason and an expiry.
+      - name: Vulnerability scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.0
+          image-ref: ${{ env.IMAGE }}
+          severity: CRITICAL
+          exit-code: "1"
+          trivyignores: .trivyignore
 
       - name: Start the container and wait until healthy
         run: docker compose up -d --wait

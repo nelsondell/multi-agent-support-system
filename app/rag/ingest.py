@@ -198,10 +198,12 @@ def index_chunks(chunks: list[Chunk], settings: Settings) -> None:
 def require_embedder(settings: Settings) -> None:
     """Stop before anything is read or written when the configured embedder cannot be built,
     such as `EMBEDDING_BACKEND=openai` on a fresh clone with no key yet."""
-    from app.providers.embeddings import build_embedding_function
+    from app.providers.embeddings import LocalModelMissing, build_embedding_function
 
     try:
         build_embedding_function(settings)
+    except LocalModelMissing as exc:
+        raise SystemExit(f"cannot build the index: {exc}. Nothing was written.") from exc
     except ValueError as exc:
         raise SystemExit(
             f"cannot build the index: {exc}. Set OPENAI_API_KEY in .env, or set "

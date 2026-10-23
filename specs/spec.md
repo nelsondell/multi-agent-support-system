@@ -336,8 +336,17 @@ default embedder needs, the first boot stops with a one-line fix and builds noth
 in a second named volume, so rebuilding the index never deletes a conversation. A `Makefile`
 wraps up, test, eval and demo.
 
-**CI.** A GitHub Actions workflow runs ruff, pytest, a docker build, then starts the container
-with a fake LLM backend and smoke-tests `/health` and one `/chat`.
+**Verify offline.** `make verify` from a clean clone needs only `uv` and `make`: a frozen sync, the
+one step with network, then lint, the suite and the deterministic evals with no key, recorded in
+`reports/verify.md`. Nothing downloads at runtime: the tokenizer ships in the repository and the
+local embedding model is fetched only by the image build or `make models`. The suite runs with
+sockets blocked.
+
+**CI.** A GitHub Actions workflow runs the offline checks on ubuntu, with the network cut after
+the sync, and on macOS; scans the history for secrets; builds the image, writes its SBOM and fails
+on an unaccepted critical vulnerability; then starts the container with a fake LLM backend and
+smoke-tests `/health`, `/metrics` and one `/chat`. Base images are pinned by digest and
+Dependabot keeps lockfile, actions and digests current.
 
 **Observability.** JSON logs, masked by a processor. `/metrics` exposes escalations by reason
 and node latency. LangSmith tracing is optional, off by default, and when on it sends only masked
