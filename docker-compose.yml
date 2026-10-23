@@ -1,11 +1,44 @@
+# One node by default: `docker compose up` runs `api` over SQLite files in its own volumes.
+# `make scale` runs the `scale` profile instead: Postgres, two replicas over it and a round-robin
+# load balancer on SCALE_PORT (docs/operations.md).
+
+x-api: &api
+  build: .
+  # One image for every service that runs the API, so it is built once.
+  image: multi-agent-support-system:local
+  # Every setting is documented in .env.example; `cp .env.example .env` is the whole setup.
+  env_file: .env
+  healthcheck:
+    test:
+      - CMD
+      - python
+      - -c
+      - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2).status == 200 else 1)"
+    interval: 10s
+    timeout: 3s
+    retries: 3
+    # Covers the first boot, which builds the index before the API starts listening.
+    start_period: 120s
+  # Longer than uvicorn's own graceful shutdown (30 s), so in-flight turns can finish.
+  stop_grace_period: 40s
+  restart: unless-stopped
+
+x-replica: &replica
+  <<: *api
+  profiles: [scale]
+  environment:
+    STORAGE: postgres
+    DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@postgres:5432/postgres
+  depends_on:
+    postgres:
+      condition: service_healthy
+
 services:
   api:
-    build: .
+    <<: *api
     ports:
       # Host port from API_PORT in .env, for machines where 8000 is already taken.
       - "${API_PORT:-8000}:8000"
-    # Every setting is documented in .env.example; `cp .env.example .env` is the whole setup.
-    env_file: .env
     volumes:
       # The index: built on first boot from the committed corpus snapshot, reused after. Read-write
       # because Chroma opens its SQLite store read-write even to serve queries.
@@ -13,19 +46,49 @@ services:
       # The conversation checkpoints. A volume of their own, so dropping the index to rebuild it
       # never deletes a conversation.
       - state:/app/data/state
+
+  # --- scale profile ---------------------------------------------------------------------------
+  postgres:
+    profiles: [scale]
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    volumes:
+      - postgres:/var/lib/postgresql/data
     healthcheck:
-      test:
-        - CMD
-        - python
-        - -c
-        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).status == 200 else 1)"
-      interval: 10s
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
       timeout: 3s
-      retries: 3
-      # Covers the first boot, which builds the index before the API starts listening.
-      start_period: 120s
-    restart: unless-stopped
+      retries: 10
+
+  # Each replica builds and keeps its own copy of the read-only index; everything that outlives a
+  # request (checkpoints, cases, turn locks) is in Postgres.
+  api-a:
+    <<: *replica
+    volumes:
+      - index-a:/app/data/processed
+
+  api-b:
+    <<: *replica
+    volumes:
+      - index-b:/app/data/processed
+
+  lb:
+    profiles: [scale]
+    image: nginx:1.29-alpine@sha256:5616878291a2eed594aee8db4dade5878cf7edcb475e59193904b198d9b830de
+    ports:
+      - "${SCALE_PORT:-8080}:8080"
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      api-a:
+        condition: service_healthy
+      api-b:
+        condition: service_healthy
 
 volumes:
   index:
   state:
+  postgres:
+  index-a:
+  index-b:

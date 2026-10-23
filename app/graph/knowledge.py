@@ -117,17 +117,11 @@ async def answer(
 
     prompt = load_prompt("knowledge")
     question = state.current_query()
-    try:
-        generated = await provider.structured(
-            system=prompt.text,
-            user=f"Pergunta do cliente:\n{question}\n\nTrechos:\n{format_context(result.hits)}",
-            schema=KnowledgeAnswer,
-        )
-    except LLMProviderError as exc:
-        logger.warning("knowledge generation failed: %s", exc)
-        # Not "no source found": the escalation says the model failed, in its own words.
-        failed = EscalationReason.MODEL_UNAVAILABLE.value
-        return {"refusal_reason": failed, "sources": [], **looked_at}
+    generated = await provider.structured(
+        system=prompt.text,
+        user=f"Pergunta do cliente:\n{question}\n\nTrechos:\n{format_context(result.hits)}",
+        schema=KnowledgeAnswer,
+    )
     if generated.coverage == "none":
         logger.info("knowledge abstained: the excerpts do not answer the question")
         return _refusal(EscalationReason.INSUFFICIENT_SOURCES, looked_at)

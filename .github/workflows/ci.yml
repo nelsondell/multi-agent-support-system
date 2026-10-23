@@ -41,6 +41,35 @@ jobs:
           name: verify-${{ matrix.os }}
           path: reports/verify.md
 
+  replicas:
+    name: Replicas over Postgres
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      # Escalated on one replica and answered on the other; a replica dying mid-turn; turns on one
+      # conversation across replicas. A skipped test here would be a silent pass, so it fails.
+      - name: Two replicas over one database
+        env:
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+        shell: bash  # -o pipefail, so a failing pytest is not hidden behind tee
+        run: |
+          uv run --frozen pytest -q -rs tests/test_replicas.py | tee replicas.txt
+          ! grep -q skipped replicas.txt
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04
@@ -121,3 +150,47 @@ jobs:
       - name: Container logs
         if: always()
         run: docker compose logs api
+
+  scale:
+    name: Scale profile smoke test
+    needs: verify
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Configure the keyless backends
+        run: |
+          cp .env.example .env
+          sed -i 's/^LLM_BACKEND=.*/LLM_BACKEND=fake/' .env
+          sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
+          sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
+
+      - name: Start Postgres, two replicas and the load balancer
+        run: docker compose --profile scale up --build --wait lb
+
+      - name: Ready through the balancer
+        run: curl -fsS localhost:8080/ready | jq -e '.status == "ready" and .storage == "postgres"'
+
+      - name: One conversation served by both replicas
+        run: |
+          for turn in 1 2 3 4; do
+            curl -fsS -X POST localhost:8080/chat -H 'Content-Type: application/json' \
+              -d '{"message": "What is the Get Smart card machine?", "user_id": "cliente1988", "conversation_id": "smoke"}' \
+              | jq -e '.status == "answered"'
+          done
+          test "$(docker compose logs api-a | grep -c 'POST /chat')" -ge 1
+          test "$(docker compose logs api-b | grep -c 'POST /chat')" -ge 1
+          curl -fsS 'localhost:8080/conversations/smoke?user_id=cliente1988' | jq -e '.messages | length == 8'
+
+      - name: A replica dies and the balancer keeps serving
+        run: |
+          docker compose kill api-a
+          for turn in 1 2; do
+            curl -fsS -X POST localhost:8080/chat -H 'Content-Type: application/json' \
+              -d '{"message": "What is the Get Smart card machine?", "user_id": "cliente1988", "conversation_id": "smoke"}' \
+              | jq -e '.status == "answered"'
+          done
+
+      - name: Logs
+        if: always()
+        run: docker compose --profile scale logs

@@ -109,8 +109,10 @@ def stack(tmp_path, sample_chunks, fake_collection):
     return start
 
 
-async def chat(http: httpx.AsyncClient, message: str, conversation_id: str = "c1") -> dict:
-    payload = {"message": message, "user_id": CALLER, "conversation_id": conversation_id}
+async def chat(
+    http: httpx.AsyncClient, message: str, conversation_id: str = "c1", user_id: str = CALLER
+) -> dict:
+    payload = {"message": message, "user_id": user_id, "conversation_id": conversation_id}
     response = await http.post("/chat", json=payload)
     assert response.status_code == 200, response.text
     return response.json()
@@ -192,36 +194,30 @@ async def test_approve_sends_the_proposed_draft(stack):
     assert resumed.json()["answer"] == DRAFT
 
 
-def answer_step_down(user: str) -> SupportAnswer:
-    raise LLMProviderError("answer model unavailable")
-
-
 @pytest.mark.parametrize(
     ("draft", "kept"),
     [
-        ("Consta na sua agenda uma previsão de R$ 231,26. Nossa equipe vai verificar.", True),
-        ("Consta na sua agenda uma previsão de R$ 500,00. Nossa equipe vai verificar.", False),
+        ("Consta uma venda negada de R$ 455,00, sem motivo registrado. Vamos verificar.", True),
+        ("Consta uma venda negada de R$ 500,00, sem motivo registrado. Vamos verificar.", False),
     ],
 )
 async def test_a_draft_may_quote_the_tool_result_but_nothing_else(stack, draft, kept):
-    """The settlement row was read, then the answer step failed: the case goes to a human."""
+    """The transactions were read and show a decline the issuer gave no reason for: the case goes
+    to a human with that result as evidence, and the draft may quote it."""
     looked_up = model(
         SupportPlan=SupportPlan(
-            action=SupportAction.CALL_TOOL,
-            tool="get_settlement_schedule",
-            date_from="2026-09-01",
-            date_to="2026-09-01",
+            action=SupportAction.CALL_TOOL, tool="get_transactions", status="negada"
         ),
-        SupportAnswer=answer_step_down,
         HandoffDraft=HandoffDraft(draft=draft),
     )
     async with AsyncExitStack() as exits:
         http = await stack(exits, looked_up)
-        protocol = (await chat(http, COMPLAINT))["escalation"]["protocol"]
+        reply = await chat(http, "Por que minha venda foi negada?", user_id="cliente2042")
+        protocol = reply["escalation"]["protocol"]
 
         case = (await http.get(f"/handoffs/{protocol}", headers=OPERATOR)).json()["case"]
 
-    assert case["reason"] == "model_unavailable"
+    assert case["reason"] == "individual_case"
     assert case["proposed_draft"] == (draft if kept else None)
 
 

@@ -26,6 +26,7 @@ app/
   prompts/             versioned pt-BR markdown, loaded by id
   observability/       structlog setup, PII masking, metrics, tracing
   locks.py             one turn at a time per conversation, for /chat and operator resume
+  storage.py           STORAGE=sqlite|postgres: checkpointer, handoff queue and turn locks
 data/corpus/documents.jsonl   committed extraction snapshot
 evals/                 routing golden set + runner, model benchmark, LLM-as-judge runner, reports
 .github/workflows/ci.yml, Makefile, .env.example
@@ -313,6 +314,8 @@ test suite.
 | Unreachable embedder abstains (§7, §14) | `test_knowledge::test_an_unreachable_embedder_reads_as_nothing_retrieved` |
 | Web only for general questions; masked, dated, capped, degraded (§7) | `test_web::*`, `test_flows::test_a_general_question_is_answered_from_the_web_with_a_key`, `test_without_a_key_a_general_question_degrades_and_nothing_leaves`, `test_the_web_query_that_leaves_is_masked` |
 | Guardrail: injection and identity refused as separate outcomes, the caller's own id allowed, PII masked, system ids untouched (§10) | `test_guardrail::*`, `test_adversarial::*`, `test_observability::*` |
+| Replicas over Postgres: escalated on one, answered on the other; a dead replica's turn resumes; turns serialize across replicas (§13) | `test_replicas::*` (CI job `replicas`), the `scale` CI job |
+| Node timeout and retry; a model that keeps failing escalates, a bug fails the run (§13) | `test_resilience::*` |
 | One turn at a time per conversation; other conversations never wait (§3) | `test_locks::*`, `test_flows::test_two_messages_on_one_conversation_take_turns`, `test_different_conversations_do_not_wait_for_each_other` |
 | A failed model call escalates as `model_unavailable`; older stored reasons still load (§11) | `test_router::test_provider_failure_becomes_zero_confidence_not_an_exception`, `test_knowledge::test_generation_failure_refuses_instead_of_raising`, `test_support::test_planning_failure_does_not_raise`, `test_escalation::test_a_model_failure_escalates_with_its_own_notice`, `test_a_reason_stored_before_the_rename_still_loads` |
 | Escalation deterministic, typed reason, masked summary (§11) | `test_escalation::*` |
@@ -347,6 +350,10 @@ loads `.env` and has a healthcheck whose start period covers the first index bui
 build`, a syft SBOM and a Trivy scan failing on critical findings outside `.trivyignore`; then the
 container with `LLM_BACKEND=fake`, `/health`, `/metrics` and one `/chat`. `make verify` is the same
 offline phase after a frozen sync, from a clean clone. The README carries the workflow badge.
+Two more jobs: `tests/test_replicas.py` against a Postgres service, and the `scale` profile
+(Postgres, `api-a`, `api-b`, nginx) brought up keyless, checked through the balancer, then with one
+replica killed. The image's healthcheck and compose wait on `/ready`; uvicorn runs with
+`--timeout-graceful-shutdown 30` and compose's `stop_grace_period` is 40 s.
 
 ## 13. Observability
 

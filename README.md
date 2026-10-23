@@ -11,9 +11,9 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | | |
 | --- | --- |
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
-| **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite |
+| **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 299 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Verify** | `make verify`: 305 tests and the offline evals, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
 | **Evals** | routing golden set 27/28 · LLM judge, 3 runs: groundedness 4.96, relevance 4.45 ([report](evals/report.md)) |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
@@ -39,8 +39,8 @@ make verify                     # frozen sync, then lint, tests and offline eval
 
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, the tests run with sockets blocked, and the result lands in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 9 s of
-sync and 16.6 s of checks.
+[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 100 s of
+sync (441 MB, so mostly the network) and 21.3 s of checks.
 
 ```bash
 cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY; OPERATOR_TOKEN for /handoffs
@@ -51,8 +51,10 @@ OPERATOR_TOKEN=... ./scripts/demo.sh   # the walkthrough in §5
 
 The first boot builds the knowledge index from the committed corpus snapshot into a volume;
 conversations and open cases live in a second volume and survive restarts. Without
-`OPENAI_API_KEY` the first boot stops with a one-line fix and writes nothing. Every setting is in
-`.env.example` and [docs/operations.md](docs/operations.md).
+`OPENAI_API_KEY` the first boot stops with a one-line fix and writes nothing. `make scale` runs
+Postgres, two replicas over it and a round-robin balancer on port 8080 instead
+([scaling out](docs/operations.md#scaling-out)). Every setting is in `.env.example` and
+[docs/operations.md](docs/operations.md).
 
 ```bash
 uv sync && uv run python -m app.rag.ingest && uv run uvicorn app.main:app --reload   # local
@@ -169,7 +171,7 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 299 tests, about 8 s, sockets blocked: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 305 tests, about 9 s, sockets blocked, plus 6 that run two replicas over Postgres in CI: every node, both tools, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite and the guardrail eval, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
@@ -221,11 +223,11 @@ Escalations are counted by typed reason on `GET /metrics`; LangSmith tracing is 
 | --- | --- | --- |
 | Memory / multi-turn (1.5) | Persistent threads keyed by merchant and conversation; follow-ups rewritten into standalone queries with history as data; rolling summary; history endpoint; survives restarts | T-19, T-20, T-34, T-42 |
 | Human in the loop (5.8) | A fourth agent: case and draft before `interrupt()`; approve, reply or cancel; guarded rephrasing; reply delivered with the next message; notes while waiting; expiry; the plan finishes after the reply | T-21, T-42, T-43 |
-| Infra / Docker (6.8) | One command from a clean clone; index built on first boot; separate state volume; healthcheck; CI builds and smoke-tests the container; `make verify` offline; SBOM, vulnerability and secret scans; digest-pinned base images | T-16, T-17, T-18, T-33, T-47 |
+| Infra / Docker (6.8) | One command from a clean clone; index built on first boot; separate state volume; healthcheck; CI builds and smoke-tests the container; `make verify` offline; SBOM, vulnerability and secret scans; digest-pinned base images; replicas over Postgres behind a balancer | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
 | Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan | T-21, T-22, T-43 |
 | Observability / evals (9.1) | LLM judge over 3 runs; model benchmark; embedder calibration; Prometheus counters by honest reason; masked tracing | T-25, T-26, T-28, T-29, T-39, T-44 |
-| Tests / quality (9.2) | 78 → 299 offline tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Tests / quality (9.2) | 78 → 311 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
 | Security / isolation (9.5) | Threads bound to the merchant; one turn at a time per conversation; restricted checkpoint deserializer; masked web queries; operator token | T-19, T-21, T-23, T-31, T-44 |
 | RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |
@@ -256,10 +258,11 @@ the router stays at low.
 near-identical product pages; BM25 pins "Get Smart" against "Get Mini". RRF fuses them by rank.
 Abstention uses dense similarity, calibrated per embedder ([docs/rag.md](docs/rag.md)).
 
-**Failures degrade, never raise.** A failed model call escalates as `model_unavailable`, an
-unreadable account as `tool_unavailable`, a web search failure becomes a pt-BR notice, and two
-requests on one conversation take turns instead of overwriting each other
-([table](docs/architecture.md#failure-handling)).
+**Failures degrade, never raise.** Every node runs under LangGraph's own timeout and retry; a model
+that keeps failing escalates as `model_unavailable` through the node's error handler, an
+unreadable account as `tool_unavailable`, and a web search failure becomes a pt-BR notice. Two
+requests on one conversation take turns, on any replica, and a turn whose replica dies is finished
+from its checkpoint by the retry ([table](docs/architecture.md#failure-handling)).
 
 **Model choice.** `gpt-6-luna` at low effort matched `gpt-6-sol` on routing within one row at 1/18
 of the cost ([benchmark](evals/router_benchmark.md)).
@@ -278,8 +281,8 @@ of the cost ([benchmark](evals/router_benchmark.md)).
 - **Router confidence is self-reported**, and A01 ("Quanto eu pago de taxa por venda no crédito?")
   is genuinely ambiguous.
 - **Article chunking cuts tables**: a 600-token window can split a fee table mid-row.
-- **Mock account data** with dates moved to the current day; **single process over SQLite**,
-  `user_id` trusted from the request, one shared operator token, no rate limiting: fit for the
+- **Mock account data** with dates moved to the current day; **one node over SQLite** unless
+  `make scale`; `user_id` trusted from the request, one shared operator token, no rate limiting: fit for the
   challenge, not for production traffic.
 - **Latency**: 4 to 9 s per turn, mostly two or three sequential model calls.
 

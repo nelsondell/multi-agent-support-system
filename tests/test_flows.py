@@ -129,7 +129,7 @@ def stack(tmp_path, sample_chunks, fake_collection):
         retriever = HybridRetriever(
             sample_chunks, fake_collection({chunk.id: 0.9 for chunk in sample_chunks}), top_k=5
         )
-        app.state.settings, app.state.queue = settings, queue
+        app.state.settings, app.state.queue, app.state.retriever = settings, queue, retriever
         app.state.graph = build_graph(model, settings, retriever, checkpointer, queue, web)
         transport = httpx.ASGITransport(app=app)
         return await exits.enter_async_context(
@@ -276,6 +276,28 @@ async def test_different_conversations_do_not_wait_for_each_other(stack):
         )
 
     assert model.most == 2
+
+
+async def test_ready_reports_the_store_and_the_index(stack, sample_chunks):
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, Model())
+        response = await http.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "storage": "sqlite", "chunks": len(sample_chunks)}
+
+
+async def test_ready_is_503_while_the_store_does_not_answer(stack, monkeypatch):
+    async def unreachable() -> None:
+        raise ConnectionError("database unreachable")
+
+    async with AsyncExitStack() as exits:
+        http = await stack(exits, Model())
+        monkeypatch.setattr(app.state.queue, "ping", unreachable)
+        response = await http.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["problems"] == ["storage: ConnectionError"]
 
 
 async def test_the_evidence_never_reaches_the_response_or_the_history(stack):

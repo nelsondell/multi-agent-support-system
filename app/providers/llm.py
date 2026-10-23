@@ -38,6 +38,7 @@ class OpenAIProvider:
         model: str,
         temperature: float | None = None,
         reasoning_effort: str | None = None,
+        max_retries: int = 2,
     ) -> None:
         from langchain_openai import ChatOpenAI
 
@@ -45,7 +46,7 @@ class OpenAIProvider:
         # without reasoning rejects an effort.
         controls = {"temperature": temperature, "reasoning_effort": reasoning_effort}
         options = {name: value for name, value in controls.items() if value is not None}
-        self._client = ChatOpenAI(api_key=api_key, model=model, **options)
+        self._client = ChatOpenAI(api_key=api_key, model=model, max_retries=max_retries, **options)
 
     async def structured(self, *, system: str, user: str, schema: type[SchemaT]) -> SchemaT:
         """Call the model and validate its answer against `schema`."""
@@ -75,4 +76,5 @@ def build_provider(settings: Settings) -> LLMProvider:
         model=settings.llm_model,
         temperature=settings.llm_temperature,
         reasoning_effort=settings.llm_reasoning_effort,
+        max_retries=0,  # the graph retries the node (build.py), so one layer of retries, not two
     )

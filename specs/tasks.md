@@ -464,13 +464,34 @@ Dependabot covers uv, actions and Docker.
 in under 3 minutes; the verify job is green on ubuntu with the network cut and on macOS; the
 secret, SBOM and vulnerability steps are green; the README quick start opens with `make verify`.
 
+### T-48 — `feat(T-48): Postgres for replicas, native fault tolerance`
+`STORAGE=sqlite|postgres`. With Postgres, LangGraph's `AsyncPostgresSaver` holds the checkpoints,
+the handoff queue runs the same SQL through a Postgres adapter, and the per-conversation lock is a
+`pg_advisory_xact_lock` on the thread, on a pool of its own. Replicas that boot together take
+turns at creating the tables, with a polled session lock, because LangGraph's migrations build
+indexes `CONCURRENTLY`. LangGraph moves to 1.2.16: every node runs under `TimeoutPolicy` and
+`RetryPolicy` (`set_node_defaults`), and the router, knowledge and support nodes get an
+`error_handler` that escalates a model failure as `model_unavailable`, through `collect` for a
+plan step. Their try/except blocks are gone, and the OpenAI client no longer retries on its own.
+Checkpoints are written synchronously after every step, and `/chat` finishes a turn left
+unfinished by a dead replica before anything else, answering the merchant's retry with it.
+`create_app()` builds the API, so a test can run two. `/ready` checks the store and the index. The
+compose profile `scale` runs Postgres, two replicas and nginx round robin (`make scale`). Shutdown
+goes through uvicorn's graceful timeout and the lifespan; RunControl drain is a LangGraph
+Platform feature.
+**Done when:** with Postgres, a case escalated on replica A is answered through B and delivered by
+A, a replica killed mid-turn resumes from its checkpoint on the other, and concurrent turns on one
+conversation serialize across replicas, in CI; the scale profile serves one conversation from both
+replicas and survives one being killed; app code outside the storage adapters does not grow beyond
+what the new probe and app factory need.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
 | --- | --- |
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
 | Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44 |
-| Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47 |
+| Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
 | Multi-agent / orchestration (8.8) | T-22, T-43 |
 | Observability / evals (9.1) | T-25, T-26, T-31 |

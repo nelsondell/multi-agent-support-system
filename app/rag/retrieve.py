@@ -98,6 +98,11 @@ class HybridRetriever:
         self._collection = collection
         self._top_k = top_k
 
+    @property
+    def size(self) -> int:
+        """How many chunks the index holds; zero means it is not ready to answer."""
+        return len(self._ids)
+
     @classmethod
     def from_settings(cls, settings: Settings) -> "HybridRetriever":
         """Open the persisted index built by ingestion."""

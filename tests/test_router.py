@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.contracts import EscalationReason, Intent, TargetAgent
+from app.contracts import Intent, TargetAgent
 from app.graph.router import PlanStep, RouterDecision, route
 from app.graph.state import GraphState
 from app.providers.llm import LLMProviderError
@@ -67,16 +67,12 @@ async def test_account_question_goes_to_support() -> None:
     assert update["route"].intent is Intent.ACCOUNT_DATA
 
 
-async def test_provider_failure_becomes_zero_confidence_not_an_exception() -> None:
-    """The failure collapses into the value the threshold edge already handles."""
+async def test_a_provider_failure_raises_for_the_graph_to_retry() -> None:
+    """The node does not hide it: the graph retries it, then escalates (test_resilience)."""
     state = GraphState(message="Quando cai o dinheiro?", user_id="cliente1988")
 
-    update = await route(state, StubProvider(error="upstream timeout"), window=6)
-
-    assert update["route"].confidence == 0.0
-    assert update["route"].steps[0].query_pt == state.message
-    assert "upstream timeout" in update["route"].rationale
-    assert update["refusal_reason"] == EscalationReason.MODEL_UNAVAILABLE.value
+    with pytest.raises(LLMProviderError, match="upstream timeout"):
+        await route(state, StubProvider(error="upstream timeout"), window=6)
 
 
 def test_confidence_outside_the_unit_interval_is_rejected() -> None:

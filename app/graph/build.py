@@ -13,9 +13,11 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Literal
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.errors import NodeError, NodeTimeoutError
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, RetryPolicy, TimeoutPolicy
 
-from app.contracts import Intent
+from app.contracts import EscalationReason, Intent
 from app.graph.compose import compose
 from app.graph.escalation import escalate
 from app.graph.guardrail import after_guardrail
@@ -27,14 +29,37 @@ from app.graph.memory import remember
 from app.graph.router import route
 from app.graph.state import GraphState, StepResult
 from app.graph.support import answer as support_answer
-from app.observability import instrument_node
-from app.providers.llm import LLMProvider
+from app.observability import get_logger, instrument_node
+from app.providers.llm import LLMProvider, LLMProviderError
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 
 if TYPE_CHECKING:
     from app.handoffs import HandoffQueue
     from app.tools.web import WebSearch
+
+logger = get_logger(__name__)
+
+MODEL_FAILURES = (LLMProviderError, NodeTimeoutError)
+"""What a node is retried on, and what escalates once its attempts run out."""
+
+ESCALATE_ON_FAILURE = ("router", "knowledge", "support")
+"""The nodes whose model call has no answer to fall back on. The others degrade inside the node:
+compose joins the step answers, a draft is left out, a rephrasing gives way to the operator's
+text, a summary fold keeps the history whole."""
+
+
+async def model_failed(state: GraphState, error: NodeError) -> Command:
+    """Once every attempt failed or timed out, the turn escalates as `model_unavailable`: from the
+    router straight away, from a plan step through `collect`, so an answered step still goes out.
+    Any other exception is a bug, and fails the run."""
+    if not isinstance(error.error, MODEL_FAILURES):
+        raise error.error
+    logger.warning("node.failed", node=error.node, error=type(error.error).__name__)
+    update = {"refusal_reason": EscalationReason.MODEL_UNAVAILABLE.value}
+    if error.node == "router":
+        return Command(update=update, goto="escalate")
+    return Command(update={**update, "answer": None, "sources": []}, goto="collect")
 
 
 def dispatch(state: GraphState, threshold: float) -> Literal["knowledge", "support", "escalate"]:
@@ -203,9 +228,16 @@ def build_graph(
 
     An escalated turn pauses for a human, which needs the checkpointer; the queue is where the
     operator finds the case. Without `web`, general-purpose questions get the degraded answer.
+    Every node gets LangGraph's own timeout and retry, and the nodes in `ESCALATE_ON_FAILURE` its
+    error handler, in place of a try/except in each.
     """
     graph = StateGraph(GraphState)
+    graph.set_node_defaults(
+        retry_policy=RetryPolicy(max_attempts=settings.node_attempts, retry_on=MODEL_FAILURES),
+        timeout=TimeoutPolicy(run_timeout=settings.node_timeout_s),
+    )
     for name, node in graph_nodes(provider, settings, retriever, queue, web).items():
-        graph.add_node(name, instrument_node(name, node))
+        handler = model_failed if name in ESCALATE_ON_FAILURE else None
+        graph.add_node(name, instrument_node(name, node), error_handler=handler)
     _wire(graph, settings)
     return graph.compile(checkpointer=checkpointer)
