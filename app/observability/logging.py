@@ -73,8 +73,11 @@ def instrument_node(name: str, node: Callable[[Any], Awaitable[dict]]) -> Callab
     logger = get_logger("graph")
 
     async def instrumented(state: Any) -> dict:
+        from app.observability.otel import operation
+
         started = perf_counter()
-        update = await node(state)
+        with operation("invoke_agent", name, **{"gen_ai.agent.name": name}):
+            update = await node(state)
         seconds = perf_counter() - started
         record(name, seconds, update)
         decision = update.get("route") or getattr(state, "route", None)

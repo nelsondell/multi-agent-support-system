@@ -21,6 +21,8 @@ from typing import Annotated, Any, Literal
 from langchain_core.tools import tool
 from langgraph.prebuilt import InjectedState
 
+from app.observability.otel import operation
+
 CUSTOMERS_PATH = Path("data/customers.json")
 
 MAX_TRANSACTIONS = 50
@@ -182,4 +184,5 @@ def call_tool(
     selected = SUPPORT_TOOLS[name]
     allowed = set(selected.tool_call_schema.model_fields)
     safe_arguments = {key: value for key, value in arguments.items() if key in allowed}
-    return selected.invoke({**safe_arguments, "user_id": user_id, "today": today})
+    with operation("execute_tool", name, **{"gen_ai.tool.name": name}):
+        return selected.invoke({**safe_arguments, "user_id": user_id, "today": today})

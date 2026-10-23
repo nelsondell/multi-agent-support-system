@@ -19,6 +19,9 @@ every setting. The ones that matter most:
 | `HANDOFF_TTL_HOURS` | `24` | How long a case waits for an operator before the merchant's next message closes it. |
 | `STORAGE` / `DATABASE_URL` | `sqlite` / — | Where checkpoints, cases and turn locks live: SQLite files on one node, or Postgres shared by replicas. |
 | `NODE_TIMEOUT_S` / `NODE_ATTEMPTS` | `45` / `2` | LangGraph's cap on one attempt of a node, and attempts on a model failure or timeout before the turn escalates. |
+| `LLM_CALL_TIMEOUT_S` | `20` | One model call's cap: a hung vendor fails the call, so the node retries or degrades instead of timing out whole. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OTLP gRPC collector for the traces; `make observe` sets Jaeger. |
+| `LLM_PRICE_INPUT` / `LLM_PRICE_CACHED_INPUT` / `LLM_PRICE_OUTPUT` | `0.10` / `0.01` / `0.50` | USD per million tokens, for the cost metrics. The cached-input price is an assumption until the price list states it. |
 | `LANGSMITH_TRACING` | `false` | Masked LangSmith tracing (with `LANGSMITH_API_KEY`). |
 | `LLM_BACKEND` | `openai` | `fake` answers every call deterministically with no key: CI only. |
 
@@ -121,17 +124,48 @@ the actions and the base-image digests (`.github/dependabot.yml`).
 
 ## Observability
 
+`make observe` runs the one node with Prometheus (`:9090`, scraping `/metrics` and evaluating the
+alert rules), Grafana (`:3000`, the "Support: cost, resolution and vendors" dashboard, provisioned
+from `deploy/grafana/`) and Jaeger (`:16686`, receiving the traces over OTLP).
+
 - **Logs.** `structlog` JSON, masked by a processor on every event, so no node can log a CPF even by
   accident; ids the system issues (trace ids, protocols, transaction ids) are never masked away.
   Every node is wrapped by `instrument_node`, so timing and outcome fields are uniform. The merchant
-  id is pseudonymised.
-- **Metrics.** `GET /metrics`: `support_escalations_total{reason}` and
-  `support_node_latency_seconds{node}`. Escalation reasons are a typed enum: `low_router_confidence`,
-  `repeated_misroute`, `low_retrieval_confidence`, `insufficient_sources`, `individual_case`,
-  `tool_unavailable`, `model_unavailable`. In the last timed real run, a turn took 4 to 6.5 s,
-  and 9 s for a compound request.
-- **Tracing.** Optional LangSmith tracing through one client that masks inputs and outputs before
-  upload. Off by default, and off means off: it also overrides a `LANGSMITH_TRACING=true` LangChain
-  would otherwise act on, unmasked. It costs nothing per request and can't fail one.
+  id is pseudonymised. A request's `trace_id` is the trace id of its OpenTelemetry trace.
+- **Traces.** OpenTelemetry spans in the GenAI semantic conventions (`app/observability/otel.py`):
+  the request, one `invoke_agent <node>` per graph node, one `chat <model>` per model call with
+  `gen_ai.provider.name`, `gen_ai.request.model` and the input, cached and output token counts,
+  and one `execute_tool <tool>` per tool call. No prompt, message or answer is ever recorded.
+  Exported over OTLP gRPC to `OTEL_EXPORTER_OTLP_ENDPOINT` when set. The GenAI conventions are
+  still in Development status, so attribute names may change with them. Optional LangSmith tracing
+  (masked, off by default) is separate and unchanged.
+- **Metrics.** `GET /metrics`, all counters and histograms in Prometheus format:
+
+  | Metric | What it answers |
+  | --- | --- |
+  | `support_turns_total{intent,outcome}` | Resolution without a human, by intent: `resolved`, `escalated`, `awaiting_confirmation`, `resolved_by_human` |
+  | `support_model_cost_usd_total` | Model spend, from each call's tokens and `LLM_PRICE_*` |
+  | cost per resolution | spend over `resolved` turns, so escalated turns' spend is carried by the resolved ones (a dashboard panel and an alert) |
+  | `support_model_tokens_total{kind}` | input, cached and output tokens; cached over input is the prompt cache hit rate |
+  | `support_escalations_total{reason}` | why turns leave the automated path |
+  | `support_node_latency_seconds{node}` | p50 and p95 per node |
+  | `support_vendor_failures_total{vendor,kind}` | model or web vendor calls that failed after their retries, by error or timeout |
+
+- **Prompt caching.** Every model call sends the static system prompt first, ending at an explicit
+  cache breakpoint (`prompt_cache_breakpoint`, `prompt_cache_options` in explicit mode), with a
+  `prompt_cache_key` derived from that prompt, and the request's own data after it.
+  `evals/run_cache_benchmark.py` measures the effect on cached share, latency and cost.
+- **Alerts** (`deploy/prometheus/alerts.yml`, unit-tested by `alerts_test.yml` with `promtool`):
+
+  | Alert | Fires when | Runbook, first line |
+  | --- | --- | --- |
+  | `NodeLatencyP95High` | a node's p95 is above 8 s for 5 min | open its slowest traces: a slow `chat` span is the vendor, a slow `execute_tool` the tool's backend |
+  | `EscalationSpike` | over 40% of turns go to a person for 2 min | split escalations by reason: a vendor, the account store, or questions the corpus lacks |
+  | `VendorFailures` | over 3 vendor failures in 5 min | check the vendor's status and the failing spans; it clears when the vendor answers |
+  | `CostPerResolutionHigh` | over USD 0.01 per resolved turn for 15 min | compare cached with input tokens and the escalation rate |
+
+- **Drills.** `make drill FAULT=model_error` (or `model_timeout`, `web_down`) injects the fault
+  through `FAULT_INJECTION`, sends traffic, waits for the alert and times the recovery
+  ([drills.md](drills.md)).
 - **Guardrail outcomes** are logged as `guardrail.blocked`, with the outcome (`prompt_injection`
   or `identity_swap`) and the masked message.

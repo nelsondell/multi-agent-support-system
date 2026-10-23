@@ -19,6 +19,8 @@ from email.utils import parsedate_to_datetime
 import httpx
 
 from app.observability import mask_pii
+from app.observability.metrics import VENDOR_FAILURES
+from app.observability.otel import operation
 from app.settings import MERCHANT_TIMEZONE, Settings
 
 logger = logging.getLogger(__name__)
@@ -85,12 +87,26 @@ class WebSearch:
         self._max_results = settings.web_search_max_results
         self._timeout = settings.web_search_timeout_s
         self._client = client
+        self._down = "web_down" in settings.faults()
 
     async def search(self, query: str, recent: bool = False) -> list[WebResult]:
         """Up to `web_search_max_results` pages for an already-sanitised query; with `recent`,
-        only pages from the last day."""
+        only pages from the last day. A failure of the vendor itself is counted."""
         if not self._key:
             raise WebSearchUnavailable("TAVILY_API_KEY is not set")
+        with operation("execute_tool", "web_search", **{"gen_ai.tool.name": "web_search"}):
+            try:
+                return await self._search(query, recent)
+            except NoWebResults:
+                raise  # the vendor answered; there was just nothing to use
+            except WebSearchUnavailable as exc:
+                kind = "timeout" if isinstance(exc.__cause__, httpx.TimeoutException) else "error"
+                VENDOR_FAILURES.labels(vendor="web", kind=kind).inc()
+                raise
+
+    async def _search(self, query: str, recent: bool) -> list[WebResult]:
+        if self._down:
+            raise WebSearchUnavailable("injected fault: the web search vendor is down")
         body = {"query": query, "max_results": self._max_results, "search_depth": "basic"}
         if recent:
             body["time_range"] = "day"

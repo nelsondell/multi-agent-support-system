@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     It belongs to that embedder. The local fallback embedder separates nothing, so with it no
     threshold can do this job and the knowledge answer's sufficiency flag is the only gate."""
     max_hops: int = Field(default=2, ge=1)
+    llm_call_timeout_s: float = Field(default=20.0, gt=0)
+    """Seconds one model call may take. A slower one fails like any vendor error, so the node that
+    made it retries or degrades, instead of hanging until the node's own timeout."""
     node_timeout_s: float = Field(default=45.0, gt=0)
     """Wall-clock cap on one attempt of a graph node: a model call that hangs is cut here."""
     node_attempts: int = Field(default=2, ge=1)
@@ -84,6 +87,22 @@ class Settings(BaseSettings):
     """Uploads masked traces to LangSmith. Off by default; on without a key, it stays off."""
     langsmith_api_key: str | None = None
     langsmith_project: str = "getnet-support"
+    otel_exporter_otlp_endpoint: str | None = None
+    """OTLP gRPC collector for the OpenTelemetry spans (`make observe` points it at Jaeger).
+    Unset, spans are still created, and name the request in the logs, but go nowhere."""
+
+    llm_price_input: float = 0.10
+    llm_price_cached_input: float = 0.01
+    llm_price_output: float = 0.50
+    """USD per million tokens of the chat model, for the cost metrics. gpt-6-luna's input and
+    output list prices; the cached-input price is an assumption until the price list states it."""
+    prompt_cache: bool = True
+    """Mark the end of each static system prompt as an explicit cache breakpoint."""
+    fault_injection: str = ""
+    """Drills only: comma-separated faults to inject, `model_error`, `model_timeout`, `web_down`."""
+
+    def faults(self) -> set[str]:
+        return {fault.strip() for fault in self.fault_injection.split(",") if fault.strip()}
 
     handoff_ttl_hours: float = Field(default=24.0, gt=0)
     """How long a case waits for an operator. After that, the merchant's next message closes it

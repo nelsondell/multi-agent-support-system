@@ -17,6 +17,7 @@ from langgraph.types import Command
 from app.audit import AuditEntry
 from app.auth import Operator, Supervisor
 from app.contracts import ChatResponse, DeliveredReply, HandoffRecord, OperatorInput, Outcome
+from app.observability.metrics import record_turn
 from app.responses import to_response
 
 router = APIRouter()
@@ -89,4 +90,6 @@ async def resume_handoff(
         raise HTTPException(409, f"case {protocol} is already closed")
     action = f"case.{decision.action}"
     await request.app.state.audit.append(principal.subject, principal.role, action, protocol)
+    if decision.action != "cancel":
+        record_turn(response.intent.value, response.status, escalated=True)
     return response

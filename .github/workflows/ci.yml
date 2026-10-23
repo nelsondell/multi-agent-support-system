@@ -70,6 +70,21 @@ jobs:
           uv run --frozen pytest -q -rs tests/test_replicas.py | tee replicas.txt
           ! grep -q skipped replicas.txt
 
+  alerts:
+    name: Alert rules
+    runs-on: ubuntu-24.04
+    env:
+      PROMETHEUS: prom/prometheus:v3.15.1@sha256:fa3302279710be2f21a8301ec17a8b4f2301fd829bd113839b3b6b02b6f191a2
+    steps:
+      - uses: actions/checkout@v5
+      # The config and its rules load, and each alert fires on the series that should trip it.
+      - name: promtool check and unit tests
+        run: |
+          docker run --rm -v "$PWD/deploy/prometheus:/etc/prometheus:ro" --entrypoint promtool \
+            "$PROMETHEUS" check config /etc/prometheus/prometheus.yml
+          docker run --rm -v "$PWD/deploy/prometheus:/p:ro" -w /p --entrypoint promtool \
+            "$PROMETHEUS" test rules alerts_test.yml
+
   secrets:
     name: Secret scan
     runs-on: ubuntu-24.04

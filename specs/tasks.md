@@ -520,6 +520,24 @@ idempotency and failure modes; the demo shows the proposal, the confirmation and
 **Done when:** no confirmation, no write; a replayed or concurrent confirmation, one ticket;
 another merchant's id, 404; a vendor failure mid-write, no ticket.
 
+### T-54 — `feat(T-54): traces, cost per resolution, alerts and vendor drills`
+OpenTelemetry spans in the GenAI conventions: a root span per request whose trace id is the logs'
+`trace_id`, `invoke_agent` per node, `chat` per model call with provider, model and input, cached
+and output tokens, and `execute_tool` per tool call; no content; OTLP when
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set; the conventions are noted as Development status. Metrics:
+turns by intent and outcome, model tokens and spend (cost per resolution and cache hit rate),
+vendor failures after retries, alongside escalations and node latency. Each model call sends the
+static system prompt first, ending at an explicit cache breakpoint with a per-prompt cache key;
+`evals/run_cache_benchmark.py` measures the effect. A per-call model timeout
+(`LLM_CALL_TIMEOUT_S`) was added after the timeout drill showed a hung vendor making the handoff
+draft time out the whole run. The compose profile `observability` (`make observe`) runs
+Prometheus with four alert rules, each with a runbook line and a `promtool` unit test, a
+provisioned Grafana dashboard and Jaeger. `FAULT_INJECTION` (`model_error`, `model_timeout`,
+`web_down`) drives `scripts/drills/run.sh`; `docs/drills.md` records each drill.
+**Done when:** a turn is one trace named in its logs, with no content in any span; cost per
+resolution, cache hit rate and p50/p95 per node are on the dashboard; each alert's unit test
+fires; the model drills show the vendor alert firing and the recovery time.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -529,7 +547,7 @@ another merchant's id, 404; a vendor failure mid-write, no ticket.
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47, T-48 |
 | Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
 | Multi-agent / orchestration (8.8) | T-22, T-43 |
-| Observability / evals (9.1) | T-25, T-26, T-31 |
+| Observability / evals (9.1) | T-25, T-26, T-31, T-54 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
 | Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47, T-49 |

@@ -1,5 +1,5 @@
 # Thin wrappers over the commands in the README.
-.PHONY: verify verify-offline models dev-keys up scale purge test eval demo
+.PHONY: verify verify-offline models dev-keys up scale observe drill purge test eval demo
 
 # From a clean clone, with no key: the frozen sync is the only step that uses the network; then
 # lint, the offline suite and the offline evals, recorded in reports/verify.md.
@@ -29,6 +29,15 @@ up: dev-keys
 # once both replicas are ready.
 scale: dev-keys
 	docker compose --profile scale up --build --wait lb
+
+# The one node plus Prometheus (alert rules), Grafana (dashboard) and Jaeger (traces), on ports
+# 9090, 3000 and 16686.
+observe: dev-keys
+	OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317 docker compose --profile observability up --build --wait
+
+# A vendor drill: `make drill FAULT=model_error` (or model_timeout, web_down). docs/drills.md.
+drill:
+	./scripts/drills/run.sh $(FAULT)
 
 # Erase conversations idle for longer than RETENTION_DAYS, with the cases they opened.
 purge:
