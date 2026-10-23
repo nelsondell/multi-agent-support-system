@@ -89,8 +89,16 @@ class Settings(BaseSettings):
     """How long a case waits for an operator. After that, the merchant's next message closes it
     as expired and the conversation goes on, so none waits forever."""
 
-    operator_token: str | None = None
-    """Bearer token for the operator endpoints. Unset, they answer 503 instead of opening up."""
+    auth_jwks_url: str | None = None
+    """The identity provider's public keys: an https URL, or the file `make dev-keys` writes. The
+    API refuses to start without them."""
+    auth_issuer: str = "getnet-support-dev"
+    merchant_audience: str = "support-api"
+    operator_audience: str = "support-operators"
+    rate_limit_per_minute: int = Field(default=30, ge=1)
+    """Requests a merchant may make in any 60 seconds, per replica; past it, 429."""
+    retention_days: int = Field(default=90, ge=1)
+    """Conversations idle for longer, and the cases they opened, are erased by `make purge`."""
 
     @model_validator(mode="after")
     def pick_sampling_control(self) -> "Settings":

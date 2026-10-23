@@ -103,6 +103,16 @@ jobs:
           sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
           sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
 
+      # A throwaway key pair stands in for the identity provider; the smoke tests send tokens
+      # signed with it, as merchants and operators must.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - name: Identity provider keys and a merchant token
+        run: |
+          uv run --frozen python scripts/dev_keys.py
+          echo "MERCHANT_TOKEN=$(uv run --frozen python scripts/dev_token.py merchant cliente1988)" >> "$GITHUB_ENV"
+
       - name: Build the image
         run: |
           docker compose build
@@ -141,8 +151,8 @@ jobs:
       - name: Smoke-test /chat
         run: |
           curl -fsS -X POST localhost:8000/chat \
-            -H 'Content-Type: application/json' \
-            -d '{"message": "What is the Get Smart card machine?", "user_id": "cliente1988"}' \
+            -H 'Content-Type: application/json' -H "Authorization: Bearer $MERCHANT_TOKEN" \
+            -d '{"message": "What is the Get Smart card machine?"}' \
             | tee chat.json
           echo
           jq -e '.escalated == false and (.answer | length > 0) and (.sources | length > 0)' chat.json
@@ -165,6 +175,16 @@ jobs:
           sed -i 's/^EMBEDDING_BACKEND=.*/EMBEDDING_BACKEND=local/' .env
           sed -i 's/^RETRIEVAL_CONFIDENCE_THRESHOLD=.*/RETRIEVAL_CONFIDENCE_THRESHOLD=0.35/' .env
 
+      # A throwaway key pair stands in for the identity provider; the smoke tests send tokens
+      # signed with it, as merchants and operators must.
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          enable-cache: true
+      - name: Identity provider keys and a merchant token
+        run: |
+          uv run --frozen python scripts/dev_keys.py
+          echo "MERCHANT_TOKEN=$(uv run --frozen python scripts/dev_token.py merchant cliente1988)" >> "$GITHUB_ENV"
+
       - name: Start Postgres, two replicas and the load balancer
         run: docker compose --profile scale up --build --wait lb
 
@@ -175,19 +195,22 @@ jobs:
         run: |
           for turn in 1 2 3 4; do
             curl -fsS -X POST localhost:8080/chat -H 'Content-Type: application/json' \
-              -d '{"message": "What is the Get Smart card machine?", "user_id": "cliente1988", "conversation_id": "smoke"}' \
+              -H "Authorization: Bearer $MERCHANT_TOKEN" \
+              -d '{"message": "What is the Get Smart card machine?", "conversation_id": "smoke"}' \
               | jq -e '.status == "answered"'
           done
           test "$(docker compose logs api-a | grep -c 'POST /chat')" -ge 1
           test "$(docker compose logs api-b | grep -c 'POST /chat')" -ge 1
-          curl -fsS 'localhost:8080/conversations/smoke?user_id=cliente1988' | jq -e '.messages | length == 8'
+          curl -fsS -H "Authorization: Bearer $MERCHANT_TOKEN" localhost:8080/conversations/smoke \
+            | jq -e '.messages | length == 8'
 
       - name: A replica dies and the balancer keeps serving
         run: |
           docker compose kill api-a
           for turn in 1 2; do
             curl -fsS -X POST localhost:8080/chat -H 'Content-Type: application/json' \
-              -d '{"message": "What is the Get Smart card machine?", "user_id": "cliente1988", "conversation_id": "smoke"}' \
+              -H "Authorization: Bearer $MERCHANT_TOKEN" \
+              -d '{"message": "What is the Get Smart card machine?", "conversation_id": "smoke"}' \
               | jq -e '.status == "answered"'
           done
 

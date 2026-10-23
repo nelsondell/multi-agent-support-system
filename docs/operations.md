@@ -9,7 +9,8 @@ every setting. The ones that matter most:
 | --- | --- | --- |
 | `OPENAI_API_KEY` | — | Chat model and embeddings. The API fails fast without it. |
 | `TAVILY_API_KEY` | — | Web search for general questions. Without it they get a pt-BR "cannot look this up now". |
-| `OPERATOR_TOKEN` | — | Bearer token for `/handoffs`. Unset, those endpoints answer 503. |
+| `AUTH_JWKS_URL` | `.dev/jwks.json` | The identity provider's public keys: an https URL, or the file `make dev-keys` writes. The API refuses to start without them. |
+| `RATE_LIMIT_PER_MINUTE` / `RETENTION_DAYS` | `30` / `90` | Merchant requests per 60 s per replica; days a conversation may sit idle before `make purge` erases it. |
 | `LLM_MODEL` / `LLM_REASONING_EFFORT` | `gpt-6-luna` / `low` | Chosen in [`evals/router_benchmark.md`](../evals/router_benchmark.md). `LLM_TEMPERATURE` is for non-reasoning models only (e.g. `gpt-4o-mini` with `0`). |
 | `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | `openai` / `text-embedding-3-large` | Chosen in [`evals/retrieval_calibration.md`](../evals/retrieval_calibration.md). `local` needs no key (CI uses it). Changing it means rebuilding the index. |
 | `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.52` | Below it, the knowledge agent abstains. Calibrated for the default embedder. |

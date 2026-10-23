@@ -23,12 +23,14 @@ from psycopg.conninfo import make_conninfo
 from app.contracts import Intent, TargetAgent
 from app.graph.build import build_graph
 from app.graph.human_review import HandoffDraft, OperatorReply
+from app.graph.memory import thread_id
 from app.graph.router import PlanStep, RouterDecision
 from app.graph.support import SupportAction, SupportAnswer, SupportPlan
 from app.main import create_app
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
 from app.storage import open_storage
+from tests.identity import IDENTITY, serve
 
 SERVER = os.environ.get("TEST_DATABASE_URL")
 pytestmark = [
@@ -38,8 +40,7 @@ pytestmark = [
 ]
 
 CALLER = "cliente1988"
-TOKEN = "operator-test-token"
-OPERATOR = {"Authorization": f"Bearer {TOKEN}"}
+OPERATOR = IDENTITY.operator()
 COMPLAINT = "Por que o estorno da minha venda ainda não apareceu?"
 QUESTION = "Quando cai o dinheiro das vendas de ontem?"
 SETTLED = "O dinheiro das vendas de ontem, R$ 231,26 líquidos, cai hoje."
@@ -102,7 +103,7 @@ async def database():
 @pytest.fixture
 def replicas(database, sample_chunks, fake_collection):
     """Start replicas over the same database, each with its own pools, graph and app."""
-    settings = Settings(storage="postgres", database_url=database, operator_token=TOKEN)
+    settings = Settings(storage="postgres", database_url=database)
 
     async def start(exits: AsyncExitStack, model: Model, count: int = 2) -> list:
         clients = []
@@ -111,11 +112,8 @@ def replicas(database, sample_chunks, fake_collection):
             similar = fake_collection({chunk.id: 0.9 for chunk in sample_chunks})
             retriever = HybridRetriever(sample_chunks, similar, top_k=5)
             api = create_app()
-            api.state.settings, api.state.retriever = settings, retriever
-            api.state.queue, api.state.locks = storage.queue, storage.locks
-            api.state.graph = build_graph(
-                model, settings, retriever, storage.checkpointer, storage.queue
-            )
+            graph = build_graph(model, settings, retriever, storage.checkpointer, storage.queue)
+            serve(api, settings, storage, graph, retriever)
             client = httpx.AsyncClient(transport=httpx.ASGITransport(app=api), base_url="http://r")
             clients.append(await exits.enter_async_context(client))
         return clients
@@ -124,8 +122,8 @@ def replicas(database, sample_chunks, fake_collection):
 
 
 async def chat(http, message: str, conversation_id: str = "c1") -> dict:
-    payload = {"message": message, "user_id": CALLER, "conversation_id": conversation_id}
-    response = await http.post("/chat", json=payload)
+    payload = {"message": message, "conversation_id": conversation_id}
+    response = await http.post("/chat", json=payload, headers=IDENTITY.merchant(CALLER))
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -159,15 +157,13 @@ async def test_a_turn_whose_replica_dies_resumes_from_its_checkpoint_on_the_othe
     model = Model(SupportAnswer=answer)
     async with AsyncExitStack() as exits:
         a, b = await replicas(exits, model)
-        dying = asyncio.create_task(
-            a.post("/chat", json={"message": QUESTION, "user_id": CALLER, "conversation_id": "c1"})
-        )
+        dying = asyncio.create_task(chat(a, QUESTION))
         await asyncio.wait_for(entered.wait(), 5)
         dying.cancel()
         with suppress(asyncio.CancelledError):
             await dying
         retried = await chat(b, QUESTION)  # the merchant retries; the balancer picks B
-        view = (await b.get("/conversations/c1", params={"user_id": CALLER})).json()
+        view = (await b.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))).json()
 
     assert retried["answer"] == SETTLED
     assert model.calls["RouterDecision"] == 1, "B resumed A's plan instead of routing again"
@@ -202,7 +198,7 @@ async def test_one_conversation_takes_turns_across_replicas(replicas):
     async with AsyncExitStack() as exits:
         a, b = await replicas(exits, model)
         await asyncio.gather(chat(a, QUESTION), chat(b, "E o dinheiro das vendas de hoje?"))
-        view = (await a.get("/conversations/c1", params={"user_id": CALLER})).json()
+        view = (await a.get("/conversations/c1", headers=IDENTITY.merchant(CALLER))).json()
 
     assert model.most == 1
     assert len(view["messages"]) == 4, "neither turn was written over the other"
@@ -238,3 +234,30 @@ async def test_ready_reports_the_store_and_the_index(replicas):
     assert response.status_code == 200
     assert response.json()["storage"] == "postgres"
     assert response.json()["chunks"] > 0
+
+
+async def test_erasing_on_one_replica_leaves_nothing_in_postgres(replicas, database):
+    thread = thread_id(CALLER, "c1")
+    async with AsyncExitStack() as exits:
+        a, b = await replicas(exits, Model())
+        await chat(a, COMPLAINT)
+        erased = await b.delete("/me/conversations/c1", headers=IDENTITY.merchant(CALLER))
+
+    assert erased.status_code == 204
+    async with await psycopg.AsyncConnection.connect(database) as connection:
+        for table in ("checkpoints", "checkpoint_blobs", "checkpoint_writes", "handoffs"):
+            cursor = await connection.execute(
+                f"SELECT count(*) FROM {table} WHERE thread_id = %s", (thread,)
+            )
+            assert (await cursor.fetchone())[0] == 0, table
+
+
+@pytest.mark.parametrize("statement", ["UPDATE audit SET actor = 'x'", "DELETE FROM audit"])
+async def test_the_audit_log_cannot_be_rewritten_in_postgres(database, statement):
+    settings = Settings(storage="postgres", database_url=database)
+    async with open_storage(settings) as storage:
+        await storage.audit.append("ana", "operator", "case.read", "ESC-1")
+
+    async with await psycopg.AsyncConnection.connect(database, autocommit=True) as connection:
+        with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+            await connection.execute(statement)

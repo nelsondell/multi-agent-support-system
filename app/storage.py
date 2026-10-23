@@ -15,8 +15,9 @@ from dataclasses import dataclass
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
+from app.audit import AuditLog
 from app.checkpoints import checkpoint_serializer, open_checkpointer
-from app.handoffs import HandoffQueue, PostgresTables, open_handoff_queue
+from app.handoffs import HandoffQueue, PostgresTables, open_sqlite_tables
 from app.locks import ConversationLocks, PostgresLocks
 from app.settings import Settings
 
@@ -24,7 +25,7 @@ _SCHEMA_LOCK = 4_802_001
 """Advisory lock key for creating the tables, so replicas booting together take turns at it."""
 
 
-async def create_tables(url: str, checkpointer: BaseCheckpointSaver, queue: HandoffQueue) -> None:
+async def create_tables(url: str, checkpointer: BaseCheckpointSaver, *tables) -> None:
     """Create or migrate the tables, one replica at a time.
 
     LangGraph's migrations build indexes `CONCURRENTLY`, which waits for every open transaction,
@@ -36,7 +37,8 @@ async def create_tables(url: str, checkpointer: BaseCheckpointSaver, queue: Hand
         while not await _try_schema_lock(connection):
             await asyncio.sleep(0.2)
         await checkpointer.setup()
-        await queue.create_table()
+        for table in tables:
+            await table.create_table()
 
 
 async def _try_schema_lock(connection) -> bool:
@@ -49,6 +51,7 @@ class Storage:
     checkpointer: BaseCheckpointSaver
     queue: HandoffQueue
     locks: ConversationLocks | PostgresLocks
+    audit: AuditLog
 
 
 @asynccontextmanager
@@ -58,8 +61,10 @@ async def open_storage(settings: Settings) -> AsyncIterator[Storage]:
         async with open_postgres(settings) as storage:
             yield storage
         return
-    async with open_checkpointer(settings) as checkpointer, open_handoff_queue(settings) as queue:
-        yield Storage(checkpointer, queue, ConversationLocks())
+    async with open_checkpointer(settings) as checkpointer, open_sqlite_tables(settings) as tables:
+        audit = AuditLog(tables)
+        await audit.create_table()
+        yield Storage(checkpointer, HandoffQueue(tables), ConversationLocks(), audit)
 
 
 @asynccontextmanager
@@ -79,6 +84,6 @@ async def open_postgres(settings: Settings) -> AsyncIterator[Storage]:
         AsyncConnectionPool(settings.database_url, max_size=size, open=False) as lock_pool,
     ):
         checkpointer = AsyncPostgresSaver(pool, serde=checkpoint_serializer())
-        queue = HandoffQueue(PostgresTables(pool))
-        await create_tables(settings.database_url, checkpointer, queue)
-        yield Storage(checkpointer, queue, PostgresLocks(lock_pool))
+        queue, audit = HandoffQueue(PostgresTables(pool)), AuditLog(PostgresTables(pool))
+        await create_tables(settings.database_url, checkpointer, queue, audit)
+        yield Storage(checkpointer, queue, PostgresLocks(lock_pool), audit)

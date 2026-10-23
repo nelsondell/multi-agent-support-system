@@ -7,9 +7,10 @@ the plan ([`specs/plan.md`](../specs/plan.md)) maps every invariant to the test 
 
 ## Message workflow
 
-1. **`POST /chat`** takes `{message, user_id, conversation_id?}`. `user_id` is the authenticated
-   caller. The thread key is SHA-256 of `(user_id, conversation_id)`, so another merchant using the
-   same conversation id opens an empty thread. Messages on one conversation run one at a time: a
+1. **`POST /chat`** takes `{message, conversation_id?}` and a merchant's bearer token; the
+   merchant is the token's `sub` ([security.md](security.md)). The thread key is SHA-256 of
+   `(merchant, conversation_id)`, so another merchant using the same conversation id never reaches
+   this one. Messages on one conversation run one at a time: a
    second message, or an operator's answer to the conversation's case, waits for the turn in
    progress and then runs on its result. If a human has this conversation's case, the answer is the
    open protocol and nothing runs.
@@ -100,15 +101,16 @@ history, and it reads it as data; specialists get a standalone query and stay st
 imports the checkpointer: it is attached when the graph is compiled, and a test enforces that.
 
 ```bash
-curl -s localhost:8000/chat -H 'Content-Type: application/json' \
-  -d '{"message": "Quando cai o dinheiro das vendas de ontem?", "user_id": "cliente1988", "conversation_id": "c1"}'
-curl -s localhost:8000/chat -H 'Content-Type: application/json' \
-  -d '{"message": "E o de amanhã?", "user_id": "cliente1988", "conversation_id": "c1"}'
-curl -s 'localhost:8000/conversations/c1?user_id=cliente1988'
+MERCHANT="Authorization: Bearer $(uv run python scripts/dev_token.py merchant cliente1988)"
+curl -s localhost:8000/chat -H "$MERCHANT" -H 'Content-Type: application/json' \
+  -d '{"message": "Quando cai o dinheiro das vendas de ontem?", "conversation_id": "c1"}'
+curl -s localhost:8000/chat -H "$MERCHANT" -H 'Content-Type: application/json' \
+  -d '{"message": "E o de amanhã?", "conversation_id": "c1"}'
+curl -s localhost:8000/conversations/c1 -H "$MERCHANT"
 ```
 
 The second turn reaches support as "Quando cai o dinheiro das vendas de amanhã?". Conversations
-survive a restart; the same `conversation_id` under another `user_id` starts empty.
+survive a restart; another merchant asking for `c1` gets a 404.
 
 ## Failure handling
 

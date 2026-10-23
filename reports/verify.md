@@ -8,10 +8,10 @@
 
 | Check | Command | Result | Time |
 | --- | --- | --- | --- |
-| Sync | `uv sync --frozen` | done, with the network | 100 s |
-| Lint | `ruff check .` | All checks passed! | 0.6 s |
-| Format | `ruff format --check .` | 113 files already formatted | 0.0 s |
-| Offline tests | `pytest -q` | 305 passed, 6 skipped in 15.52s | 19.7 s |
-| Guardrail eval | `python -m evals.run_routing_eval --guardrail-only` | overall: 100.0%  (28/28) | 1.1 s |
+| Sync | `uv sync --frozen` | done, with the network | 92 s |
+| Lint | `ruff check .` | All checks passed! | 0.7 s |
+| Format | `ruff format --check .` | 121 files already formatted | 0.0 s |
+| Offline tests | `pytest -q` | 326 passed, 9 skipped in 18.19s | 22.4 s |
+| Guardrail eval | `python -m evals.run_routing_eval --guardrail-only` | overall: 100.0%  (28/28) | 1.0 s |
 
-all checks passed, in 21.3 s after the sync.
+all checks passed, in 24.1 s after the sync.

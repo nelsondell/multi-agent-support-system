@@ -485,6 +485,24 @@ conversation serialize across replicas, in CI; the scale profile serves one conv
 replicas and survives one being killed; app code outside the storage adapters does not grow beyond
 what the new probe and app factory need.
 
+### T-49 — `feat(T-49): verified identity, operator roles, audit and erasure`
+Merchants send an RS256 JWT checked against the provider's JWKS (`AUTH_JWKS_URL`), issuer and
+audience; the merchant is `sub`, the body's `user_id` is gone (a body naming one is a 422), and
+InjectedState is unchanged. `make dev-keys` writes a local key pair (`.dev/`, ignored by git and
+the image; compose mounts only the public half) and `scripts/dev_token.py` mints tokens. Operators
+carry their own tokens with a role, operator or supervisor; the shared `OPERATOR_TOKEN` is gone.
+Every operator action and every write (expiry, erasure, purge) appends to an audit log whose table
+refuses UPDATE and DELETE by trigger on SQLite and Postgres; supervisors read it at `GET /audit`.
+A merchant is held to `RATE_LIMIT_PER_MINUTE` (429 with `Retry-After`). `DELETE
+/me/conversations/{id}` erases checkpoints, cases, notes and replies; `make purge` erases
+conversations idle past `RETENTION_DAYS`. Another merchant's conversation is a 404.
+`docs/security.md` maps OWASP's Top 10 for Agentic Applications (ASI01–ASI10) to controls and test
+files and applies the Rule of Two to each flow. Tests authenticate through one helper,
+`tests/identity.py`.
+**Done when:** forged, expired, wrong-audience, wrong-issuer and missing tokens are 401; another
+merchant's conversation is 404; the role matrix holds; erasure leaves no row of the conversation
+in SQLite or Postgres; the audit log cannot be updated or deleted.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -497,7 +515,7 @@ what the new probe and app factory need.
 | Observability / evals (9.1) | T-25, T-26, T-31 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines |
-| Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47 |
+| Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47, T-49 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
 | Trade-offs / engineering (10.0) | T-27, T-28, T-45 |
 

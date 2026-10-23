@@ -2,14 +2,18 @@
 # The ten challenge scenarios, a follow-up, a compound request and the human-review loop, sent to
 # a running service with curl. docs/demo.md is this script's output; the README's table sums it up.
 #
-#   OPERATOR_TOKEN=... ./scripts/demo.sh [base_url]
+#   ./scripts/demo.sh [base_url]
 #
-# Expects the service to be up (docker compose up) with real keys. Without OPERATOR_TOKEN the
-# human-review loop is skipped. Needs curl and jq.
+# Expects the service to be up (make up) with real keys. Callers prove who they are with tokens
+# from the `make dev-keys` key pair, minted here unless MERCHANT_TOKEN, OPERATOR_TOKEN and
+# SUPERVISOR_TOKEN are given. Needs curl, jq and uv.
 set -euo pipefail
 
 BASE="${1:-http://localhost:8000}"
-USER_ID="cliente1988"
+mint() { uv run --frozen python scripts/dev_token.py "$@"; }
+MERCHANT_TOKEN="${MERCHANT_TOKEN:-$(mint merchant cliente1988)}"
+OPERATOR_TOKEN="${OPERATOR_TOKEN:-$(mint operator ana)}"
+SUPERVISOR_TOKEN="${SUPERVISOR_TOKEN:-$(mint supervisor bia)}"
 RUN="demo-$(date +%s)"
 LAST="$(mktemp)"
 trap 'rm -f "$LAST"' EXIT
@@ -19,8 +23,8 @@ chat() {
   local label="$1" conversation="$2" message="$3"
   printf '\n=== %s ===\n> %s\n' "$label" "$message"
   curl -sS -X POST "$BASE/chat" -H 'Content-Type: application/json' \
-    -d "$(jq -nc --arg m "$message" --arg u "$USER_ID" --arg c "$RUN-$conversation" \
-      '{message: $m, user_id: $u, conversation_id: $c}')" \
+    -H "Authorization: Bearer $MERCHANT_TOKEN" \
+    -d "$(jq -nc --arg m "$message" --arg c "$RUN-$conversation" '{message: $m, conversation_id: $c}')" \
   | tee "$LAST" \
   | jq '{delivered: (if (.delivered | length) > 0 then [.delivered[] | {protocol, answer}] else null end),
          status, agents, answer,
@@ -31,6 +35,10 @@ chat() {
 
 operator() {
   curl -sS -H "Authorization: Bearer $OPERATOR_TOKEN" "$@"
+}
+
+merchant() {
+  curl -sS -H "Authorization: Bearer $MERCHANT_TOKEN" "$@"
 }
 
 curl -sS "$BASE/health" | jq -c .
@@ -51,10 +59,6 @@ chat "Follow-up, turn 2" follow "E o de amanhã?"
 
 chat "Compound request" compound "Quando cai o dinheiro de ontem e como funciona a antecipação?"
 
-if [ -z "${OPERATOR_TOKEN:-}" ]; then
-  printf '\nOPERATOR_TOKEN is not set: human-review loop skipped.\n'
-  exit 0
-fi
 chat "Human review 1: an individual case pauses" hitl \
   "Por que o estorno da minha venda no Mastercard final 7788 ainda não apareceu?"
 PROTOCOL="$(jq -r '.escalation.protocol' "$LAST")"
@@ -67,5 +71,11 @@ operator -X POST "$BASE/handoffs/$PROTOCOL/resume" -H 'Content-Type: application
 chat "Human review 4: the next message receives the reply, then builds on it" hitl \
   "E em que dia foi feita essa venda?"
 printf '\n=== Human review 5: the conversation as stored ===\n'
-curl -sS "$BASE/conversations/$RUN-hitl?user_id=$USER_ID" | jq '{status, messages: [.messages[] | "\(.role): \(.content)"]}'
+merchant "$BASE/conversations/$RUN-hitl" | jq '{status, messages: [.messages[] | "\(.role): \(.content)"]}'
+printf '\n=== Human review 6: a supervisor reads the audit log ===\n'
+curl -sS -H "Authorization: Bearer $SUPERVISOR_TOKEN" "$BASE/audit" \
+  | jq '[.[:3][] | "\(.actor) (\(.role)) \(.action) \(.target)"]'
+printf '\n=== LGPD: the merchant erases the conversation ===\n'
+merchant -o /dev/null -w 'DELETE /me/conversations: %{http_code}\n' -X DELETE "$BASE/me/conversations/$RUN-hitl"
+merchant -o /dev/null -w 'GET /conversations afterwards: %{http_code}\n' "$BASE/conversations/$RUN-hitl"
 
