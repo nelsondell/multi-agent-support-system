@@ -65,7 +65,8 @@ class Model:
             await asyncio.sleep(3600)
         if schema is RouterDecision:
             step = PlanStep(agent=TargetAgent.SUPPORT, query_pt=json.loads(user)["message"])
-            return RouterDecision(intent=Intent.OTHER, confidence=0.9, rationale="t", steps=[step])
+            decision = {"intent": Intent.ACCOUNT_DATA, "confidence": 0.9, "rationale": "t"}
+            return RouterDecision(**decision, steps=[step])
         return {
             SupportPlan: REFUND if "estorno" in user else LOOKUP,
             SupportAnswer: SupportAnswer(answer=SETTLED),

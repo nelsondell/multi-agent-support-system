@@ -245,10 +245,11 @@ hard rule 1 forbids, and it is never used for account data.
   today's date so "today" and "tomorrow" mean something. Results are capped and the call has a
   timeout.
 - An answer that depends on the day prefers pages from the last day and closes with the source's
-  publication date, taken only from the provider's structured field and never from page text,
-  without a time of day. A source older than the day in question gets a notice with its date; one
-  without a structured date gets "Não consegui confirmar a data de publicação desta informação.",
-  never a claim that the source has no date, since its page may show one.
+  publication date from the provider's structured field, without a time of day. A source older
+  than the day in question gets a notice with its date. Without a structured date, a day the cited
+  page names, on the day asked or between today and it, is shown as "Data informada pela própria
+  fonte"; with none, the answer gets "Não consegui confirmar a data de publicação desta
+  informação.", never a claim that the source has no date (T-51).
 - Without an API key, on timeout, on a provider error, or when the answer fails those checks, the
   agent says in pt-BR that it cannot look that up right now. This is a degraded answer, not an
   escalation.

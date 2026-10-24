@@ -163,19 +163,30 @@ def cited(results: list[WebResult], used_urls: list[str]) -> list[WebResult]:
     return used or results
 
 
-def stamped(answer: str, results: list[WebResult], fresh_from: date | None) -> str:
+def stamped(
+    answer: str, results: list[WebResult], fresh_from: date | None, asked: date | None = None
+) -> str:
     """The answer, closed by the publication date of its source: the provider's structured date
-    only, never one read from page text by the model, and never a time of day.
+    when there is one, never a time of day, and never a date the model read.
 
     `fresh_from` is the earliest day the data may come from: the day asked about, or today for a
     question about tomorrow. A source published before it gets a notice with that date. Without a
-    structured date, the notice says the date could not be confirmed, never that the source has
-    none: the page text may well show one.
+    structured date, a day the cited pages themselves name, from `fresh_from` up to the day
+    `asked`, is shown as stated by the source; with none, the notice says the date could not be
+    confirmed, never that the source has none.
     """
     if fresh_from is None:
         return answer
     days = [result.published_on for result in results if result.published_on is not None]
-    if not days:
+    stated = [
+        day
+        for result in results
+        for day in result.stated_days()
+        if fresh_from <= day <= (asked or fresh_from)
+    ]
+    if not days and stated:
+        notice = load_prompt("web_stated").text.format(stated=f"{max(stated):%d/%m/%Y}")
+    elif not days:
         notice = load_prompt("web_undated").text
     elif max(days) < fresh_from:
         notice = load_prompt("web_other_day").text.format(
@@ -262,5 +273,5 @@ async def answer_from_web(
         return _web_unavailable(looked_at)
     sources = _web_sources(results, generated.used_urls)
     fresh_from = min(target, state.today) if target and state.today else target
-    answer = stamped(generated.answer, cited(results, generated.used_urls), fresh_from)
+    answer = stamped(generated.answer, cited(results, generated.used_urls), fresh_from, target)
     return {"answer": answer, "sources": sources, **looked_at}

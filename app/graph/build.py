@@ -33,6 +33,7 @@ from app.graph.supervisor import Metered, dropped, exhausted, halt, report, revi
 from app.graph.support import answer as support_answer
 from app.observability import get_logger, instrument_node
 from app.observability.metrics import VENDOR_FAILURES
+from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError, LLMTimeout
 from app.rag.retrieve import HybridRetriever
 from app.settings import Settings
@@ -66,12 +67,19 @@ async def model_failed(state: GraphState, error: NodeError) -> Command:
     return Command(update={**update, "answer": None, "sources": []}, goto="collect")
 
 
-def dispatch(state: GraphState, threshold: float) -> Literal["knowledge", "support", "escalate"]:
+def dispatch(
+    state: GraphState, threshold: float
+) -> Literal["knowledge", "support", "escalate", "scope"]:
     """Start the plan only when the router is confident enough."""
     step = state.current_step()
     if state.route is None or step is None or state.route.confidence < threshold:
         return "escalate"
-    return step.agent.value
+    return "scope" if state.route.intent is Intent.OTHER else step.agent.value
+
+
+async def scope(state: GraphState) -> dict[str, Any]:
+    """Small talk gets what the assistant can help with: no specialist, no person, no search."""
+    return {"answer": load_prompt("scope").text, "sources": []}
 
 
 async def knowledge(
@@ -194,6 +202,7 @@ def graph_nodes(
             web=web,
         ),
         "support": partial(support, provider=provider),
+        "scope": scope,
         "collect": partial(collect, settings=settings),
         "compose": partial(compose, provider=provider),
         "escalate": escalate,
@@ -221,8 +230,9 @@ def _wire(graph: StateGraph, settings: Settings) -> None:
     graph.add_conditional_edges(
         "router",
         partial(dispatch, threshold=settings.router_confidence_threshold),
-        {**specialists, "escalate": "escalate"},
+        {**specialists, "escalate": "escalate", "scope": "scope"},
     )
+    graph.add_edge("scope", "remember")
     outcome = partial(after_specialist, settings=settings)
     for specialist in specialists:
         graph.add_conditional_edges(

@@ -34,17 +34,18 @@ from app.graph.memory import thread_id, turn_input
 from app.graph.state import GraphState
 from app.main import merchant_today
 from app.prompts import load_prompt
-from app.providers.llm import OpenAIProvider, build_provider
+from app.providers.llm import build_provider
 from app.rag.retrieve import HybridRetriever
 from app.responses import to_response
 from app.settings import Settings, get_settings
 from app.tools.web import WebSearch
+from evals.judges import EFFORT as JUDGE_EFFORT
+from evals.judges import judge_for
 from evals.run_routing_eval import load_rows
 
 REPORT = Path(__file__).parent / "report.md"
 CALIBRATION = Path(__file__).parent / "retrieval_calibration.md"
 CALLER = "cliente1988"
-JUDGE_EFFORT = "medium"
 RUNS = 3
 """One run is a reading, not a measurement: web results and sampling move between runs."""
 OPERATOR_REPLY = (
@@ -165,7 +166,7 @@ async def run_line(graph, retriever: HybridRetriever, line: Line) -> list[Turn]:
     return turns
 
 
-async def judge(turn: Turn, provider: OpenAIProvider) -> Verdict:
+async def judge(turn: Turn, provider) -> Verdict:
     """Score one answered turn against the evidence it had, on the day it was answered: the
     judge's own idea of today may be another calendar day, such as UTC's after 21:00 in Brazil."""
     payload = {
@@ -345,9 +346,7 @@ def render(runs: list[list[Turn]], settings: Settings) -> str:
 
 async def run_once(settings: Settings, retriever: HybridRetriever) -> list[Turn]:
     """Every line through a fresh graph, then every answered turn judged."""
-    judge_provider = OpenAIProvider(
-        api_key=settings.openai_api_key, model=settings.judge_model, reasoning_effort=JUDGE_EFFORT
-    )
+    judge_provider = judge_for(settings)
     async with httpx.AsyncClient() as client:
         graph = build_graph(
             build_provider(settings),

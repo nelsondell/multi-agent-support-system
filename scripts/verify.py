@@ -22,6 +22,7 @@ CHECKS = [  # name, module and arguments, the output line that summarises it
     ("Format", "ruff format --check .", r"\d+ files? already \w+"),
     ("Offline tests", "pytest -q", r"\d+ passed.*"),
     ("Guardrail eval", "evals.run_routing_eval --guardrail-only", r"overall: .*"),
+    ("Eval replay", "evals.run_evals", r"pass-all .*"),
 ]
 
 

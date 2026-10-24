@@ -42,6 +42,9 @@ only `jwks.json`), and `uv run python scripts/dev_auth.py token merchant cliente
 | ASI09 Human-Agent Trust Exploitation | A fluent rephrasing changes what the operator decided | Hard rule 4: a rephrasing or draft with a new number or a flipped status falls back to the source text; a person is promised only with a protocol | `test_numbers.py`, `test_statuses.py`, `test_human_review.py`, `test_plans.py` |
 | ASI10 Rogue Agents | An agent acts outside its role, unobserved | Each agent has a typed set of exits; structured logs and metrics per node; append-only audit of every operator action and write | `test_telemetry.py`, `test_security.py` |
 
+Each row is also attacked by `evals/red_team.jsonl`: 40 cases tagged with their ASI id, 10 of them
+adaptive, with planted web pages and corpus passages, replayed in CI ([evals](../evals/README.md)).
+
 ## Rule of Two
 
 Meta's Agents Rule of Two: without a human approving, an agent combines at most two of untrusted

@@ -329,6 +329,7 @@ test suite.
 | Unreachable embedder abstains (§7, §14) | `test_knowledge::test_an_unreachable_embedder_reads_as_nothing_retrieved` |
 | Web only for general questions; masked, dated, capped, degraded (§7) | `test_web::*`, `test_flows::test_a_general_question_is_answered_from_the_web_with_a_key`, `test_without_a_key_a_general_question_degrades_and_nothing_leaves`, `test_the_web_query_that_leaves_is_masked` |
 | Guardrail: injection and identity refused as separate outcomes, the caller's own id allowed, PII masked, system ids untouched (§10) | `test_guardrail::*`, `test_adversarial::*`, `test_observability::*` |
+| PR-gating evals: one check per failure mode on 100 sampled requests and a 40-case red team, replayed from a recording in `make verify`; a rate below `evals/thresholds.toml` fails (T-51) | `evals/run_evals.py` (`make eval-offline`) |
 | Replicas over Postgres: escalated on one, answered on the other; a dead replica's turn resumes; turns serialize across replicas (§13) | `test_replicas::*` (CI job `test`, on ubuntu), the scale smoke test in CI job `container` |
 | Node timeout and retry; a model that keeps failing escalates, a bug fails the run (§13) | `test_resilience::*` |
 | One trace per turn named in the logs; model calls record tokens, cache and cost, no content; turn outcomes counted (§13) | `test_otel::*` |

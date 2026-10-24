@@ -31,9 +31,10 @@ class Settings(BaseSettings):
     llm_reasoning_effort: ReasoningEffort | None = None
     """Sent only to reasoning models. Resolves to `low` unless a temperature is set, because a
     temperature means a model without reasoning, which rejects this parameter."""
-    judge_model: str = "gpt-6-sol"
-    """Scores the eval runs only, never a merchant's turn. A tier above the chat model, so the
-    model being graded is not grading itself."""
+    judge_provider: Literal["anthropic", "openai"] = "anthropic"
+    judge_model: str = "claude-opus-5-5"
+    """Grades eval runs only, never a merchant's turn, from another model family than the chat
+    model. Live runs need ANTHROPIC_API_KEY; replays need no key."""
     embedding_model: str = "text-embedding-3-large"
     """Chosen by measurement: `evals/retrieval_calibration.md`."""
     embedding_backend: Literal["auto", "local", "openai"] = "auto"

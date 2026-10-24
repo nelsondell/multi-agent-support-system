@@ -1,5 +1,5 @@
 # Thin wrappers over the commands in the README.
-.PHONY: verify verify-offline models dev-keys up scale observe purge test eval demo
+.PHONY: verify verify-offline models dev-keys up scale observe purge test eval eval-offline demo
 
 # From a clean clone, with no key: the frozen sync is the only step that uses the network; then
 # lint, the offline suite and the offline evals, recorded in reports/verify.md.
@@ -43,9 +43,13 @@ test:
 	uv run ruff check .
 	uv run pytest -q
 
-# Routing golden set. The guardrail stage always runs; the model stage needs OPENAI_API_KEY.
+# The evals that gate PRs (evals/README.md). `eval` calls the real model, web search and judge and
+# records them; `eval-offline` replays that recording with no key and no network, as CI does.
 eval:
-	uv run python -m evals.run_routing_eval
+	uv run python -m evals.run_evals --live
+
+eval-offline:
+	uv run --frozen --offline python -m evals.run_evals
 
 # Scripted requests against the running API (make up first).
 demo:
