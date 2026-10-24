@@ -82,3 +82,22 @@ Notes on passes that matter for the next steps:
 
 The prompt fixes were made against these same 100 traces, so they are no longer a held-out test;
 the red team and the routing golden set are untouched.
+
+## Held-out set (T-57)
+
+80 requests no prompt was tuned on, run on the accepted version and labelled by the owner, blind, no
+model draft (`evals/heldout_labels.csv`). Weather and exchange-rate questions answered from the web
+pass, as the challenge's spec asks.
+
+| Slice | Pass |
+| --- | --- |
+| all labelled | 63/80 (79%) |
+| failure mode 4 bait | 21/25 (84%) |
+| the rest | 42/55 (76%) |
+
+The labeller's modes: jargon 11, plan 4, wrong fact 2; no `missing_info`.
+
+The 94/100 is the gated checks on traces the prompts were then fixed against; by their own labels,
+before the fixes, those traces scored 73/100, and the held-out's 63/80 sits between the two. Most
+held-out failures are ones no check sees: 11 answers that keep pointing at "o site" (the jargon
+check looks for "trecho" and field names, and passes all 80), then 4 plan and 2 wrong-fact failures.

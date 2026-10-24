@@ -1,11 +1,14 @@
-"""Error analysis, step 1: run 100 varied requests through the real API and export masked traces.
+"""Error analysis, step 1: run varied requests through the real API and export masked traces.
 
     uv run python scripts/sample_traces.py [--limit N]
+    uv run python scripts/sample_traces.py --requests evals/heldout_requests.jsonl \
+        --out evals/heldout_traces.csv --evidence-chars 0
 
-Each request in evals/trace_requests.jsonl goes through `/chat` as its merchant, earlier turns
-first, on a throwaway state directory. The last turn's reply and what the graph recorded for it
-go to evals/traces.csv, masked, with empty `pass_fail` and `note` columns for a person to fill
-in. Needs OPENAI_API_KEY (TAVILY_API_KEY for general questions) and `make dev-keys`; costs cents.
+Each request (evals/trace_requests.jsonl by default) goes through `/chat` as its merchant, earlier
+turns first, on a throwaway state directory. The last turn's reply and what the graph recorded for
+it go to the CSV (evals/traces.csv by default), masked, with empty `pass_fail` and `note` columns
+for a person to fill in. The evidence is cut at `--evidence-chars` (1500; 0 keeps it whole). Needs
+OPENAI_API_KEY (TAVILY_API_KEY for general questions) and `make dev-keys`; costs cents.
 """
 
 import argparse
@@ -49,7 +52,7 @@ def spent() -> tuple[float, float, float]:
     return (sample("support_model_cost_usd_total") or 0.0, *tokens)
 
 
-def recorded(state: GraphState) -> dict[str, str]:
+def recorded(state: GraphState, evidence_chars: int) -> dict[str, str]:
     """What the graph decided for the turn: the plan, each step's outcome, sources, evidence."""
     route = state.route
     plan = "; ".join(
@@ -63,11 +66,11 @@ def recorded(state: GraphState) -> dict[str, str]:
             for result in state.step_results
         ),
         "sources": "; ".join(s.url or f"{s.source_type.value}: {s.title}" for s in state.sources),
-        "evidence": mask_pii("\n---\n".join(state.evidence))[:1500],
+        "evidence": mask_pii("\n---\n".join(state.evidence))[: evidence_chars or None],
     }
 
 
-async def trace(http: httpx.AsyncClient, graph, row: dict) -> dict:
+async def trace(http: httpx.AsyncClient, graph, row: dict, evidence_chars: int) -> dict:
     """Run a request's turns as its merchant and record the last one."""
     headers = {"Authorization": f"Bearer {token('merchant', row['merchant'], 3600)}"}
     earlier = []
@@ -89,18 +92,18 @@ async def trace(http: httpx.AsyncClient, graph, row: dict) -> dict:
         "merchant": row["merchant"], "message": mask_pii(row["turns"][-1]),
         "answer": mask_pii(answer),
         "status": reply.get("status", f"HTTP {response.status_code}"), "escalation": escalation,
-        **recorded(state), "earlier_turns": "\n\n".join(earlier[:-1]),
+        **recorded(state, evidence_chars), "earlier_turns": "\n\n".join(earlier[:-1]),
         "cost_usd": f"{after[0] - before[0]:.6f}", "input_tokens": int(after[1] - before[1]),
         "output_tokens": int(after[2] - before[2]), "seconds": f"{seconds:.1f}",
     }  # fmt: skip
 
 
-async def main(limit: int | None) -> None:
+async def main(limit: int | None, requests: Path, out: Path, evidence_chars: int) -> None:
     os.chdir(ROOT)
     keys()
     os.environ.setdefault("AUTH_JWKS_URL", str(PUBLIC))
     os.environ.update(STATE_DIR=tempfile.mkdtemp(prefix="traces-"), RATE_LIMIT_PER_MINUTE="1000")
-    rows = [json.loads(line) for line in REQUESTS.read_text(encoding="utf-8").splitlines()]
+    rows = [json.loads(line) for line in requests.read_text(encoding="utf-8").splitlines()]
     app = create_app()
     async with app.router.lifespan_context(app):
         configure_logging(logging.WARNING)
@@ -110,19 +113,23 @@ async def main(limit: int | None) -> None:
         ) as http:
             traces = []
             for row in rows[:limit]:
-                traces.append(await trace(http, app.state.graph, row))
+                traces.append(await trace(http, app.state.graph, row, evidence_chars))
                 print(
                     f"{row['id']} {traces[-1]['status']} {traces[-1]['escalation']}",
                     file=sys.stderr,
                 )
-    with TRACES.open("w", encoding="utf-8-sig", newline="") as handle:
+    with out.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=COLUMNS)
         writer.writeheader()
         writer.writerows(traces)
-    print(f"wrote {len(traces)} traces to {TRACES.relative_to(ROOT)}", file=sys.stderr)
+    print(f"wrote {len(traces)} traces to {out}", file=sys.stderr)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--limit", type=int, help="only the first N requests, for a smoke run")
-    asyncio.run(main(parser.parse_args().limit))
+    parser.add_argument("--requests", type=Path, default=REQUESTS)
+    parser.add_argument("--out", type=Path, default=TRACES)
+    parser.add_argument("--evidence-chars", type=int, default=1500, help="0 keeps it whole")
+    arguments = parser.parse_args()
+    asyncio.run(main(arguments.limit, arguments.requests, arguments.out, arguments.evidence_chars))
