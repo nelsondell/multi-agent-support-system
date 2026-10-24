@@ -7,7 +7,7 @@ production metrics in [operations](operations.md).
 | Stage | The merchant gets | A person |
 | --- | --- | --- |
 | **Shadow** | today's human answer; the assistant runs on a copy of the traffic and nothing it writes leaves | answers every contact; samples are labelled against the assistant's answer |
-| **Assisted** | the assistant's answer, after an operator approves it, edits it or cancels it (the human-review flow, [§4 of the README](../README.md#4-human-in-the-loop)) | approves every answer |
+| **Assisted** | the assistant's answer, after an operator approves it, edits it or cancels it (the human-review flow, [human in the loop](human-in-the-loop.md)) | approves every answer |
 | **Autonomous** | the assistant's answer, or a protocol when it escalates | answers escalations only |
 
 **Order of intents.** The order follows what each intent touches (Meta's Rule of Two,

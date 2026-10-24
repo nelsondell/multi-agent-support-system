@@ -58,3 +58,25 @@ input (A), private data (B) and a state change (C).
 | Technical ticket | yes (the message) | yes (the account and terminal) | yes (opens a ticket) | all three, so the merchant confirms the code-rendered operation first ([tools.md](tools.md)) |
 | Human review | yes (the message) | yes (the case) | case recorded, reply sent | the reply goes out only after a human decides |
 | Erasure | no (a verified merchant on their own thread) | yes | deletes data | no untrusted input decides it; it is audited |
+
+## Guardrail and financial hard rules
+
+The guardrail is deterministic and runs before any model call: prompt injection
+(`prompt_injection`) and requests for another merchant's data (`identity_swap`) get a refusal and
+are never remembered. Identity can't be argued with anyway: the merchant is the `sub` of a signed
+token, injected into the tools from graph state and in no schema the model sees. Operators act by
+role, every operator action and erasure is in an append-only audit log, and a merchant can erase a
+conversation; idle ones are purged after 90 days. Logs, traces, history and outbound web queries
+are masked; ids the system issues are not.
+
+**Financial hard rules**, in the prompts and asserted in tests:
+
+1. No rate, term, limit or amount unless it is literally in an excerpt, an account record, a web
+   page or an operator's answer.
+2. No promise of a future date; an account forecast is said to be a forecast.
+3. No verdict on an individual case beyond the data: a declined sale gets the issuer's recorded
+   reason and nothing more; refunds, chargebacks, blocks and fraud always go to a person.
+4. Rephrasing adds nothing: a merged answer, a draft or an operator reply with a number or a status
+   its source lacks is replaced by that source. Numbers are compared by value ("R$ 1.234,56" =
+   "1234.56"), statuses by meaning ("negada" = "recusada"; "estornada" ≠ "aprovada").
+5. No mention of a human unless the turn opened a protocol.
