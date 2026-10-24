@@ -55,12 +55,32 @@ Notes on passes that matter for the next steps:
 
 ## After the fixes
 
-The second live run, on 2026-10-23, is the one `evals/eval_report.md` reports.
+`evals/eval_report.md` reports the recording of knowledge prompt v9 with RRF, on 2026-10-23
+(T-53).
 
 | Mode | What changed | Check | Rate now |
 | --- | --- | --- | --- |
-| 1. Jargon | The answer prompts forbid "trecho", "resultados", "consulta" and field names | code: no jargon in the answer | 100/100 |
+| 1. Jargon | The answer prompts forbid "trecho", "resultados", "consulta" and field names | code: no jargon in the answer | 99/100 (X08) |
 | 2. Plan | Router and support planner rules: a terminal still offline after the basic steps proposes the ticket (D12 passes); a request for a person or for an account action escalates as an individual case | code: expected status, escalation, plan or source | 7/8 (C08: a compound plan's weather step still reads the corpus, by design one intent per plan) |
 | 3. Small talk | `other` now means small talk, answered with what the assistant can help with | code: answered, not escalated, no web search | 5/5 |
-| 4. Missing when present | Not fixed; it is the model's reading of the excerpts | binary judge, `claude-opus-5-5`, not validated (5 labelled failures) | 40/43 |
+| 4. Missing when present | T-53's pages fixed S04 and K04; knowledge prompt v9 then states a fact whenever an excerpt has it and names every difference in a comparison (below) | binary judge, `claude-opus-5-5`, not validated (5 labelled failures) | 41/44 (S07, R06, E08) |
 | 5. Freshness | Fixed: the provider never fills a structured date for general searches, so code now shows the day the cited page names, labelled as the source's own claim (a news-topic search was tried first and reverted: dated pages without the forecast) | code: the notice matches the evidence, measured on answers that came from the web | 3/4 (S02 cites the one page with no date while another result names one) |
+
+## Mode 4 in the knowledge prompt (T-53)
+
+| Knowledge prompt, with RRF | pass-all | missing info | jargon |
+| --- | --- | --- | --- |
+| v7 | 93/100 | 41/46 (S07, F11, C04, R02, R06) | 100/100 |
+| v8: "the site does not state" only when no excerpt has the fact asked | 95/100 | 39/42 (S01, S04, S07) | 99/100 (S01) |
+| v9, accepted: v8 plus every difference in a comparison | 94/100 | 41/44 (S07, R06, E08) | 99/100 (X08) |
+
+**Open failures in the v9 recording:**
+- C08: plan;
+- S02: freshness;
+- S07: missing info, from the web prompt, which is unchanged;
+- E08: missing info;
+- X08: jargon ("o trecho");
+- R06: missing info. The owner reviewed its label and kept it.
+
+The prompt fixes were made against these same 100 traces, so they are no longer a held-out test;
+the red team and the routing golden set are untouched.

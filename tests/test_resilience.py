@@ -8,6 +8,7 @@ from collections import Counter
 import httpx
 import pytest
 from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.pregel import _retry
 from prometheus_client import REGISTRY
 
 from app.contracts import EscalationReason, Intent, TargetAgent
@@ -79,17 +80,34 @@ async def test_a_model_that_keeps_failing_escalates_and_counts_once(build_test_g
     assert vendor_failures("model", kind) - before == 1
 
 
-async def test_a_hung_step_times_out_and_the_answered_step_still_goes_out(build_test_graph):
+async def test_a_hung_step_times_out_and_the_answered_step_still_goes_out(
+    build_test_graph, monkeypatch
+):
+    """No wall clock: the hung step waits on an event that never fires, and LangGraph's run
+    timeout fires only once the step has hung, so a slow runner can never cut the step that
+    answers."""
+    hung, never = asyncio.Event(), asyncio.Event()
+
+    async def fires_once_hung(_run_timeout_s: float) -> None:
+        await hung.wait()
+        hung.clear()
+        raise TimeoutError
+
+    monkeypatch.setattr(_retry, "_run_timeout_watchdog", fires_once_hung)
+    asked = Counter()
+
     async def hangs_on_tomorrow(user: str) -> SupportAnswer:
+        asked["amanhã" if "amanhã" in user else "ontem"] += 1
         if "amanhã" in user:
-            await asyncio.sleep(3600)
+            hung.set()
+            await never.wait()
         return SupportAnswer(answer=ANSWER)
 
     model = Model("o de ontem", "o de amanhã", answer=hangs_on_tomorrow)
 
-    final = await turn(build_test_graph, model, node_timeout_s=0.2)
+    final = await turn(build_test_graph, model, node_timeout_s=60)
 
-    assert model.calls["SupportAnswer"] == 3, "the first step once, the hung one twice"
+    assert asked == {"ontem": 1, "amanhã": 2}, "the first step once, the hung one twice"
     assert final["escalation"].reason is EscalationReason.MODEL_UNAVAILABLE
     assert final["partial_answer"] == ANSWER
 

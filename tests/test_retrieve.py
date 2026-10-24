@@ -87,3 +87,32 @@ def test_confidence_is_the_best_match_any_query_found(sample_chunks, fake_collec
 
     assert [hit.chunk.id for hit in result.hits] == [lexical.id]
     assert result.confidence == pytest.approx(0.9)
+
+
+def test_a_reranker_reorders_the_fused_candidates(sample_chunks, fake_collection) -> None:
+    """The reranker decides the order and the cut; confidence stays the dense similarity."""
+    fused = HybridRetriever(sample_chunks, fake_collection(), top_k=20)
+    query = "em quantas parcelas posso dividir uma venda no crediário"
+    last = fused.search(query).hits[-1].chunk
+
+    def prefer_last(_query, texts):
+        return [1.0 if text == last.text else 0.0 for text in texts]
+
+    reranked = HybridRetriever(sample_chunks, fake_collection(), top_k=5, rerank=prefer_last)
+    result = reranked.search(query)
+
+    assert result.hits[0].chunk == last
+    assert result.confidence == fused.search(query).confidence
+
+
+def test_a_failing_reranker_keeps_the_fused_order(sample_chunks, fake_collection) -> None:
+    """A better order is an improvement, never a reason to answer nothing."""
+
+    def broken(_query, _texts):
+        raise TimeoutError("reranker down")
+
+    query = "em quantas parcelas posso dividir uma venda no crediário"
+    fused = HybridRetriever(sample_chunks, fake_collection(), top_k=5).search(query)
+    result = HybridRetriever(sample_chunks, fake_collection(), top_k=5, rerank=broken).search(query)
+
+    assert [hit.chunk.id for hit in result.hits] == [hit.chunk.id for hit in fused.hits]

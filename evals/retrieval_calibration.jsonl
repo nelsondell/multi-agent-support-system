@@ -1,25 +1,85 @@
-{"id": "I01", "group": "in_domain", "query": "Qual é a diferença entre a maquininha Get Clássica e a Get Smart?"}
-{"id": "I02", "group": "in_domain", "query": "É necessário ter uma conta bancária para receber as vendas via Pix?"}
-{"id": "I03", "group": "in_domain", "query": "Como funciona a antecipação de recebíveis na Getnet?"}
-{"id": "I04", "group": "in_domain", "query": "Em quantas parcelas posso dividir uma venda no crediário?"}
-{"id": "I05", "group": "in_domain", "query": "É possível vender pelo WhatsApp usando o Link de Pagamento?"}
-{"id": "I06", "group": "in_domain", "query": "Até quantas parcelas posso fazer e como sei os juros para informar ao cliente?"}
-{"id": "I07", "group": "in_domain", "query": "O que é o chip Algar?"}
-{"id": "I08", "group": "in_domain", "query": "Como coloco o chip na maquininha?"}
-{"id": "I09", "group": "in_domain", "query": "Quem pode abrir uma Get Conta?"}
-{"id": "I10", "group": "in_domain", "query": "Quais modalidades de crédito parcelado estão disponíveis?"}
-{"id": "I11", "group": "in_domain", "query": "Como fazer um Pix pela Get Conta?"}
-{"id": "I12", "group": "in_domain", "query": "O que é chargeback?"}
-{"id": "I13", "group": "in_domain", "query": "Como faço uma venda digitada?"}
-{"id": "I14", "group": "in_domain", "query": "Como funciona a pré-autorização?"}
-{"id": "I15", "group": "in_domain", "query": "Por quanto tempo ainda posso usar a máquina depois de pedir o cancelamento?"}
-{"id": "I16", "group": "in_domain", "query": "Como o aluguel é cobrado depois do cancelamento da máquina?"}
-{"id": "I17", "group": "in_domain", "query": "O que é NFC e por que preciso dele no celular?"}
-{"id": "I18", "group": "in_domain", "query": "Qual é a mensalidade da Get Smart?"}
-{"id": "I19", "group": "in_domain", "query": "Como cuidar da bateria da Get Smart para durar mais?"}
-{"id": "I20", "group": "in_domain", "query": "O que é cessão de recebíveis?"}
-{"id": "I21", "group": "in_domain", "query": "O cliente do Link de Pagamento pode receber em D+2?"}
-{"id": "I22", "group": "in_domain", "query": "Quais formas de pagamento são aceitas na solução de dívidas?"}
+{"id": "I01", "group": "in_domain", "query": "Qual é a diferença entre a maquininha Get Clássica e a Get Smart?", "gold": ["f545a91b48e0fc93", "635287453eabb062"]}
+{"id": "I02", "group": "in_domain", "query": "É necessário ter uma conta bancária para receber as vendas via Pix?", "gold": ["d1d39aaa345d2c4d", "c4dfa8c553cd1e35", "978dba0c797598cc"]}
+{"id": "I03", "group": "in_domain", "query": "Como funciona a antecipação de recebíveis na Getnet?", "gold": ["a56c46a0b384b9a8", "a007ba794d5ca039", "6839b0bea368e217", "cd0e0b5da89020e1"]}
+{"id": "I04", "group": "in_domain", "query": "Em quantas parcelas posso dividir uma venda no crediário?", "gold": ["db51997aa39464d9", "6b5f18f48be8a21b", "2915cfa52cfd9635"]}
+{"id": "I05", "group": "in_domain", "query": "É possível vender pelo WhatsApp usando o Link de Pagamento?", "gold": ["5aeb0749fc1adf22"]}
+{"id": "I06", "group": "in_domain", "query": "Até quantas parcelas posso fazer e como sei os juros para informar ao cliente?", "gold": ["6b5f18f48be8a21b", "2915cfa52cfd9635"]}
+{"id": "I07", "group": "in_domain", "query": "O que é o chip Algar?", "gold": ["cf3d88f38851066b"]}
+{"id": "I08", "group": "in_domain", "query": "Como coloco o chip na maquininha?", "gold": ["d053c78a3873e506"]}
+{"id": "I09", "group": "in_domain", "query": "Quem pode abrir uma Get Conta?", "gold": ["4af0a3d643d7e8ad"]}
+{"id": "I10", "group": "in_domain", "query": "Quais modalidades de crédito parcelado estão disponíveis?", "gold": ["479a0d5fe6c1069a"]}
+{"id": "I11", "group": "in_domain", "query": "Como fazer um Pix pela Get Conta?", "gold": ["00046140018eda70"]}
+{"id": "I12", "group": "in_domain", "query": "O que é chargeback?", "gold": ["3b64ed0851e887a0"]}
+{"id": "I13", "group": "in_domain", "query": "Como faço uma venda digitada?", "gold": ["178fe7433ad53aec"]}
+{"id": "I14", "group": "in_domain", "query": "Como funciona a pré-autorização?", "gold": ["a30e3af043c0afb5"]}
+{"id": "I15", "group": "in_domain", "query": "Por quanto tempo ainda posso usar a máquina depois de pedir o cancelamento?", "gold": ["48c32e97afa5a83b"]}
+{"id": "I16", "group": "in_domain", "query": "Como o aluguel é cobrado depois do cancelamento da máquina?", "gold": ["42c7f1bce6b14c16"]}
+{"id": "I17", "group": "in_domain", "query": "O que é NFC e por que preciso dele no celular?", "gold": ["b24d7e3b813f32fe"]}
+{"id": "I18", "group": "in_domain", "query": "Qual é a mensalidade da Get Smart?", "gold": ["635287453eabb062", "727513c8384036d6", "c0f8f29032276b95", "8595a2d740d113a4", "7bbe4c1d83e46cf4"]}
+{"id": "I19", "group": "in_domain", "query": "Como cuidar da bateria da Get Smart para durar mais?", "gold": ["16355e643a351d7d"]}
+{"id": "I20", "group": "in_domain", "query": "O que é cessão de recebíveis?", "gold": ["1e1a1d4e298ebcfd", "05ca1da84bc84a6a"]}
+{"id": "I21", "group": "in_domain", "query": "O cliente do Link de Pagamento pode receber em D+2?", "gold": ["893394f74da14cd5"]}
+{"id": "I22", "group": "in_domain", "query": "Quais formas de pagamento são aceitas na solução de dívidas?", "gold": ["e5c8a995a2e929f0"]}
+{"id": "N01", "group": "in_domain", "query": "Minha maquininha não conecta na internet, o que eu faço?", "origin": "trace S05", "gold": ["d053c78a3873e506", "2999f017ebbd048d", "04909348464fbbc3", "4d0ed6723ae5532a"]}
+{"id": "N02", "group": "in_domain", "query": "A maquininha mostrou um erro e a transação foi negada, o que significa?", "origin": "trace S08", "gold": ["04cbbdea3d05f12e", "33c709b8b0c98b6e"]}
+{"id": "N03", "group": "in_domain", "query": "Quando cai na conta o dinheiro das vendas de ontem?", "origin": "trace S03", "gold": ["7f0c06ccc788f146", "a65f11e0880a971e"]}
+{"id": "N04", "group": "in_domain", "query": "A Get Clássica imprime comprovante?", "origin": "trace K02", "gold": ["9697ee00d232c266", "c3f195aca668639b", "341a7626b30f12de"]}
+{"id": "N05", "group": "in_domain", "query": "Tem taxa para receber Pix na maquininha?", "origin": "trace K03", "gold": ["1c7df82c56d9d01f", "25507b7be1da7e40"]}
+{"id": "N06", "group": "in_domain", "query": "Em quanto tempo eu recebo as vendas no crédito?", "origin": "trace K04", "gold": ["7f0c06ccc788f146", "a1ee6984b8967540", "f545a91b48e0fc93", "bf848d30bf2a718b", "635287453eabb062", "727513c8384036d6"]}
+{"id": "N07", "group": "in_domain", "query": "Dá para usar a maquininha só no Wi-Fi, sem o chip?", "origin": "trace K06", "gold": ["2999f017ebbd048d", "04909348464fbbc3"]}
+{"id": "N08", "group": "in_domain", "query": "Como cancelo uma venda que fiz ontem?", "origin": "trace K09", "gold": ["d10ada0a07d570b4", "90785d870c2d3568"]}
+{"id": "N09", "group": "in_domain", "query": "Preciso ter CNPJ para usar a Getnet?", "origin": "trace K10", "gold": ["f545a91b48e0fc93", "bf848d30bf2a718b", "635287453eabb062", "f5d38279887e9355", "b32e7eeda58d00ae"]}
+{"id": "N10", "group": "in_domain", "query": "Quais bandeiras de cartão a Get Smart aceita?", "origin": "trace K12", "gold": ["66b9ef9ae64ac43f"]}
+{"id": "N11", "group": "in_domain", "query": "Como faço o teste de comunicação da maquininha?", "origin": "trace K13", "gold": ["d053c78a3873e506"]}
+{"id": "N12", "group": "in_domain", "query": "Qual o telefone da central de atendimento?", "origin": "trace K14", "gold": ["acef5907b59892ec", "c489f24faefb6672", "5b504bfe8e686961", "28713b3fb5624bd7", "f2175dcc3734100f"]}
+{"id": "N13", "group": "in_domain", "query": "A Getnet tem conta digital?", "origin": "trace K15", "gold": ["a65f11e0880a971e", "527891ece4ccfd0e", "4af0a3d643d7e8ad"]}
+{"id": "N14", "group": "in_domain", "query": "Minha maquininha não liga, o que eu faço?", "origin": "trace R01", "gold": ["cc568d48dfcfdd8d", "341a7626b30f12de", "f062c91250002eac", "1a7722f48044035e"]}
+{"id": "N15", "group": "in_domain", "query": "Passei a mesma venda duas vezes sem querer na Get Smart, e agora?", "origin": "trace R03", "gold": ["d17f0c882ffeb4b7"]}
+{"id": "N16", "group": "in_domain", "query": "A maquininha está dando erro de comunicação.", "origin": "trace R04", "gold": ["04cbbdea3d05f12e", "33c709b8b0c98b6e", "ebe62a01ad848070", "d954eaffe3522fc2"]}
+{"id": "N17", "group": "in_domain", "query": "Já sou cliente, consigo mudar as taxas da minha maquininha?", "origin": "page /duvidas/receba-ja-2-dias/", "gold": ["a80f8ca9b30114b2"]}
+{"id": "N18", "group": "in_domain", "query": "A maquininha não consegue ler o chip do cartão do cliente.", "origin": "trace R06", "gold": ["04cbbdea3d05f12e", "33c709b8b0c98b6e", "81dcbc82a80315a2", "e5c6052fae4e41d2", "d591973a5d79be4e"]}
+{"id": "N19", "group": "in_domain", "query": "A Get Smart aceita Pix?", "origin": "trace C04", "gold": ["ba291bb5cdd0c42a", "81dcbc82a80315a2"]}
+{"id": "N20", "group": "in_domain", "query": "Como funciona o estorno de uma venda?", "origin": "trace C07", "gold": ["d10ada0a07d570b4", "e7942a88d6210912", "8ce2b0a8a169c058", "4a71b97a538322cb"]}
+{"id": "N21", "group": "in_domain", "query": "Qual a diferença entre gravame e cessão de recebíveis?", "origin": "page /duvidas/antecipacao-de-vendas/", "gold": ["05ca1da84bc84a6a"]}
+{"id": "N22", "group": "in_domain", "query": "Em que horário posso fazer a antecipação das vendas?", "origin": "page /duvidas/antecipacao-de-vendas/", "gold": ["212b822e15ae7bb1"]}
+{"id": "N23", "group": "in_domain", "query": "Por quais canais consigo antecipar minhas vendas?", "origin": "page /duvidas/antecipacao-de-vendas/", "gold": ["21642cface131dca", "cd0e0b5da89020e1"]}
+{"id": "N24", "group": "in_domain", "query": "Como sei quais vendas já foram antecipadas?", "origin": "page /duvidas/antecipacao-de-vendas/", "gold": ["0bcbd2bc4fbee077"]}
+{"id": "N25", "group": "in_domain", "query": "Tenho antecipação automática, como vejo os lançamentos futuros?", "origin": "page /duvidas/antecipacao-de-vendas/", "gold": ["eecb10da02d2724e"]}
+{"id": "N26", "group": "in_domain", "query": "Vale a pena antecipar as vendas depois de datas de muito movimento?", "origin": "page /quando-vale-a-pena-antecipar-as-suas-vendas-no-cartao/", "gold": ["c40308e20bfc0efc", "a007ba794d5ca039"]}
+{"id": "N27", "group": "in_domain", "query": "Como faço a antecipação de vendas pela Get Smart?", "origin": "manual Get Smart", "gold": ["ecbf8e3211447d12"]}
+{"id": "N28", "group": "in_domain", "query": "Como mudo o limite do Pix na Get Conta?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["d7268fcca4db752f", "77786853322e0ebb"]}
+{"id": "N29", "group": "in_domain", "query": "O que é o MED do Pix?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["213e264edc92890b"]}
+{"id": "N30", "group": "in_domain", "query": "Recebi um Pix por engano, como eu devolvo?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["a3bdd4a6898ba4d8"]}
+{"id": "N31", "group": "in_domain", "query": "Dá para cancelar um Pix agendado?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["86f0018cc40a8184"]}
+{"id": "N32", "group": "in_domain", "query": "Recebi um Pix e o valor ficou bloqueado, o que faço?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["78df1e30fd390599"]}
+{"id": "N33", "group": "in_domain", "query": "Posso colocar o QR Code da Get Conta na minha maquininha?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["96b20b6d030dfd27"]}
+{"id": "N34", "group": "in_domain", "query": "Fiz uma venda no Pix e não saiu o comprovante, o que faço?", "origin": "page /duvidas/pix/", "gold": ["f31e422cc4749633"]}
+{"id": "N35", "group": "in_domain", "query": "O botão do Pix não aparece no portal, o que devo fazer?", "origin": "page /duvidas/pix/", "gold": ["13bcd4333fcbc93c"]}
+{"id": "N36", "group": "in_domain", "query": "O que é Pix Saque e Pix Troco?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["3dd09e3d524beac0"]}
+{"id": "N37", "group": "in_domain", "query": "Disseram que minha chave Pix foi reivindicada por outra pessoa, o que faço?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["2997c8d5eb61f482", "c114930ef623c944"]}
+{"id": "N38", "group": "in_domain", "query": "Quantas chaves Pix preciso cadastrar na Getnet?", "origin": "page /duvidas/pix/", "gold": ["c4dfa8c553cd1e35"]}
+{"id": "N39", "group": "in_domain", "query": "Existe limite de quantidade de transações no Pix?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["8bcff70ec417a402"]}
+{"id": "N40", "group": "in_domain", "query": "Como recebo um Pix por QR Code na Get Conta?", "origin": "page /duvidas/pix-mais-respostas/", "gold": ["ed7e8f7ce422c4f2"]}
+{"id": "N41", "group": "in_domain", "query": "Como contrato o crediário e qual é a taxa?", "origin": "page /duvidas/crediario/", "gold": ["fd3fa778e2ac3f85"]}
+{"id": "N42", "group": "in_domain", "query": "Onde vejo o pagamento do crediário e quando recebo?", "origin": "page /duvidas/crediario/", "gold": ["f662fc1fef5ece77", "6b5f18f48be8a21b"]}
+{"id": "N43", "group": "in_domain", "query": "Qualquer loja pode oferecer o crediário?", "origin": "page /duvidas/crediario/", "gold": ["0471e3b48c3b1474"]}
+{"id": "N44", "group": "in_domain", "query": "O que é o Receba Já?", "origin": "page /duvidas/receba-ja-2-dias/", "gold": ["a1ee6984b8967540"]}
+{"id": "N45", "group": "in_domain", "query": "Quais maquininhas podem ter o Receba Já?", "origin": "page /duvidas/receba-ja-2-dias/", "gold": ["80052ba4fa99c48f", "76c7d2878ad0a48d"]}
+{"id": "N46", "group": "in_domain", "query": "Se eu contratar o Receba Já D+2, as vendas que já fiz entram no prazo novo?", "origin": "page /duvidas/receba-ja-2-dias/", "gold": ["d7d977f93cf992f6"]}
+{"id": "N47", "group": "in_domain", "query": "A Get Smart emite nota fiscal eletrônica?", "origin": "page /duvidas/get-smart/", "gold": ["0b9a031cc026de77"]}
+{"id": "N48", "group": "in_domain", "query": "Qual a diferença entre a Get Smart e o TEF móvel?", "origin": "page /duvidas/get-smart/", "gold": ["81a5afc27d40be76"]}
+{"id": "N49", "group": "in_domain", "query": "As vendas da Get Smart aparecem no conciliador que eu já uso?", "origin": "page /duvidas/get-smart/", "gold": ["ec43c0793f4187d4"]}
+{"id": "N50", "group": "in_domain", "query": "Como faço o fechamento de vendas na Get Smart?", "origin": "manual Get Smart", "gold": ["5be13b55bd304ddf"]}
+{"id": "N51", "group": "in_domain", "query": "Como cobro por aproximação na Get Smart?", "origin": "page /duvidas/get-smart/", "gold": ["b21aaa487433b306", "81dcbc82a80315a2"]}
+{"id": "N52", "group": "in_domain", "query": "Como confiro as últimas vendas na Get Smart?", "origin": "manual Get Smart", "gold": ["6a6d97d0ecf00f41"]}
+{"id": "N53", "group": "in_domain", "query": "Como troco a senha do lojista na maquininha?", "origin": "page /duvidas/operacional/", "gold": ["6b760707ab6633d8"]}
+{"id": "N54", "group": "in_domain", "query": "Como reimprimo o comprovante de uma venda?", "origin": "page /duvidas/operacional/", "gold": ["5fbeee9c97173ee3", "c6af7f2fd9302698"]}
+{"id": "N55", "group": "in_domain", "query": "Quais relatórios consigo imprimir na maquininha?", "origin": "page /duvidas/operacional/", "gold": ["90a81a8bf0a54bda"]}
+{"id": "N56", "group": "in_domain", "query": "Como configuro o Wi-Fi na Get Mini?", "origin": "manual Get Mini", "gold": ["04909348464fbbc3"]}
+{"id": "N57", "group": "in_domain", "query": "Como habilito minha Get Clássica quando ela chega?", "origin": "manual Get Clássica", "gold": ["472c41fae00628af"]}
+{"id": "N58", "group": "in_domain", "query": "O que vem na caixa da Get Mini e qual é a garantia?", "origin": "manual Get Mini", "gold": ["0d7ff3a6085ab0f3"]}
+{"id": "N59", "group": "in_domain", "query": "O que significam os ícones na tela da Get Clássica?", "origin": "manual Get Clássica", "gold": ["0de261a293780d97"]}
+{"id": "N60", "group": "in_domain", "query": "A maquininha mostra que não está inicializada, como resolvo?", "origin": "manual Get Clássica and Get Mini", "gold": ["04cbbdea3d05f12e", "33c709b8b0c98b6e", "ebe62a01ad848070", "d954eaffe3522fc2"]}
 {"id": "O01", "group": "out_of_domain", "query": "Qual é a previsão do tempo em Porto Alegre amanhã?"}
 {"id": "O02", "group": "out_of_domain", "query": "Qual foi o resultado do jogo do Grêmio ontem?"}
 {"id": "O03", "group": "out_of_domain", "query": "Como trocar o óleo do carro?"}

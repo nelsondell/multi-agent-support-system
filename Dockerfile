@@ -12,14 +12,19 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
+# A local reranker (`--build-arg RERANKER=bge` or `qwen`) adds the `rerank` group, torch included,
+# and its weights below. The default image has neither: evals/rerank_benchmark.md keeps it off.
+ARG RERANKER=none
+
 # Dependencies are their own layer: application edits do not invalidate the resolved venv.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+RUN uv sync --frozen --no-install-project --no-dev \
+    $(case "$RERANKER" in (bge|qwen) echo --group rerank;; esac)
 
 COPY app ./app
 COPY data/customers.json ./data/customers.json
 COPY data/corpus ./data/corpus
-RUN uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev $(case "$RERANKER" in (bge|qwen) echo --group rerank;; esac)
 
 
 # Runtime stage: the virtualenv, the application and the corpus snapshot, no build tooling.
@@ -49,6 +54,11 @@ USER appuser
 # Fetch the local embedding model now, so the first boot builds the index without downloading
 # anything; at runtime the app refuses to fetch it. The chunker's tokenizer ships in app/rag/assets.
 RUN python -m app.providers.embeddings
+
+# Same for a local reranker's weights, when the image was built with one.
+ARG RERANKER=none
+ENV RERANKER=$RERANKER
+RUN case "$RERANKER" in bge|qwen) python -m app.rag.rerank "$RERANKER";; esac
 
 EXPOSE 8000
 

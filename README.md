@@ -13,8 +13,8 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps) · knowledge (website RAG, or web search for general questions) · support (2 account tools) · human review (pauses for an operator, then finishes the plan) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 350 tests and the offline evals, the eval gate included, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
-| **Evals** | error analysis on 100 sampled requests: pass-all 95/100 · red team 40/40 (OWASP ASI01–ASI10) · both replayed in CI ([evals](evals/README.md)) · routing golden set 27/28 |
+| **Verify** | `make verify`: 361 tests and the offline evals, the eval gate included, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Evals** | error analysis on 100 sampled requests: pass-all 94/100 · red team 40/40 (OWASP ASI01–ASI10) · both replayed in CI ([evals](evals/README.md)) · routing golden set 27/28 |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
 timebox:** an iteration on the evaluator's feedback, done at the evaluator's invitation. [What
@@ -40,8 +40,8 @@ make verify                     # frozen sync, then lint, tests and offline eval
 
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, the tests run with sockets blocked, and the result lands in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 35 s of
-sync (466 MB, so mostly the network) and 24.0 s of checks.
+[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 87 s of
+sync (469 MB, so mostly the network) and 22.6 s of checks.
 
 ```bash
 cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY
@@ -186,14 +186,15 @@ merchant gets it, including the delivered reply and the stored conversation:
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 350 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 361 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite, the guardrail eval and the eval replay, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
-| Error analysis | 100 sampled requests on the real model, labelled pass or fail, grouped into five failure modes; one check per mode (four in code, one binary judge from another model family): **pass-all 95/100**; the judge is not validated: the labels hold 5 failures of its mode, 1 held out | [`evals/README.md`](evals/README.md), [`failure_modes.md`](evals/failure_modes.md) |
+| Error analysis | 100 sampled requests on the real model, labelled pass or fail, grouped into five failure modes; one check per mode (four in code, one binary judge from another model family): **pass-all 94/100**; the judge is not validated: the labels hold 5 failures of its mode, 1 held out | [`evals/README.md`](evals/README.md), [`failure_modes.md`](evals/failure_modes.md) |
 | Red team | 40 cases tagged OWASP ASI01–ASI10, 10 adaptive, with planted web pages and corpus passages: **40/40 safe** | [`evals/red_team.jsonl`](evals/red_team.jsonl), [`eval_report.md`](evals/eval_report.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **27/28** against the real router; the miss, A01, is ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl) |
 | Model benchmark | 5 candidates × the golden set: `gpt-6-luna` low **54/56**, `gpt-6-sol` 55/56 at 18× the cost, `gpt-4o-mini` 46/56 | [`evals/router_benchmark.md`](evals/router_benchmark.md) |
-| Retrieval calibration | 3 embedders × 37 questions: the large OpenAI model separates in- from out-of-domain with a 0.110 gap; the local one doesn't | [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md) |
+| Retrieval calibration | 3 embedders × 97 questions: the large OpenAI model separates in- from out-of-domain with a 0.067 gap; the local one doesn't | [`evals/retrieval_calibration.md`](evals/retrieval_calibration.md) |
+| Reranker benchmark | 82 in-domain questions, gold chunks reviewed by the owner: Cohere `rerank-v4.0-fast` takes recall@5 from 0.939 to 0.963 and MRR from 0.851 to 0.894 at 618 ms p95, inside the 1 s budget, but stays opt-in: 2 of 82 questions, a new vendor, a trial key's rate limit ([ADR 0002](docs/adr/0002-reranker-off-by-default.md)); bge and Qwen take 5 and 12 s on the CPU | [`evals/rerank_benchmark.md`](evals/rerank_benchmark.md) |
 | LLM judge | 3 independent runs of the ten scenarios, follow-ups, a compound request and the human-review loop; `gpt-6-sol` scores each answered turn against the evidence it had | [`evals/report.md`](evals/report.md) |
 
 Tests assert invariants (route, plan, sources, status, masking, isolation), never a model's wording.
@@ -251,10 +252,10 @@ runbook line each; vendor failures are stubbed in tests and were drilled once ag
 | Product / completeness (7.5) | Web search for general questions, dated; compound requests; sale vs credit dates; declines explained from the data; partial answers | T-22, T-23, T-30, T-32, T-35, T-38, T-40 |
 | Multi-agent (8.8) | Plans of up to two specialists joined by compose; a step that needs a person pauses the plan, which resumes after the operator; hop budget across the plan; bounded replanning: a finding adds a read step for the other specialist, within plan-change, model-call and cost budgets | T-21, T-22, T-43, T-52 |
 | Observability / evals (9.1) | Error analysis with one check per failure mode and a 40-case red team, replayed in CI against thresholds; LLM judge over 3 runs; model benchmark; embedder calibration; OpenTelemetry GenAI traces; cost per resolution and cache hit rate; Grafana dashboard and four alerts with runbooks; vendor failures tested | T-25, T-26, T-28, T-29, T-39, T-44, T-51, T-54 |
-| Tests / quality (9.2) | 78 → 353 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
+| Tests / quality (9.2) | 78 → 364 tests; HTTP flows; concurrency; every invariant mapped to a test; suite isolated from `.env` and clock | T-24, T-31, T-44 |
 | Architecture / code (9.5) | Same shape, no new framework; one vendor seam; structured output everywhere | every task |
 | Security / isolation (9.5) | Merchant identity from a signed JWT; operator roles; append-only audit; LGPD erasure and retention; rate limit; threads bound to the merchant; restricted checkpoint deserializer; masked web queries | T-19, T-21, T-23, T-31, T-44, T-49 |
-| RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices | T-29, T-33, T-37 |
+| RAG / knowledge (9.8) | Embedder chosen by calibration; per-product searches; three-state coverage; conditions stated with prices; FAQ category pages and terminal manuals for the answers left partial; rerankers benchmarked, one opt-in | T-29, T-33, T-37, T-53 |
 | Trade-offs (10.0) | Each choice measured and committed: model, embedder, fusion, router effort | T-28, T-29, T-34, T-45 |
 
 ## 9. Design decisions
@@ -279,7 +280,8 @@ each. With today's router (v9) the 9 follow-up rows score 45/45 at low effort an
 the router stays at low.
 
 **Hybrid retrieval.** Embeddings carry an English question into Portuguese prose but blur
-near-identical product pages; BM25 pins "Get Smart" against "Get Mini". RRF fuses them by rank.
+near-identical product pages; BM25 pins "Get Smart" against "Get Mini". RRF fuses them by rank;
+a reranker was measured and kept opt-in ([ADR 0002](docs/adr/0002-reranker-off-by-default.md)).
 Abstention uses dense similarity, calibrated per embedder ([docs/rag.md](docs/rag.md)).
 
 **Failures degrade, never raise.** Every node runs under LangGraph's own timeout and retry; a model
@@ -295,7 +297,7 @@ of the cost ([benchmark](evals/router_benchmark.md)).
 
 - **Live answers vary.** Web answers depend on what the search returns that minute, and sampling
   moves the judge's scores; [`evals/report.md`](evals/report.md) reports the spread, not one run.
-- **The retrieval threshold rests on 37 hand-written questions** and a 0.110 gap.
+- **The retrieval threshold rests on 97 questions** and a 0.067 gap.
 - **Most web pages carry no structured publication date.** A day-dependent answer then shows the
   day its cited page names, labelled as stated by the source, and says it could not confirm a
   date only when the cited page names none.

@@ -1,12 +1,14 @@
 """Route-specific extraction from the raw corpus.
 
-Two routes, both confirmed against files in `data/raw/` before this module was written:
+Three routes, each confirmed against files in `data/raw/` before it was written:
 
-- FAQ (`/duvidas/`): questions are `a.c-all-faq__question`, answers live in separate
+- FAQ (`/duvidas/` and its category pages): questions are `a.c-all-faq__question`, or
+  `a.c-more-answers__question` on a category page, answers live in separate
   `div.o-modal__content--faq` nodes, and the two are paired by their `data-modal` id. The answer
   node repeats the question as its first line, so it is stripped.
 - Article (Beaver Builder): body text is under `.fl-col-content`. Generic extraction returns
   mostly footer on these pages, which is why the selector is explicit.
+- Manual (a terminal's PDF user manual): one document per page, so a page's section is its number.
 
 Meta descriptions are ignored everywhere: they repeat verbatim across pages as boilerplate.
 """
@@ -14,10 +16,14 @@ Meta descriptions are ignored everywhere: they repeat verbatim across pages as b
 import re
 from dataclasses import dataclass
 from enum import StrEnum
+from io import BytesIO
 
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 
 _MIN_ARTICLE_CHARS = 400
+_MIN_MANUAL_PAGE_CHARS = 200
+_FAQ_QUESTIONS = "a.c-all-faq__question, a.c-more-answers__question"
 _WHITESPACE = re.compile(r"\s+")
 
 
@@ -26,6 +32,7 @@ class Route(StrEnum):
 
     FAQ = "faq"
     ARTICLE = "article"
+    MANUAL = "manual"
 
 
 @dataclass(frozen=True)
@@ -60,7 +67,7 @@ def page_heading(html: str) -> str:
 
 def detect_route(soup: BeautifulSoup) -> Route | None:
     """Pick the parser for a page, or None when neither route applies."""
-    if soup.select("a.c-all-faq__question"):
+    if soup.select(_FAQ_QUESTIONS):
         return Route.FAQ
     body = "".join(node.get_text(" ", strip=True) for node in soup.select(".fl-col-content"))
     return Route.ARTICLE if len(body) >= _MIN_ARTICLE_CHARS else None
@@ -74,7 +81,7 @@ def parse_faq(soup: BeautifulSoup, url: str) -> list[Document]:
         for node in soup.select("div.o-modal__content--faq")
     }
     documents = []
-    for anchor in soup.select("a.c-all-faq__question"):
+    for anchor in soup.select(_FAQ_QUESTIONS):
         question = _clean(anchor.get_text(" ", strip=True))
         answer = answers.get(anchor.get("data-modal"), "")
         if not question or not answer:
@@ -96,9 +103,13 @@ def parse_faq(soup: BeautifulSoup, url: str) -> list[Document]:
 
 
 def _faq_category(anchor) -> str:
-    """The nearest preceding category heading, used as the section label."""
+    """The nearest preceding category heading, used as the section label: the main FAQ page
+    titles each block, a category page titles itself once."""
     block = anchor.find_parent(class_="c-all-faq__content")
-    heading = block.find_previous("h2", class_="c-all-faq__title") if block else None
+    if block:
+        heading = block.find_previous("h2", class_="c-all-faq__title")
+    else:
+        heading = anchor.find_previous("h2", class_="c-modules-title")
     return _clean(heading.get_text()) if heading else ""
 
 
@@ -121,3 +132,19 @@ def parse_page(html: str, url: str) -> list[Document]:
     if route is Route.ARTICLE:
         return parse_article(soup, url)
     return []
+
+
+def parse_manual(data: bytes, url: str) -> list[Document]:
+    """One document per page of a PDF manual, skipping the cover and blank pages.
+
+    The cover names the manual, once its dated lines (the last revision) are dropped.
+    """
+    pages = [page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages]
+    if not pages:
+        return []
+    title = _clean(" ".join(line for line in pages[0].splitlines() if not re.search(r"\d", line)))
+    return [
+        Document(url=url, title=title, section=f"page {number}", text=text, route=Route.MANUAL)
+        for number, text in enumerate((_clean(page) for page in pages), start=1)
+        if len(text) >= _MIN_MANUAL_PAGE_CHARS
+    ]
