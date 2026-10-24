@@ -591,6 +591,34 @@ ratified); each judge's TPR and TNR are reported on a held-out split, and the re
 not validated while that split holds fewer than 10 of its failures; a regression past a threshold
 fails CI with no key.
 
+### T-53 — `feat(T-53): fill the corpus gaps and test a reranker`
+The error analysis found answers left partial for want of a page. The corpus gains the site's FAQ
+pages on antecipação de vendas, Pix, crediário, Receba Já, operating the terminal and the Get
+Smart, the Pix product page, two articles (Pix on the terminal, when to anticipate), and the user
+manuals of the Get Smart, Get Clássica and Get Mini, whose error tables cover terminal
+troubleshooting. The FAQ parser also reads the category layout (`a.c-more-answers__question`,
+paired by the same `data-modal` id), a third route reads a PDF manual page by page, and the
+snapshot is re-extracted. The retrieval set keeps its 37 questions and gains 60 from the error
+analysis and the new pages. Every in-domain question carries the ids of the chunks that answer
+it, proposed from the corpus and reviewed by the owner through `evals/retrieval_review.csv`.
+The abstention threshold is recalibrated on the larger set, by the same midpoint rule.
+`evals/run_rerank_benchmark.py` compares recall@5, MRR and the latency each search adds, for
+hybrid RRF alone and with a reranker over its 20 fused candidates: `BAAI/bge-reranker-v2-m3` and
+`Qwen/Qwen3-Reranker-0.6B` (local, in an optional `rerank` dependency group, weights fetched by
+the image build and never in tests) and Cohere `rerank-v4.0-fast` (API), behind
+`RERANKER=none|bge|qwen|cohere`. The latency budget, set before measuring: at most 1 s added at
+p95 per search, an eighth of the 8 s at which the node latency alert fires. A reranker is on by
+default only if it raises recall@5 or MRR within that budget, and the table goes in `docs/rag.md`
+either way. A reranker that fails degrades to the fused order. Cohere met that rule; the owner kept
+RRF the default and Cohere opt-in (`docs/adr/0002-reranker-off-by-default.md`): a gain of 2 of 82
+questions, a new vendor that needs compliance approval, and a trial key's rate limit.
+The re-recorded traces moved failure mode 4 to other traces, so knowledge prompt v9 states a
+fact whenever an excerpt has it and names every difference in a comparison. The floors in
+`evals/thresholds.toml` are set from the accepted v9 recording.
+**Done when:** the new routes have tests on excerpts of real pages; the owner reviewed the gold
+ids; the table in `docs/rag.md` comes from a committed report; the default and why are in ADR
+0002; the trace evals are re-recorded on the new corpus; the offline suite downloads nothing.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -598,13 +626,13 @@ fails CI with no key.
 | Memory / multi-turn (1.5) | T-19, T-20, T-24, T-34 |
 | Human-in-the-loop (5.8) | T-21, T-24, T-42, T-44, T-50 |
 | Infra / Docker (6.8) | T-16, T-17, T-18, T-33, T-47, T-48 |
-| Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46 |
+| Product / completeness (7.5) | T-23, T-27, T-30, T-32, T-46, T-53 |
 | Multi-agent / orchestration (8.8) | T-22, T-43, T-52 |
 | Observability / evals (9.1) | T-25, T-26, T-31, T-51, T-54 |
 | Tests / quality (9.2) | T-24, T-31, plus the tests inside every task |
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines; T-56 |
 | Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47, T-49 |
-| RAG / knowledge (9.8) | T-16, T-23, T-29, T-33 |
+| RAG / knowledge (9.8) | T-16, T-23, T-29, T-33, T-53 |
 | Trade-offs / engineering (10.0) | T-27, T-28, T-45 |
 
 Outside the task list: the pull request that merges v2 into `main` after T-27 (plan §15), and,

@@ -43,10 +43,18 @@ class Settings(BaseSettings):
     Pinned separately from the chat key on purpose: the embedder is part of the index's
     identity, so adding an API key must not silently change it under a built index."""
 
+    reranker: Literal["none", "bge", "qwen", "cohere"] = "none"
+    """Reorders the fused candidates before the top-k cut. Off by default, measured in
+    `evals/rerank_benchmark.md` and decided in `docs/adr/0002-reranker-off-by-default.md`. `bge`
+    and `qwen` need the optional `rerank` dependency group and their weights; `cohere` needs
+    COHERE_API_KEY, and without it the fused order stands."""
+    cohere_api_key: str | None = None
+    rerank_timeout_s: float = Field(default=2.0, gt=0)
+
     router_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
-    retrieval_confidence_threshold: float = Field(default=0.52, ge=0.0, le=1.0)
+    retrieval_confidence_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
     """Calibrated for text-embedding-3-large in `evals/retrieval_calibration.md`: the midpoint of
-    the gap between the highest out-of-domain score (0.464) and the lowest in-domain one (0.574).
+    the gap between the highest out-of-domain score (0.464) and the lowest in-domain one (0.532).
     It belongs to that embedder. The local fallback embedder separates nothing, so with it no
     threshold can do this job and the knowledge answer's sufficiency flag is the only gate."""
     max_hops: int = Field(default=2, ge=1)

@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import tempfile
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
@@ -33,6 +34,7 @@ from app.observability import configure_logging
 from app.providers.llm import LLMProviderError, build_provider
 from app.rag.chunk import Chunk, chunk_documents
 from app.rag.ingest import read_snapshot
+from app.rag.rerank import COHERE_TRIAL_INTERVAL_S
 from app.rag.retrieve import Hit, HybridRetriever, RetrievalResult, RetrievalUnavailable
 from app.settings import Settings, get_settings
 from app.storage import open_storage
@@ -120,16 +122,29 @@ class RecordedModel:
 
 
 class RecordedRetriever:
-    def __init__(self, inner: HybridRetriever | None, recording: Recording, chunks: list[Chunk]):
+    def __init__(
+        self,
+        inner: HybridRetriever | None,
+        recording: Recording,
+        chunks: list[Chunk],
+        pace_s: float = 0.0,
+    ):
         self._inner, self._recording = inner, recording
         self._chunks = {chunk.id: chunk for chunk in chunks}
         self.size = len(chunks)
+        self._pace_s, self._next = pace_s, 0.0
+
+    def _wait(self, queries: int) -> None:
+        """Space live searches so each of their rerank calls stays under a trial key's limit."""
+        time.sleep(max(0.0, self._next - time.monotonic()))
+        self._next = time.monotonic() + self._pace_s * queries
 
     def search(self, query_pt: str, also=()) -> RetrievalResult:
         key = self._recording.key("retrieval", query_pt, list(also))
         recording = self._recording
         if recording.live and not (recording.reuse and key in recording.calls):
             recording.used.add(key)
+            self._wait(len(dict.fromkeys([query_pt, *also])))
             try:
                 result = self._inner.search(query_pt, also)
             except RetrievalUnavailable as exc:
@@ -181,8 +196,9 @@ async def open_api(
         update={"state_dir": tempfile.mkdtemp(prefix="eval-"), "auth_jwks_url": str(PUBLIC)}
     )
     chunks, _ = chunk_documents(read_snapshot())
+    pace_s = COHERE_TRIAL_INTERVAL_S if live and settings.reranker == "cohere" else 0.0
     retriever = RecordedRetriever(
-        HybridRetriever.from_settings(settings) if live else None, recording, chunks
+        HybridRetriever.from_settings(settings) if live else None, recording, chunks, pace_s
     )
     model = RecordedModel(build_provider(settings) if live else None, recording, "model")
     real_today = app.main.merchant_today

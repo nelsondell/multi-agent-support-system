@@ -9,9 +9,10 @@ import pytest
 from app.rag import ingest
 from app.rag.chunk import Chunk, ChunkStats
 from app.rag.ingest import index_exists, load_documents, read_snapshot, write_snapshot
-from app.rag.parse import Document, Route
+from app.rag.parse import Document, Route, parse_page
 from app.settings import Settings
 
+FIXTURES = Path(__file__).parent / "fixtures"
 URL = "https://example.test/card-machines/"
 BODY = "The card machine accepts debit and credit cards and settles sales in one business day. " * 6
 PAGE = (
@@ -212,3 +213,41 @@ def test_pages_sharing_a_title_are_told_apart_by_their_heading():
         "Get Smart o impulso para o seu negócio",
         "Dúvidas e Perguntas Frequentes | Getnet",
     ]
+
+
+CATEGORY_PAGE = (
+    "<html><head><title>Arquivos crediário - Getnet</title></head><body>"
+    "<h2 class='c-modules-title'>crediário</h2><div class='c-more-answers__content'>"
+    "<a class='c-more-answers__question' href='#' data-modal='6629'>"
+    "Como eu contrato o Crediário e qual a taxa?</a></div>"
+    "<div class='o-modal__content o-modal__content--faq' data-modal='6629'>"
+    "Como eu contrato o Crediário e qual a taxa? A habilitação pode ser realizada através do "
+    "aplicativo Getnet (Android e iOS) ou através da central.</div></body></html>"
+)
+
+
+def test_a_faq_category_page_pairs_each_question_with_its_answer():
+    """An excerpt of /duvidas/crediario/, whose layout differs from the main FAQ page's."""
+    [document] = parse_page(CATEGORY_PAGE, "https://example.test/duvidas/crediario/")
+
+    assert (document.section, document.route) == ("crediário", Route.FAQ)
+    assert document.text == (
+        "Como eu contrato o Crediário e qual a taxa?\nA habilitação pode ser realizada através do "
+        "aplicativo Getnet (Android e iOS) ou através da central."
+    )
+
+
+def test_a_manual_is_read_page_by_page_and_named_by_its_cover(tmp_path):
+    """Two pages of the Get Mini manual: the cover only names it, the error table is read."""
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir()
+    shutil.copy(FIXTURES / "manual_excerpt.pdf", raw_dir / "manual.pdf")
+    manifest = tmp_path / "manifest.tsv"
+    manifest.write_text(f"OK\t200\t1\tdata/raw/manual.pdf\t{URL}manual.pdf\n", encoding="utf-8")
+
+    [page], skipped = ingest.extract_corpus(raw_dir, manifest)
+
+    assert skipped == []
+    assert (page.title, page.section) == ("Manual de Uso Get Mini", "page 2")
+    assert page.route is Route.MANUAL
+    assert "Erro ADQ 4-83 Erro de integração com as bandeiras." in page.text

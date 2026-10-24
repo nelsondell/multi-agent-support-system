@@ -75,4 +75,4 @@ def test_the_suite_never_reads_the_developers_configuration(tmp_path, monkeypatc
     (tmp_path / ".env").write_text("RETRIEVAL_CONFIDENCE_THRESHOLD=0.99\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
 
-    assert Settings().retrieval_confidence_threshold == 0.52
+    assert Settings().retrieval_confidence_threshold == 0.50

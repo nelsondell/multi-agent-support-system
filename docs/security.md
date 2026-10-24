@@ -23,7 +23,7 @@ only `jwks.json`), and `uv run python scripts/dev_auth.py token merchant cliente
 | What | How |
 | --- | --- |
 | Audit log | one row per operator action and per write: who, role, action, target (protocol or thread hash), when; no message text; append-only by trigger on SQLite and Postgres |
-| Masking | CPF, CNPJ, card and phone masked before any log, trace, history entry or web query |
+| Masking | CPF, CNPJ, card and phone masked before any log, trace, history entry, web query or rerank query (Cohere, opt-in) |
 | Erasure | `DELETE /me/conversations/{id}`: checkpoints and every case it opened, under the conversation's lock; audited |
 | Retention | `make purge`: conversations idle past `RETENTION_DAYS` (90), with their cases; audited |
 
@@ -52,7 +52,7 @@ input (A), private data (B) and a state change (C).
 
 | Flow | A untrusted input | B private data | C state change | Holds because |
 | --- | --- | --- | --- | --- |
-| Knowledge, corpus | yes (the message) | no (public site) | no | read-only, public data |
+| Knowledge, corpus | yes (the message) | no (public site) | no | read-only, public data; an opt-in reranker gets the masked query and public excerpts |
 | Knowledge, web | yes (message and pages) | no (masked query, no account data) | outbound search only | the query is masked and carries no number the merchant did not type |
 | Support | yes (the message) | yes (the merchant's account) | no (read-only tools) | A and B, and no state change |
 | Technical ticket | yes (the message) | yes (the account and terminal) | yes (opens a ticket) | all three, so the merchant confirms the code-rendered operation first ([tools.md](tools.md)) |

@@ -2,16 +2,17 @@
 
 | Dataset | Size | Check | Last result | Command |
 | --- | --- | --- | --- | --- |
-| `trace_requests.jsonl`, sampled requests (scenarios, follow-ups, compound, account, product, troubleshooting, general, edge, adversarial) | 100 | no internal jargon in the answer (code) | 100/100 | `make eval-offline` |
+| `trace_requests.jsonl`, sampled requests (scenarios, follow-ups, compound, account, product, troubleshooting, general, edge, adversarial) | 100 | no internal jargon in the answer (code) | 99/100 | `make eval-offline` |
 | same | 5 tagged | small talk answered, not escalated or searched (code) | 5/5 | `make eval-offline` |
 | same | 8 with an expected outcome | the plan fits the request: status, escalation, plan or source (code) | 7/8 | `make eval-offline` |
 | same | 4 day-dependent web answers | the date notice matches the evidence: a date when the cited page has one, "could not confirm" only when none in range is named (code) | 3/4 | `make eval-offline` |
-| same | 43 answered from the site or web | does not call missing what the evidence has (binary judge, `claude-opus-5-5`) | 40/43 | `make eval-offline` |
-| same | 100 | pass-all: no applicable check fails | 95/100 | `make eval-offline` |
+| same | 44 answered from the site or web | does not call missing what the evidence has (binary judge, `claude-opus-5-5`) | 41/44 | `make eval-offline` |
+| same | 100 | pass-all: no applicable check fails | 94/100 | `make eval-offline` |
 | `red_team.jsonl`, OWASP Agentic ASI01–ASI10, 10 adaptive, web and corpus injection planted | 40 | safe: no other merchant's data, prompt text, card number, write or planted text (code) | 40/40 | `make eval-offline` |
 | `traces.csv` + `labels.csv`, the labelled traces | 100 (5 positive) | the judge above against the labels, stratified train/dev/test | **not validated**: TPR 1/2, 1/2, 0/1 on 5 failures; TNR 38/38, 27/28, 29/29 | `make eval-offline` |
 | `routing_golden_set.jsonl` | 28 | guardrail outcome (code); intent and plan (live model) | guardrail 28/28 | `uv run python -m evals.run_routing_eval` |
-| `retrieval_calibration.jsonl` | 37 | embedder separation and threshold | [`retrieval_calibration.md`](retrieval_calibration.md) | `uv run python -m evals.run_retrieval_calibration` |
+| `retrieval_calibration.jsonl` | 97 (82 in-domain, 15 out) | embedder separation and threshold | [`retrieval_calibration.md`](retrieval_calibration.md) | `uv run python -m evals.run_retrieval_calibration` |
+| same, in-domain, with gold chunk ids reviewed by the owner ([`retrieval_review.csv`](retrieval_review.csv)) | 82 | recall@5, MRR and added latency, RRF alone against three rerankers | [`rerank_benchmark.md`](rerank_benchmark.md) | `uv run --group rerank python -m evals.run_rerank_benchmark` |
 | `planning_set.jsonl` | 20 | task completion against `MAX_PLAN_CHANGES=0` (code) | not run yet | `uv run python -m evals.run_planning_eval` |
 
 Last results are from `evals/eval_report.md`, recorded live on 2026-10-23 with `make eval`.
@@ -24,7 +25,8 @@ Last results are from `evals/eval_report.md`, recorded live on 2026-10-23 with `
 - **Replay.** `make eval-offline` answers the same requests from that recording, with no key and
   no network. It is part of `make verify`, which CI runs on every push, with the network cut on
   ubuntu.
-- **Thresholds.** A rate below `thresholds.toml` fails the build. So does a request the recording
+- **Thresholds.** A rate below `thresholds.toml` fails the build. The floors are the accepted
+  recording's own rates, so any drop in the replay is a regression. So does a request the recording
   never saw, with the instruction to record again.
 - **Reporting.** Reports give the pass-all rate and each check's rate. There is no weighted score.
 

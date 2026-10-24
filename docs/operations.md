@@ -13,7 +13,8 @@ every setting. The ones that matter most:
 | `RATE_LIMIT_PER_MINUTE` / `RETENTION_DAYS` | `30` / `90` | Merchant requests per 60 s per replica; days a conversation may sit idle before `make purge` erases it. |
 | `LLM_MODEL` / `LLM_REASONING_EFFORT` | `gpt-6-luna` / `low` | Chosen in [`evals/router_benchmark.md`](../evals/router_benchmark.md). `LLM_TEMPERATURE` is for non-reasoning models only (e.g. `gpt-4o-mini` with `0`). |
 | `EMBEDDING_BACKEND` / `EMBEDDING_MODEL` | `openai` / `text-embedding-3-large` | Chosen in [`evals/retrieval_calibration.md`](../evals/retrieval_calibration.md). `local` needs no key (CI uses it). Changing it means rebuilding the index. |
-| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.52` | Below it, the knowledge agent abstains. Calibrated for the default embedder. |
+| `RETRIEVAL_CONFIDENCE_THRESHOLD` | `0.50` | Below it, the knowledge agent abstains. Calibrated for the default embedder. |
+| `RERANKER` / `COHERE_API_KEY` | `none` / — | Reorders the fused candidates; off by default ([ADR 0002](adr/0002-reranker-off-by-default.md), measured in [`evals/rerank_benchmark.md`](../evals/rerank_benchmark.md)). With `cohere`, a missing key or a failed call keeps the fused order, and a trial key allows 10 calls a minute. `bge`/`qwen` need an image built with `--build-arg RERANKER=bge` (torch and the weights). |
 | `ROUTER_CONFIDENCE_THRESHOLD` / `MAX_HOPS` | `0.6` / `2` | Below the first, a turn escalates before any specialist. The second bounds hand-backs. |
 | `MAX_PLAN_CHANGES` | `3` | Steps the supervisor may add to a turn's plan for what a step found. `0` runs the router's plan as it is. |
 | `MAX_MODEL_CALLS` / `MAX_COST_USD` | `12` / `0.02` | A turn's model budget: past it, the answered part goes out and the rest goes to a person (`budget_exhausted`). |
@@ -65,7 +66,7 @@ the library.
 | Handoff queue, audit, tickets | SQLite file | the same tables and SQL in Postgres |
 | One turn per conversation | an asyncio lock | `pg_advisory_xact_lock`, on a pool of its own |
 | A replica dies mid-turn | — | its lock goes with its connection; the retry on the other replica resumes from the last step |
-| Knowledge index | the `index` volume | one per replica, from the same snapshot: read-only, 148 chunks, and Chroma's SQLite is not meant to be shared |
+| Knowledge index | the `index` volume | one per replica, from the same snapshot: read-only, 270 chunks, and Chroma's SQLite is not meant to be shared |
 
 ## Fault tolerance in the graph
 

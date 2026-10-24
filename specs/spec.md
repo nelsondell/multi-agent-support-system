@@ -216,14 +216,17 @@ Possessive phrasing does not decide anything. Only the data dependency does.
 
 ## 7. Retrieval, web search and abstention
 
-The corpus is 16 pt-BR pages plus 2 English pages from the acquirer's website, extracted to a
-committed snapshot so the index builds without the raw HTML. Retrieval runs on the step's
-Portuguese query.
+The corpus is 26 pt-BR pages plus 2 English pages from the acquirer's website and the PDF user
+manuals of three terminals, extracted to a committed snapshot so the index builds without the raw
+files. Retrieval runs on the step's Portuguese query.
 
 Retrieval is hybrid: dense (Chroma) crosses an English question into the Portuguese corpus, BM25
 pins exact product names such as "Get Smart" versus "Get Mini". Results are fused with
 Reciprocal Rank Fusion. A comparison also runs one short search per item, so each product's own
-page is retrieved.
+page is retrieved. A reranker may then reorder each query's fused candidates (T-53). It is off by
+default (ADR 0002); `RERANKER=cohere` turns on Cohere's, which gets the masked query and public
+excerpts only. Without its key, or when it fails, the fused order stands; it never decides
+abstention.
 
 If the best dense similarity is below the retrieval threshold, calibrated per embedder, the
 knowledge agent **generates nothing**. It states in pt-BR that the answer is not in its base and

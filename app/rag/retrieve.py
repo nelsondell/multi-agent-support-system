@@ -7,6 +7,8 @@ against "Get Mini" — where embeddings blur near-identical marketing copy.
 The query used is `query_pt` from the router: the corpus is Brazilian Portuguese, so retrieval
 always runs in Portuguese even when the merchant wrote in English.
 
+An optional reranker (`app/rag/rerank.py`) then reorders each query's fused candidates.
+
 A comparison also carries one short search per item compared. Each query's two rankings are fused
 with RRF on their own, and the per-query rankings are then interleaved, best hit of each query
 first. Fusing every list at once was measured and rejected: RRF rewards consensus, so generic pages
@@ -14,6 +16,7 @@ that rank fairly well for every query crowd out the one page each item is actual
 """
 
 import json
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import zip_longest
@@ -23,7 +26,10 @@ from rank_bm25 import BM25Okapi
 
 from app.providers.embeddings import build_embedding_function
 from app.rag.chunk import Chunk, tokenize
+from app.rag.rerank import Rerank, build_reranker
 from app.settings import Settings
+
+logger = logging.getLogger(__name__)
 
 RRF_K = 60
 """Rank-fusion damping constant. 60 is the value from the original RRF paper: large enough that
@@ -91,12 +97,15 @@ def reciprocal_rank_fusion(
 class HybridRetriever:
     """Holds the BM25 index in memory and queries Chroma for the dense side."""
 
-    def __init__(self, chunks: list[Chunk], collection, top_k: int = 5) -> None:
+    def __init__(
+        self, chunks: list[Chunk], collection, top_k: int = 5, rerank: Rerank | None = None
+    ) -> None:
         self._chunks = {chunk.id: chunk for chunk in chunks}
         self._ids = [chunk.id for chunk in chunks]
         self._bm25 = BM25Okapi([tokenize(chunk.text) for chunk in chunks])
         self._collection = collection
         self._top_k = top_k
+        self._rerank = rerank
 
     @property
     def size(self) -> int:
@@ -123,7 +132,7 @@ class HybridRetriever:
                 f"({exc}); rebuild it with `uv run python -m app.rag.ingest` or set "
                 "EMBEDDING_BACKEND to the one it was built with"
             ) from exc
-        return cls(chunks, collection, settings.retrieval_top_k)
+        return cls(chunks, collection, settings.retrieval_top_k, build_reranker(settings))
 
     def _bm25_order(self, query: str) -> list[str]:
         """Chunk ids ranked by lexical score."""
@@ -146,7 +155,7 @@ class HybridRetriever:
         bm25_order = self._bm25_order(query)
         dense_order, similarities = self._dense_order(query)
         fused = reciprocal_rank_fusion(bm25_order, dense_order)
-        return [
+        hits = [
             Hit(
                 chunk=self._chunks[chunk_id],
                 rrf_score=score,
@@ -157,6 +166,21 @@ class HybridRetriever:
             for chunk_id, score in sorted(fused.items(), key=lambda pair: -pair[1])
             if chunk_id in self._chunks
         ]
+        return self._reranked(query, hits)
+
+    def _reranked(self, query: str, hits: list[Hit]) -> list[Hit]:
+        """The first candidates reordered by the reranker, or as fused when there is none or
+        it fails: a better order is an improvement, never a reason to answer nothing."""
+        if self._rerank is None:
+            return hits
+        head = hits[:_CANDIDATES]
+        try:
+            scores = self._rerank(query, [hit.chunk.text for hit in head])
+        except Exception as exc:  # a local model or a remote API, each with its own errors
+            logger.warning("rerank failed (%s); keeping the fused order", type(exc).__name__)
+            return hits
+        order = sorted(range(len(head)), key=lambda index: -scores[index])
+        return [head[index] for index in order] + hits[_CANDIDATES:]
 
     def search(self, query_pt: str, also: Sequence[str] = ()) -> RetrievalResult:
         """Retrieve for the whole question and any per-item searches, and cut to the top-k.

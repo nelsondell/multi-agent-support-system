@@ -23,7 +23,7 @@ from pathlib import Path
 from rank_bm25 import BM25Okapi
 
 from app.rag.chunk import Chunk, chunk_documents, tokenize
-from app.rag.parse import Document, Route, page_heading, parse_page
+from app.rag.parse import Document, Route, page_heading, parse_manual, parse_page
 from app.settings import Settings, get_settings
 
 RAW_DIR = Path("data/raw")
@@ -64,23 +64,26 @@ def read_manifest(path: Path = MANIFEST) -> dict[str, str]:
 def extract_corpus(
     raw_dir: Path = RAW_DIR, manifest: Path = MANIFEST
 ) -> tuple[list[Document], list[str]]:
-    """Parse every fetched page, reporting the ones neither route can read."""
+    """Parse every fetched page and manual, reporting the ones no route can read."""
     urls = read_manifest(manifest)
     documents: list[Document] = []
     headings: dict[str, str] = {}
     skipped: list[str] = []
-    for path in sorted(raw_dir.glob("*.html")):
+    for path in sorted([*raw_dir.glob("*.html"), *raw_dir.glob("*.pdf")]):
         url = urls.get(path.name)
         if url is None:
             skipped.append(f"{path.name} (absent from manifest)")
             continue
-        html = path.read_text(encoding="utf-8")
-        page_documents = parse_page(html, url)
+        if path.suffix == ".pdf":
+            page_documents = parse_manual(path.read_bytes(), url)
+        else:
+            html = path.read_text(encoding="utf-8")
+            page_documents = parse_page(html, url)
+            headings[url] = page_heading(html)
         if not page_documents:
             skipped.append(f"{path.name} (no route matched)")
             continue
         documents.extend(page_documents)
-        headings[url] = page_heading(html)
     return distinct_titles(documents, headings), skipped
 
 
