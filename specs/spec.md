@@ -90,8 +90,8 @@ parallel plan steps, plans longer than two steps.
   the tool that read the merchant's account.
 
 The merchant is the `sub` of an RS256 token whose signature, issuer, audience and expiry are
-checked against the identity provider's keys (`AUTH_JWKS_URL`); a body that names a user is
-rejected. That id becomes `user_id` in graph state: never a field the model can read or write,
+checked against the identity provider's keys (`AUTH_JWKS_URL`). A body `user_id`, accepted for the
+challenge's payload, must be that same merchant or the request is a 403. That id becomes `user_id` in graph state: never a field the model can read or write,
 and never in a tool schema. A merchant is held to `RATE_LIMIT_PER_MINUTE` requests (429 with
 `Retry-After`). Identity, roles, audit, erasure and the OWASP agentic map are in
 `docs/security.md`.

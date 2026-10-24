@@ -19,6 +19,6 @@ the step already running.
 (an extra call, and page and account text in the planner's input); `Send` for parallel steps
 (deferred until an eval shows a latency gain).
 
-**Validation.** `evals/run_planning_eval.py` runs 20 dependent requests against
-`MAX_PLAN_CHANGES=0`. Replanning stays on only if completion rises without a worse p95 for simple
-requests; otherwise the default becomes 0. Not run yet: no working model key.
+**Validation.** Against `MAX_PLAN_CHANGES=0`, three runs completed 32/60 dependent requests
+against 19/60; the simple requests' p95 moved +5.3, +2.1 and −0.7 s (`evals/planning_report.md`).
+The rule asked for no worse p95; the owner kept replanning on, since only the gain repeats.

@@ -12,8 +12,8 @@
 | `traces.csv` + `labels.csv`, the labelled traces | 100 (5 positive) | the judge above against the labels, stratified train/dev/test | **not validated**: TPR 1/2, 1/2, 0/1 on 5 failures; TNR 38/38, 27/28, 29/29 | `make eval-offline` |
 | `routing_golden_set.jsonl` | 28 | guardrail outcome (code); intent and plan (live model) | guardrail 28/28 | `uv run python -m evals.run_routing_eval` |
 | `retrieval_calibration.jsonl` | 97 (82 in-domain, 15 out) | embedder separation and threshold | [`retrieval_calibration.md`](retrieval_calibration.md) | `uv run python -m evals.run_retrieval_calibration` |
-| same, in-domain, with gold chunk ids reviewed by the owner ([`retrieval_review.csv`](retrieval_review.csv)) | 82 | recall@5, MRR and added latency, RRF alone against three rerankers | [`rerank_benchmark.md`](rerank_benchmark.md) | `uv run --group rerank python -m evals.run_rerank_benchmark` |
-| `planning_set.jsonl` | 20 | task completion against `MAX_PLAN_CHANGES=0` (code) | not run yet | `uv run python -m evals.run_planning_eval` |
+| same, in-domain, with gold chunk ids drafted by a reasoning model; every row reviewed by the owner, 0 edits ([`retrieval_review.csv`](retrieval_review.csv)) | 82 | recall@5, MRR and added latency, RRF alone against three rerankers | [`rerank_benchmark.md`](rerank_benchmark.md) | `uv run --group rerank python -m evals.run_rerank_benchmark` |
+| `planning_set.jsonl` | 20 | task completion against `MAX_PLAN_CHANGES=0` (code) | [`planning_report.md`](planning_report.md): 32/60 against 19/60 over three runs | `uv run python -m evals.run_planning_eval` |
 
 Last results are from `evals/eval_report.md`, recorded live on 2026-10-23 with `make eval`.
 
@@ -48,9 +48,8 @@ Error analysis came first (`failure_modes.md`):
 4. Each mode then got one check. Code decides where it can; the one mode code cannot decide gets a
    binary judge from another model family than the chat model.
 
-**The labels in `labels.csv` are the owner's.** A reasoning model, run with written criteria,
-drafted them; every row reviewed by the owner, 0 changes to the model's draft. The judge's TPR and
-TNR measure agreement with a person.
+**The labels in `labels.csv`** were drafted by a reasoning model, run with written criteria; every
+row reviewed by the owner, 0 edits.
 
 **The judge is not validated.** The labels hold 5 failures of its mode, 1 in the held-out split,
 and a TPR needs at least 10 there (the report says so whenever that is the case). It runs as a

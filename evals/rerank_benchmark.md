@@ -1,6 +1,6 @@
 # Reranker benchmark
 
-82 in-domain questions from `evals/retrieval_calibration.jsonl`, with 146 gold chunks (reviewed by the owner through `evals/retrieval_review.csv`). Each ran through the hybrid retriever over an index of the committed snapshot (270 chunks, `text-embedding-3-large`), and each reranker reordered the same 20 fused candidates. Written by `uv run --group rerank python -m evals.run_rerank_benchmark` on 2026-10-23, Darwin arm64, local models on the CPU.
+82 in-domain questions from `evals/retrieval_calibration.jsonl`, with 146 gold chunks (drafted by a reasoning model; every row reviewed by the owner, 0 edits, in `evals/retrieval_review.csv`). Each ran through the hybrid retriever over an index of the committed snapshot (270 chunks, `text-embedding-3-large`), and each reranker reordered the same 20 fused candidates. Written by `uv run --group rerank python -m evals.run_rerank_benchmark` on 2026-10-23, Darwin arm64, local models on the CPU.
 
 | Reranker | recall@5 | MRR | Rerank p50 | Rerank p95 | Within the 1 s p95 budget |
 | --- | --- | --- | --- | --- | --- |

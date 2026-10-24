@@ -11,7 +11,7 @@ expiry; anything else is a 401 (`app/auth.py`).
 
 | Caller | Token | May |
 | --- | --- | --- |
-| Merchant | `MERCHANT_AUDIENCE`; the id is `sub`, never a body field (422) | chat and read its own conversations; another merchant's is a 404; `RATE_LIMIT_PER_MINUTE` per replica, then 429 with `Retry-After` |
+| Merchant | `MERCHANT_AUDIENCE`; the id is `sub`; a body `user_id` must equal it (403) | chat and read its own conversations; another merchant's is a 404; `RATE_LIMIT_PER_MINUTE` per replica, then 429 with `Retry-After` |
 | Operator | `OPERATOR_AUDIENCE`, `role: operator` | list, read and answer cases |
 | Supervisor | `OPERATOR_AUDIENCE`, `role: supervisor` | also read `GET /audit`; a token without a role is a 403 |
 

@@ -173,7 +173,7 @@ CONVERSATION_ID_PATTERN = r"^[A-Za-z0-9_-]{1,64}$"
 
 
 class ChatRequest(BaseModel):
-    """Inbound payload. The merchant is whoever the bearer token names, never a body field."""
+    """Inbound payload. The merchant is whoever the bearer token names."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -183,6 +183,9 @@ class ChatRequest(BaseModel):
     names a thread together with the merchant's id, never on its own."""
     confirm_action_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     """Runs the proposed write when it is that proposal's id; any other message cancels it."""
+    user_id: str | None = None
+    """Accepted so the challenge's `{"message", "user_id"}` payload works with a token: it must be
+    the token's own merchant, or the request is a 403. It never selects whose data is read."""
 
 
 class PendingAction(BaseModel):

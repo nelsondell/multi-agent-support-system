@@ -38,9 +38,9 @@ jobs:
       - name: Verify offline
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
-            sudo -E unshare --net -- sudo -E -u "$USER" env "PATH=$PATH" make verify-offline
+            sudo -E unshare --net -- sudo -E -u "$USER" env "PATH=$PATH" make verify-offline REPORT=1
           else
-            make verify-offline
+            make verify-offline REPORT=1
           fi
       # A skipped replica test would be a silent pass, so a skip fails the step.
       - name: Two replicas over one Postgres

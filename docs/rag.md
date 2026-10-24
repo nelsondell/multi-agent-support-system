@@ -25,7 +25,8 @@ similarity is still what decides abstention, because a rank says nothing about w
 answers at all, and that signal was calibrated per embedder rather than assumed.
 
 **Is a reranker worth it?** [`evals/rerank_benchmark.md`](../evals/rerank_benchmark.md) runs the 82
-in-domain questions, with gold chunks the owner reviewed, through RRF alone and with three
+in-domain questions, with gold chunks drafted by a reasoning model and every row reviewed by the
+owner (0 edits), through RRF alone and with three
 rerankers over the same 20 fused candidates. The latency budget was set before measuring: at most
 1 s added at p95 per search, an eighth of the 8 s at which the node latency alert fires.
 

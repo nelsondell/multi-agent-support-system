@@ -90,6 +90,8 @@ async def chat(body: ChatRequest, request: Request, merchant: Merchant) -> ChatR
     case is closed, how it ended is delivered with the next message, before its answer. A second
     message on the same conversation waits for the first one's turn to finish, on any replica.
     """
+    if body.user_id is not None and body.user_id != merchant:
+        raise HTTPException(403, "user_id must be the merchant the token names")
     conversation_id = body.conversation_id or uuid4().hex
     thread = thread_id(merchant, conversation_id)
     with TRACER.start_as_current_span("POST /chat", kind=SpanKind.SERVER) as span:
