@@ -51,8 +51,9 @@ stubs never produce an ungrounded answer.
 ## Retrieval, tools, packaging
 
 ### T-07 — `feat(T-07): build the knowledge base index from the raw corpus`
-`scripts/ingest.py`: per-route extraction from `data/raw/` to `kb.jsonl`, chunking, Chroma and
-BM25 artifacts; `tests/fixtures/kb_sample.jsonl` derived from it.
+`scripts/ingest.py` (now `app/rag/ingest.py`): per-route extraction from `data/raw/` to
+`kb.jsonl` (now the snapshot `data/corpus/documents.jsonl`), chunking, Chroma and BM25 artifacts;
+`tests/fixtures/kb_sample.jsonl` derived from it.
 **Done when:** re-running is idempotent and the index builds from `data/raw/` alone.
 
 ### T-08 — `feat(T-08): add hybrid retrieval with rrf and a confidence threshold`
@@ -489,7 +490,8 @@ what the new probe and app factory need.
 Merchants send an RS256 JWT checked against the provider's JWKS (`AUTH_JWKS_URL`), issuer and
 audience; the merchant is `sub`, the body's `user_id` is gone (a body naming one is a 422), and
 InjectedState is unchanged. `make dev-keys` writes a local key pair (`.dev/`, ignored by git and
-the image; compose mounts only the public half) and `scripts/dev_token.py` mints tokens. Operators
+the image; compose mounts only the public half) and `scripts/dev_token.py` mints tokens
+(both now `scripts/dev_auth.py`, T-56). Operators
 carry their own tokens with a role, operator or supervisor; the shared `OPERATOR_TOKEN` is gone.
 Every operator action and every write (expiry, erasure, purge) appends to an audit log whose table
 refuses UPDATE and DELETE by trigger on SQLite and Postgres; supervisors read it at `GET /audit`.
@@ -528,12 +530,14 @@ and output tokens, and `execute_tool` per tool call; no content; OTLP when
 turns by intent and outcome, model tokens and spend (cost per resolution and cache hit rate),
 vendor failures after retries, alongside escalations and node latency. Each model call sends the
 static system prompt first, ending at an explicit cache breakpoint with a per-prompt cache key;
-`evals/run_cache_benchmark.py` measures the effect. A per-call model timeout
+`evals/run_cache_benchmark.py` measures the effect (removed by T-56; its result is in
+`evals/report.md`). A per-call model timeout
 (`LLM_CALL_TIMEOUT_S`) was added after the timeout drill showed a hung vendor making the handoff
 draft time out the whole run. The compose profile `observability` (`make observe`) runs
 Prometheus with four alert rules, each with a runbook line and a `promtool` unit test, a
 provisioned Grafana dashboard and Jaeger. `FAULT_INJECTION` (`model_error`, `model_timeout`,
-`web_down`) drives `scripts/drills/run.sh`; `docs/drills.md` records each drill.
+`web_down`) drives `scripts/drills/run.sh`; `docs/drills.md` records each drill (T-56 turned
+both into tests in `tests/test_resilience.py` and a table in `docs/operations.md`).
 **Done when:** a turn is one trace named in its logs, with no content in any span; cost per
 resolution, cache hit rate and p50/p95 per node are on the dashboard; each alert's unit test
 fires; the model drills show the vendor alert firing and the recovery time.
@@ -600,7 +604,8 @@ troubleshooting. The FAQ parser also reads the category layout (`a.c-more-answer
 paired by the same `data-modal` id), a third route reads a PDF manual page by page, and the
 snapshot is re-extracted. The retrieval set keeps its 37 questions and gains 60 from the error
 analysis and the new pages. Every in-domain question carries the ids of the chunks that answer
-it, proposed from the corpus and reviewed by the owner through `evals/retrieval_review.csv`.
+it, drafted by a reasoning model from the corpus; every row reviewed by the owner, 0 edits, through
+`evals/retrieval_review.csv`.
 The abstention threshold is recalibrated on the larger set, by the same midpoint rule.
 `evals/run_rerank_benchmark.py` compares recall@5, MRR and the latency each search adds, for
 hybrid RRF alone and with a reranker over its 20 fused candidates: `BAAI/bge-reranker-v2-m3` and
@@ -619,6 +624,26 @@ fact whenever an excerpt has it and names every difference in a comparison. The 
 ids; the table in `docs/rag.md` comes from a committed report; the default and why are in ADR
 0002; the trace evals are re-recorded on the new corpus; the offline suite downloads nothing.
 
+### T-55 — `docs(T-55): evaluator guide, ADRs and pilot plan`
+`REVIEW.md` at the root gives each V4 criterion one row: the evidence (file, test, number), the
+offline command that reproduces it, and its known limit. `docs/adr/` records the decisions that
+shape the system, one short ADR each: LangGraph, hybrid retrieval with RRF (the reranker is ADR
+0002), bounded replanning (ADR 0001), write actions behind confirmation, Postgres for replicas and
+JWT identity, plus one ADR for what was considered and not done, each with its reason: an open
+agent loop, an MCP server, Kubernetes, a model cascade and a semantic cache. `docs/pilot.md` rolls
+the assistant out by intent from shadow to assisted to autonomous, with numeric entry and exit
+gates taken from the evals and metrics, a rollback trigger, and one cost/benefit table where every
+input is sourced or marked as an assumption. The README opens with "Since V4": each gap the
+evaluator named, the change and its evidence. A clean copy runs `make verify`, `docker compose up`,
+`scripts/demo.sh` and the `scale` and `observability` profiles, with the outputs in
+`docs/demo.md`; Linux runs `make verify` in CI. Dead code goes, and every README number matches a
+committed report. A body `user_id` is accepted again, only when it is the token's `sub` (403
+otherwise), so the challenge's `{"message", "user_id"}` payload works with a token; `make verify`
+leaves the tree clean and writes `reports/verify.md` only when asked.
+**Done when:** `REVIEW.md` covers the 11 criteria; every number in it and in the README comes from
+a committed report; each ADR is under 25 lines; the pilot's gates are numbers the repo measures;
+`docs/demo.md` shows runs of this commit.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
@@ -633,7 +658,7 @@ ids; the table in `docs/rag.md` comes from a committed report; the default and w
 | Architecture / code (9.5) | every task: no new framework, no function over 40 lines; T-56 |
 | Security / isolation (9.5) | T-19, T-21, T-23, T-44, T-47, T-49 |
 | RAG / knowledge (9.8) | T-16, T-23, T-29, T-33, T-53 |
-| Trade-offs / engineering (10.0) | T-27, T-28, T-45 |
+| Trade-offs / engineering (10.0) | T-27, T-28, T-45, T-55 |
 
 Outside the task list: the pull request that merges v2 into `main` after T-27 (plan §15), and,
 by hand, pushing the `v1` tag, the walkthrough video (at most 15 minutes) and the submission

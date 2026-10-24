@@ -1,8 +1,8 @@
 """The offline half of `make verify`: every check after the frozen sync, with no key and no network.
 
 Each check runs without any `*_API_KEY`, `*_TOKEN` or `*_SECRET` in its environment and must exit
-0; a socket the tests blocked fails it even when the test around it passed. The report goes to
-reports/verify.md.
+0; a socket the tests blocked fails it even when the test around it passed. The report is printed;
+`--write` also records it in reports/verify.md, so a local run leaves the tree as it was.
 """
 
 import os
@@ -68,14 +68,16 @@ def report(results: list[tuple]) -> str:
     return "\n".join(["# Verify report", "", header, "", *table, "", footer, ""])
 
 
-def main() -> int:
+def main(write: bool) -> int:
     env = {name: value for name, value in os.environ.items() if not SECRET.match(name)}
     results = [(name, command, *run(command, pattern, env)) for name, command, pattern in CHECKS]
-    REPORT.parent.mkdir(exist_ok=True)
-    REPORT.write_text(report(results), encoding="utf-8")
-    print(f"wrote {REPORT.relative_to(ROOT)}")
+    print(report(results))
+    if write:
+        REPORT.parent.mkdir(exist_ok=True)
+        REPORT.write_text(report(results), encoding="utf-8")
+        print(f"wrote {REPORT.relative_to(ROOT)}")
     return 0 if all(row[2] for row in results) else 1
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(write="--write" in sys.argv[1:]))

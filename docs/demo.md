@@ -1,16 +1,53 @@
 # Demo: real outputs
 
-`OPERATOR_TOKEN=... ./scripts/demo.sh` against the container built from the code at T-46
-(`gpt-6-luna` at low effort, `text-embedding-3-large`, live Tavily), on 2026-10-15 at about 06:30
-in Brazil. It runs the ten challenge scenarios, a follow-up, a compound request and the
-human-review loop: the case, the operator's reply, the next message that receives it, and the
-stored conversation. Answers are in pt-BR, as a merchant gets them; web answers change with the
-live results. At that hour no page had published the day's euro rate yet, so S07 answers that it
-cannot look it up now instead of quoting an older rate as today's. The script trims each response
-to what a reader checks (status, agents, answer, sources, escalation, delivered).
+A clean copy of the tree (no git history) on macOS, Darwin arm64, on 2026-10-24 between 00:00 and
+00:20 in Brazil. The service ran `gpt-6-luna` at low effort, `text-embedding-3-large`, live
+Tavily, and RRF without a reranker. Linux runs `make verify` in CI, on ubuntu with the network cut.
+
+## 1. Before any container: `make verify`
+
+No key in any check's environment: 361 passed, 3 skipped, the guardrail eval 28/28, and the eval
+replay at pass-all 94/100 with the red team at 40/40. All checks passed in 38.7 s after the sync,
+with other jobs running on the machine.
+
+## 2. Replicas: `make scale`
+
+Postgres, two replicas and the round-robin balancer came up healthy, and `/ready` on port 8080
+answered `{"status":"ready","storage":"postgres","chunks":270}`. The same walkthrough as §4, sent
+through the balancer, ran to its end:
+- its 18 merchant messages split 9 and 9 between the replicas;
+- the human-review loop finished through the balancer;
+- the write was proposed on `api-a` and confirmed on `api-b` (same trace id in both replicas'
+  logs), and the repeated confirmation returned the same ticket.
+
+## 3. Observability: `make observe`
+
+After one merchant message:
+- **Prometheus** scraped `support-api` (`up`), with the four alert rules loaded:
+  `NodeLatencyP95High`, `EscalationSpike`, `VendorFailures`, `CostPerResolutionHigh`.
+- **Grafana** served the dashboard "Support: cost, resolution and vendors".
+- **Jaeger** held the turn's trace: `POST /chat`; `invoke_agent guardrail`, `router`, `knowledge`,
+  `collect`, `compose` and `remember`; and two `chat gpt-6-luna` spans.
+
+## 4. One node: `make up`, then `./scripts/demo.sh`
+
+The walkthrough runs:
+- the ten challenge scenarios, a follow-up and a compound request;
+- the human-review loop: the case, the operator's reply, the next message that receives it, the
+  stored conversation and the audit log;
+- the LGPD erasure;
+- the confirmed write.
+
+Answers are in pt-BR, as a merchant gets them, and web answers change with the live results.
+- **S07:** at midnight no page had the day's euro rate, so it answers that it cannot look it up
+  now instead of quoting an older rate as today's.
+- **S05:** it now answers from the terminal manuals added in T-53.
+
+The script trims each response to what a reader checks. The audit log also lists the ticket an
+earlier run of the walkthrough opened on the same container, whose state volume persists.
 
 ```
-$ OPERATOR_TOKEN=... ./scripts/demo.sh
+$ ./scripts/demo.sh
 {"status":"ok"}
 
 === S01 product comparison ===
@@ -20,11 +57,11 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A principal diferença informada é o custo conforme o faturamento: na oferta da Get Smart, o aluguel é de R$ 50,00 por mês a partir de R$ 10 mil em vendas mensais, R$ 10,00 a partir de R$ 30 mil e grátis a partir de R$ 60 mil. Na Get Clássica, o site informa a possibilidade de máquina grátis a partir de R$ 10 mil ou R$ 60 mil em vendas mensais, conforme a oferta, e aluguel de R$ 79,90 por mês caso não atinja os faturamentos para isenção. As duas informam recebimento em 2 dias úteis e taxas únicas; as taxas anunciadas variam conforme a oferta. O site não informa diferenças de funcionalidades ou especificações entre os modelos.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nA Get Smart é um equipamento Android que permite realizar operações diretamente na maquininha, como cadastrar cardápio, controlar estoque e trocar mensagens entre cozinha e salão. O site também informa que todas as vendas da Get Smart são processadas pela Getnet. Para a Get Clássica, informa que aceita Pix, QR Code, aproximação e chip. O valor de utilização indicado é de R$ 79,90/mês para a Get Clássica e R$ 129,90/mês para a Get Smart quando não se atingem os faturamentos informados; esse valor pode variar conforme a oferta e a condição de faturamento. O site não informa se a Get Clássica oferece os mesmos recursos Android da Get Smart.",
   "sources": [
-    "kb: https://site.getnet.com.br/ofertas-b/",
+    "kb: https://site.getnet.com.br/duvidas/get-smart/",
     "kb: https://site.getnet.com.br/maquininha/get-classica/",
-    "kb: https://site.getnet.com.br/maquininha/get-smart/"
+    "kb: https://site.getnet.com.br/ofertas-b/"
   ]
 }
 
@@ -35,9 +72,9 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Para sexta-feira (16), há previsão de variação de nebulosidade e chuviscos ou chuva fraca isolada nas regiões fora do Nordeste do Rio Grande do Sul. As temperaturas no estado devem ficar entre 10°C e 17°C nas mínimas e entre 13°C e 24°C nas máximas. A fonte não traz uma previsão específica para Porto Alegre.\n\nNão consegui confirmar a data de publicação desta informação.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nAmanhã, 25 de outubro, em Porto Alegre, a previsão é de aguaceiros, com máxima de 20.4C, mínima de 13.5C e 75% de chance de chuva.\n\nData informada pela própria fonte: 25/10/2026.",
   "sources": [
-    "web: https://www.defesacivil.rs.gov.br/upload/arquivos/202610/14095752-boletim-hidrometeorolo-gico-diurno-14-10-2026.pdf"
+    "web: https://www.bra1.com.br/clima/id-698754/previsao_do_tempo_em_porto_alegre__nublado__61__de_chuva_e_maxima_de_28.7_c"
   ]
 }
 
@@ -48,7 +85,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de ontem (14/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nO dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 24/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ]
@@ -61,22 +98,23 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A Get Conta é uma conta digital que permite vender por meio do Pix. O site não informa se é necessário ter outra conta bancária para receber essas vendas.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nO site informa que a Get Conta é uma conta digital para empresas e permite receber dinheiro e vender por meio do Pix. Não informa se é necessário ter outra conta bancária para receber as vendas via Pix.",
   "sources": [
     "kb: https://site.getnet.com.br/duvidas/"
   ]
 }
 
-=== S05 connectivity, not in the corpus ===
+=== S05 connectivity, from the manuals ===
 > My card machine won't connect to the internet, what should I do?
 {
   "status": "answered",
   "agents": [
     "knowledge"
   ],
-  "answer": "Se a sua máquina usa o Chip Algar, ele se conecta a várias operadoras e pode ser usado em locais com cobertura 2G/3G. O site não informa etapas para solucionar problemas de conexão.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nSe aparecer o erro ADQ 1-18, que indica sinal fraco e impede a conclusão da transação, pressione Função > digite 25 > Verde > informe a Senha do Operador > Verde > Função 46 > Verde e faça uma venda teste. Para o ADQ 1-87, confirme se o chip está bem inserido no terminal e siga as instruções indicadas para esse código no manual. O site não informa passos gerais para reconectar a maquininha à internet sem um código de erro.",
   "sources": [
-    "kb: https://site.getnet.com.br/duvidas/"
+    "kb: https://site.getnet.com.br/wp-content/uploads/2026/06/getnet_12_06-26_Manul_GetMini_V2.pdf",
+    "kb: https://site.getnet.com.br/wp-content/uploads/2026/06/getnet_12_06-26_Manul_GetClassica_V2.pdf"
   ]
 }
 
@@ -87,9 +125,9 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "A antecipação de vendas permite receber antes do prazo de compensação os valores de vendas feitas no crédito, à vista ou parceladas. A Antecipação Automática é uma condição para obter isenção no plano “Receba Conforme suas Vendas” e depende de aprovação de crédito, com avaliação individual de cada contrato. O site não informa aqui as taxas nem os demais detalhes de funcionamento da antecipação.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nA antecipação permite receber antes do prazo original os valores de vendas no crédito, à vista ou parceladas, mediante uma taxa. No app Getnet Brasil, você pode consultar os recebíveis elegíveis, simular o custo e ver o valor líquido antes de confirmar. A disponibilidade depende da elegibilidade das vendas na solução contratada.",
   "sources": [
-    "kb: https://site.getnet.com.br/duvidas/"
+    "kb: https://site.getnet.com.br/quando-vale-a-pena-antecipar-as-suas-vendas-no-cartao/"
   ]
 }
 
@@ -100,7 +138,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "No momento não consigo consultar essa informação na internet com segurança.\nTente de novo em instantes ou confira em uma fonte oficial.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nNo momento não consigo consultar essa informação na internet com segurança.\nTente de novo em instantes ou confira em uma fonte oficial.",
   "sources": []
 }
 
@@ -111,7 +149,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "A transação foi negada por saldo ou limite insuficiente no cartão, segundo o banco emissor.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nA transação foi negada porque, segundo o banco emissor, havia saldo ou limite insuficiente no cartão.",
   "sources": [
     "account: get_transactions"
   ]
@@ -124,10 +162,9 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "No Crediário, é possível parcelar em até 48 vezes. O prazo máximo pode variar conforme o emissor do cartão e as políticas de crédito dele; a simulação na maquininha mostra as opções disponíveis.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nNo Crediário, é possível parcelar em até 48 vezes. O prazo máximo pode variar conforme o emissor do cartão e as políticas de crédito dele.",
   "sources": [
-    "kb: https://site.getnet.com.br/crediario/",
-    "kb: https://site.getnet.com.br/duvidas/"
+    "kb: https://site.getnet.com.br/crediario/"
   ]
 }
 
@@ -138,7 +175,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "knowledge"
   ],
-  "answer": "Sim. O site informa que você pode vender pelo WhatsApp usando o Link de Pagamento. Depois de criar o link, é só compartilhá-lo pelo canal que quiser.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nSim. Você pode vender pelo WhatsApp usando o Link de Pagamento: crie o link e compartilhe por onde quiser, inclusive pelo WhatsApp.",
   "sources": [
     "kb: https://site.getnet.com.br/link-de-pagamento/"
   ]
@@ -151,7 +188,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de ontem (14/10/2026), R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nO dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 24/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ]
@@ -164,7 +201,7 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "O dinheiro das vendas de 13/10/2026, R$ 60,18 líquidos, está previsto para cair em 16/10/2026.",
+  "answer": "O dinheiro das vendas de 22/10/2026, R$ 60,18 líquidos, está previsto para cair em 25/10/2026.",
   "sources": [
     "account: get_settlement_schedule"
   ]
@@ -178,10 +215,10 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
     "support",
     "knowledge"
   ],
-  "answer": "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 15/10/2026. A antecipação de vendas permite receber antes do prazo de compensação os valores de vendas feitas no crédito, à vista ou parceladas. O site não informa como solicitar a antecipação nem quais são as taxas aplicadas.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nO dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 24/10/2026.\n\nA antecipação de recebíveis permite receber antes do prazo original os valores de vendas no crédito, à vista ou parceladas, mediante uma taxa. Não é um empréstimo: é o adiantamento de um valor proveniente de vendas já realizadas. No app Getnet Brasil, você pode consultar os recebíveis elegíveis, simular o custo e ver o valor líquido antes de confirmar a operação.",
   "sources": [
     "account: get_settlement_schedule",
-    "kb: https://site.getnet.com.br/duvidas/"
+    "kb: https://site.getnet.com.br/quando-vale-a-pena-antecipar-as-suas-vendas-no-cartao/"
   ]
 }
 
@@ -192,11 +229,11 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "agents": [
     "support"
   ],
-  "answer": "Não consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nGuarde o número de protocolo ESC-584F039CF7 para acompanhar o caso.",
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nNão consegui resolver isso com segurança por aqui, então vou encaminhar para um atendente humano.\nEle já recebe o resumo desta conversa, então você não precisa repetir nada.\nGuarde o número de protocolo ESC-958D43C798 para acompanhar o caso.",
   "sources": [],
   "escalation": {
     "reason": "individual_case",
-    "protocol": "ESC-584F039CF7"
+    "protocol": "ESC-958D43C798"
   }
 }
 
@@ -204,22 +241,22 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 {
   "status": "open",
   "case": {
-    "protocol": "ESC-584F039CF7",
+    "protocol": "ESC-958D43C798",
     "reason": "individual_case",
     "attempts": [
       "router: individual_case, plan support, confidence 0.99",
       "step 1 (support) stopped: an individual case, which only a person may decide; query: Por que o estorno da venda no Mastercard final 7788 ainda não apareceu?"
     ],
-    "proposed_draft": "Entendo sua dúvida sobre o estorno da venda no Mastercard final 7788. Nossa equipe está verificando o caso e vai analisar o que aconteceu."
+    "proposed_draft": "Entendo sua preocupação com o estorno da venda no Mastercard final 7788. Nossa equipe está verificando o caso para entender o que aconteceu e retornará com mais informações."
   }
 }
 
 === Human review 3: the operator replies ===
 {
   "status": "answered",
-  "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. O valor volta ao comprador em até 2 dias úteis.",
+  "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. Segundo a informação da operadora, o valor volta ao comprador em até 2 dias úteis.",
   "sources": [
-    "operator: ESC-584F039CF7"
+    "operator: ESC-958D43C798"
   ]
 }
 
@@ -228,15 +265,15 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
 {
   "delivered": [
     {
-      "protocol": "ESC-584F039CF7",
-      "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. O valor volta ao comprador em até 2 dias úteis."
+      "protocol": "ESC-958D43C798",
+      "answer": "Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. Segundo a informação da operadora, o valor volta ao comprador em até 2 dias úteis."
     }
   ],
   "status": "answered",
   "agents": [
     "support"
   ],
-  "answer": "A venda foi feita em 14/10/2026.",
+  "answer": "A venda foi feita em 23/10/2026.",
   "sources": [
     "account: get_transactions"
   ]
@@ -247,9 +284,45 @@ $ OPERATOR_TOKEN=... ./scripts/demo.sh
   "status": "active",
   "messages": [
     "merchant: Por que o estorno da minha venda no Mastercard final 7788 ainda não apareceu?",
-    "assistant: Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. O valor volta ao comprador em até 2 dias úteis.",
+    "assistant: Verificamos que o estorno da venda de R$ 89,50 no Mastercard final 7788 foi aprovado hoje. Segundo a informação da operadora, o valor volta ao comprador em até 2 dias úteis.",
     "merchant: E em que dia foi feita essa venda?",
-    "assistant: A venda foi feita em 14/10/2026."
+    "assistant: A venda foi feita em 23/10/2026."
   ]
+}
+
+=== Human review 6: a supervisor reads the audit log ===
+[
+  "ana (operator) case.reply ESC-958D43C798",
+  "ana (operator) case.read ESC-958D43C798",
+  "cliente2042 (merchant) ticket.opened TKT-60008CED"
+]
+
+=== LGPD: the merchant erases the conversation ===
+DELETE /me/conversations: 204
+GET /conversations afterwards: 404
+
+=== Write action 1: the agent proposes a technical ticket ===
+> Minha maquininha continua sem conexão mesmo depois de reiniciar e testar o chip.
+{
+  "status": "pending_confirmation",
+  "pending_action": {
+    "id": "928086754b1d4122abd05dae3d129b36",
+    "operation": "open_technical_ticket(terminal_id=\"GC-1180-7742\", symptom=\"A maquininha continua sem conexão depois de reiniciar e testar o chip.\")"
+  },
+  "answer": "Olá! Sou o assistente virtual da Getnet: as respostas desta conversa são automáticas.\n\nPosso abrir um chamado técnico para a sua maquininha. A operação que vai rodar é exatamente esta:\n\nopen_technical_ticket(terminal_id=\"GC-1180-7742\", symptom=\"A maquininha continua sem conexão depois de reiniciar e testar o chip.\")\n\nEla só acontece se você confirmar, com o código 928086754b1d4122abd05dae3d129b36. Qualquer outra mensagem cancela."
+}
+
+=== Write action 2: the merchant confirms it ===
+> Pode abrir, confirmo.
+{
+  "status": "answered",
+  "answer": "Chamado técnico TKT-92808675 aberto para a maquininha GC-1180-7742. Guarde esse número para acompanhar o chamado."
+}
+
+=== Write action 3: the same confirmation again returns the same receipt ===
+> Confirmo.
+{
+  "status": "answered",
+  "answer": "Chamado técnico TKT-92808675 aberto para a maquininha GC-1180-7742. Guarde esse número para acompanhar o chamado."
 }
 ```

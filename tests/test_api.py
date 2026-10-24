@@ -162,11 +162,20 @@ def test_malformed_payload_is_rejected(client) -> None:
     assert client({}).post("/chat", json={"message": ""}).status_code == 422
 
 
-def test_a_body_that_names_a_merchant_is_rejected(client) -> None:
-    """The merchant is whoever the token names; a client cannot pick one in the payload."""
-    payload = {"message": "Quando cai o dinheiro?", "user_id": "cliente7771"}
+@pytest.mark.parametrize(("user_id", "status"), [(CALLER, 200), ("cliente7771", 403)])
+def test_a_body_user_id_is_accepted_only_when_it_is_the_tokens_merchant(
+    client, user_id, status
+) -> None:
+    """The challenge's payload names the merchant; the token still decides who that is."""
+    http = client(
+        {
+            RouterDecision: _router(TargetAgent.KNOWLEDGE, Intent.PRODUCT_INFO),
+            KnowledgeAnswer: KnowledgeAnswer(coverage="full", answer="Aceita Pix.", used_urls=[]),
+        }
+    )
+    payload = {"message": "A Get Smart aceita Pix?", "user_id": user_id}
 
-    assert client({}).post("/chat", json=payload).status_code == 422
+    assert http.post("/chat", json=payload).status_code == status
 
 
 def test_a_conversation_id_is_minted_when_absent_and_echoed_when_given(client) -> None:

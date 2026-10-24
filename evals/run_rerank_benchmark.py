@@ -150,7 +150,8 @@ def rule_pick(runs: list[Run]) -> str:
 def render(runs: list[Run], rows: list[dict], chunks: int, settings: Settings) -> str:
     """The committed report."""
     reviewed = (
-        "reviewed by the owner through `evals/retrieval_review.csv`"
+        "drafted by a reasoning model; every row reviewed by the owner, 0 edits, in "
+        "`evals/retrieval_review.csv`"
         if is_reviewed(read_set())
         else "**not reviewed yet**: proposed, pending the owner's review"
     )

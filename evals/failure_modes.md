@@ -6,10 +6,8 @@ Error analysis, T-51 session 1:
 - **Labels:** each trace was labelled pass or fail with a one-line note (`evals/labels.csv`).
 - **Clustering:** the notes were grouped by the first problem in each failure.
 
-**Who labelled.** A reasoning model, run by the owner with written criteria, drafted a label and a
-note for each trace. Every row reviewed by the owner, 0 changes to the model's draft: the labels in
-`evals/labels.csv` are the owner's, and a judge measured against them reports agreement with a
-person.
+**Who labelled.** Each trace's label and note in `evals/labels.csv` were drafted by a reasoning
+model, run with written criteria; every row reviewed by the owner, 0 edits.
 
 **Result:** 27 of 100 traces fail.
 

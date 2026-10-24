@@ -31,7 +31,7 @@ Written by `uv run python -m evals.run_judge` on 2026-10-15, at `681c165` plus t
 | 2 | 16 | 2 | 4.88 | 4.50 |
 | 3 | 17 | 1 | 5.00 | 4.41 |
 
-Across runs: groundedness 4.96 ± 0.07 (range 4.88 to 5.00), relevance 4.45 ± 0.05 (range 4.41 to 4.50), mean ± standard deviation of the run means.
+Across runs (v2 run, 2026-10-15): groundedness 4.96 ± 0.07 (range 4.88 to 5.00), relevance 4.45 ± 0.05 (range 4.41 to 4.50), mean ± standard deviation of the run means.
 
 ## Retrieval threshold
 

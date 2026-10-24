@@ -49,7 +49,7 @@ chat "S01 product comparison" s01 "What's the difference between the Get Clássi
 chat "S02 weather, from the web" s02 "What's the weather forecast in Porto Alegre tomorrow?"
 chat "S03 settlement, from the account" s03 "When will the money from yesterday's sales be deposited?"
 chat "S04 Pix without a bank account" s04 "Do I need a bank account to receive my sales via Pix?"
-chat "S05 connectivity, not in the corpus" s05 "My card machine won't connect to the internet, what should I do?"
+chat "S05 connectivity, from the manuals" s05 "My card machine won't connect to the internet, what should I do?"
 chat "S06 receivables advance" s06 "How does receivables advance (antecipação) work with Getnet?"
 chat "S07 euro, from the web" s07 "What's the euro exchange rate today?"
 chat "S08 declined transaction" s08 "My card machine is showing a transaction decline error."

@@ -2,14 +2,15 @@
 .PHONY: verify verify-offline models dev-keys up scale observe purge test eval eval-offline demo
 
 # From a clean clone, with no key: the frozen sync is the only step that uses the network; then
-# lint, the offline suite and the offline evals, recorded in reports/verify.md.
+# lint, the offline suite and the offline evals. `make verify REPORT=1` also records the result in
+# reports/verify.md; without it the tree is left as it was.
 verify:
 	@start=$$(date +%s); uv sync --frozen && \
 		VERIFY_SYNC_SECONDS=$$(( $$(date +%s) - start )) $(MAKE) --no-print-directory verify-offline
 
 # The checks alone, in an environment already synced. CI runs them with the network cut.
 verify-offline:
-	uv run --frozen --offline python scripts/verify.py
+	uv run --frozen --offline python scripts/verify.py $(if $(REPORT),--write)
 
 # The local embedding model, for EMBEDDING_BACKEND=local outside Docker (the image build fetches
 # it). Nothing downloads it at runtime.
