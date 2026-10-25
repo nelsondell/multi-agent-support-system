@@ -691,6 +691,18 @@ the rules were reverted and the measurement recorded.
 **Done when:** the before and after runs, the gates and the held-out checks are in
 `evals/planning_report.md`, and no prompt differs from `main`.
 
+### T-60 — `fix(T-60): speak as the acquirer and fail answers that credit the site`
+The owner's held-out labels found 11 jargon failures the check passed: answers that credit the
+site ("o site informa", "o site não informa") instead of stating the fact. The knowledge and web
+prompts now speak as the acquirer ("A Get Smart custa...") and never credit the site, a page or
+the sources; a missing fact is said plainly. The jargon check also fails an answer that credits
+the site, a page or the sources, in the phrasings the tuning traces show, and no fixed system text
+(the source-date notices) trips it. The held-out requests run live before and after the prompt
+change, counting the answers that credit the site; the evals are re-recorded.
+The floors in `evals/thresholds.toml` move to the accepted recording's rates, as their rule says.
+**Done when:** the count before and after is in `evals/failure_modes.md`; the floors are the v11
+recording's rates (pass-all 0.96, jargon 1.0, missing info 0.95), and its replay meets them.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
