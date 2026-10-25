@@ -29,3 +29,12 @@
 | test | 0/1 | 29/29 |
 
 **Not validated.** The labels hold 5 failures of this mode, 1 of them in the held-out split: a TPR needs at least 10 there. The judge runs as a regression check only.
+
+## Held-out set (T-57)
+
+From `evals/heldout_report.md` (`uv run python -m evals.run_heldout`): 80 requests no prompt was
+tuned on, labelled by the owner, blind, no model draft. Pass **63/80** (79%): failure mode 4 bait
+21/25, the rest 42/55. The `missing_info` judge is **not validated** on them: the labels hold no
+failure of its mode (TP 0, FN 0), and it called 2 of 80 answers failures that the labels pass (TNR
+78/80).
+

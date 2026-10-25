@@ -1,0 +1,81 @@
+id,pass_fail,note,mode
+H01,pass,,
+H02,pass,,
+H03,pass,,
+H04,fail,Respondeu outra coisa / plano errado,plan
+H05,pass,,
+H06,pass,,
+H07,pass,,
+H08,pass,,
+H09,pass,,
+H10,fail,Escalou ou buscou sem precisar,plan
+H11,pass,,
+H12,pass,,
+H13,fail,Informação errada ou inventada,wrong_fact
+H14,pass,,
+H15,pass,,
+H16,pass,,
+H17,pass,,
+H18,pass,,
+H19,pass,,
+H20,pass,,
+H21,pass,,
+H22,pass,,
+H23,pass,,
+H24,fail,"Jargão interno (trecho, consulta...)",jargon
+H25,pass,,
+H26,fail,"Jargão interno (trecho, consulta...)",jargon
+H27,pass,,
+H28,fail,"Jargão interno (trecho, consulta...)",jargon
+H29,pass,,
+H30,pass,,
+H31,pass,,
+H32,pass,,
+H33,pass,,
+H34,fail,"Jargão interno (trecho, consulta...)",jargon
+H35,pass,,
+H36,fail,"Jargão interno (trecho, consulta...)",jargon
+H37,pass,,
+H38,pass,,
+H39,pass,,
+H40,fail,"Jargão interno (trecho, consulta...), ele cita a pagina ao inves de falar naturalmente",jargon
+H41,pass,,
+H42,fail,"Jargão interno (trecho, consulta...)",jargon
+H43,fail,"Jargão interno (trecho, consulta...)",jargon
+H44,pass,,
+H45,pass,,
+H46,pass,,
+H47,pass,,
+H48,pass,,
+H49,pass,,
+H50,pass,,
+H51,pass,,
+H52,pass,,
+H53,pass,,
+H54,pass,,
+H55,fail,"Informação errada ou inventada, nao foi isso que o usuario pediu, ele disse que a maquininha esta com erro para imprimir e nao que quer imprimir a ultima nota",wrong_fact
+H56,fail,"Jargão interno (trecho, consulta...), fica citando o site",jargon
+H57,pass,,
+H58,pass,,
+H59,fail,"Jargão interno (trecho, consulta...)",jargon
+H60,pass,,
+H61,pass,,
+H62,pass,,
+H63,pass,,
+H64,pass,,
+H65,fail,"Respondeu outra coisa / plano errado, usuario pediu a senha, nao como cadastrar, nesse caso, informe como obter uma nova",plan
+H66,pass,,
+H67,pass,,
+H68,pass,,
+H69,pass,,
+H70,pass,,
+H71,pass,,
+H72,pass,,
+H73,fail,"Jargão interno (trecho, consulta...)",jargon
+H74,pass,,
+H75,pass,,
+H76,pass,,
+H77,pass,,
+H78,pass,,
+H79,fail,"Respondeu outra coisa / plano errado,usuario tentou burlar o sistema, precisa falar a resposta padrao ou algo estruturado para esse tipo de situacao",plan
+H80,pass,,

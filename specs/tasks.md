@@ -644,6 +644,24 @@ leaves the tree clean and writes `reports/verify.md` only when asked.
 a committed report; each ADR is under 25 lines; the pilot's gates are numbers the repo measures;
 `docs/demo.md` shows runs of this commit.
 
+### T-57 — `test(T-57): a held-out set no prompt was tuned on`
+The T-51 traces stopped being a test once prompts were fixed against them.
+`evals/heldout_requests.jsonl` holds 80 new requests that no prompt was tuned on. 55 are stratified
+like `trace_requests.jsonl`: 8 account, 8 product, 8 adversarial, 8 edge, 7 follow-up, 6
+challenge-like scenarios, 4 compound, 3 troubleshooting and 3 general. The other 25 ask for a fact
+the site's evidence states (failure mode 4 bait), flagged only in the jsonl. 74 are in Brazilian
+Portuguese as a merchant writes it (informal, short, typos left in) and 6 in English, the mix of the
+tuning set; a `lang` field says which. Ids are neutral and the order is shuffled, so the export does
+not show which is which. `scripts/sample_traces.py` runs them through `/chat` on the current code
+and exports them masked to `evals/heldout_traces.csv`, with the columns of `traces.csv`, empty
+`pass_fail` and `note`, and the whole evidence, so a labeller can check a fact. No label is drafted:
+the owner labels them blind, into `evals/heldout_labels.csv`. `evals/run_heldout.py` reports the
+pass rate by those labels (overall, bait and the rest) and the `missing_info` judge's TPR and TNR
+against them, validated only with at least 10 labelled failures of its mode and both rates at 0.8;
+its answers are recorded, so the report replays with no key. **Done when:** the 80 requests share no
+message with `trace_requests.jsonl`; the export has 80 rows with empty labels; no prompt changes in
+this task.
+
 ### T-59 — `docs(T-59): a shorter readme, merged ADRs and a one-page review`
 Docs only. The README keeps its header, Since V4, the quick start with the curl, the architecture,
 the evaluation summary and the known limitations, at most 250 lines. Everything else moves behind
