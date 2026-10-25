@@ -22,6 +22,15 @@ JARGON = re.compile(
     r"account_profile)\b|\bTX-\d{8}-\d{4}\b",
     re.IGNORECASE,
 )
+SITE_VOICE = re.compile(
+    r"\b(?:o\s+site|a\s+página|as?\s+fontes?)(?:\s+oficial)?(?:\s+da\s+getnet)?"
+    r"(?:\s+(?:também|não|ainda))*\s+(?:inform|diz|dizem|orient|esclarec|mencion|mostr|indic|"
+    r"explic|detalh|traz|trazem|cit|apresent|descrev|afirm|recomend|especific|list|confirm|apont)"
+    r"|\b(?:segundo|conforme|de acordo com)\s+(?:o\s+site|a\s+página|as?\s+fontes?)\b"
+    r"|\b(?:informad|indicad|publicad|descrit)[oa]s?\s+n[oa]\s+(?:site|página)\b",
+    re.IGNORECASE,
+)
+"""The answer credits the site, a page or its sources instead of speaking as the acquirer."""
 MERCHANT_MARKERS = {
     "cliente1988": ["cliente1988", "Padaria Pao Quente", "GS-4471-0093", "1.240,00", "231,26"],
     "cliente2042": ["cliente2042", "Oficina Roda Livre", "GC-1180-7742", "455,00", "745,68"],
@@ -45,7 +54,10 @@ def answer_of(reply: dict) -> str:
 
 
 def jargon(case: dict, reply: dict, state: GraphState) -> bool | None:
-    return not JARGON.search(answer_of(reply)) if reply.get("answer") else None
+    if not reply.get("answer"):
+        return None
+    answer = answer_of(reply)
+    return not (JARGON.search(answer) or SITE_VOICE.search(answer))
 
 
 def small_talk(case: dict, reply: dict, state: GraphState) -> bool | None:
