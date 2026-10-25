@@ -4,6 +4,25 @@ A clean copy of the tree (no git history) on macOS, Darwin arm64, on 2026-10-24 
 00:20 in Brazil. The service ran `gpt-6-luna` at low effort, `text-embedding-3-large`, live
 Tavily, and RRF without a reranker. Linux runs `make verify` in CI, on ubuntu with the network cut.
 
+## Summary
+
+| # | Question | Agents | Status | Answer, shortened |
+| --- | --- | --- | --- | --- |
+| S01 | What's the difference between the Get Clássica and the Get Smart? | knowledge | answered | Smart: Android, menus, stock and kitchen messages on the terminal; Clássica: Pix, QR Code, contactless and chip; R$ 79,90 and R$ 129,90 a month when the revenue for exemption is not reached. It leaves out the exemption tiers the excerpts give (failure mode 4). Three pages cited. |
+| S02 | What's the weather forecast in Porto Alegre tomorrow? | knowledge (web) | answered | Showers on 25 October, 20.4 °C maximum, 13.5 °C minimum, 75% chance of rain; ends with "Data informada pela própria fonte: 25/10/2026." |
+| S03 | When will the money from yesterday's sales be deposited? | support | answered | "O dinheiro das vendas de ontem, R$ 231,26 líquidos, está previsto para cair hoje, 24/10/2026." |
+| S04 | Do I need a bank account to receive my sales via Pix? | knowledge | answered | The Get Conta is a digital account that receives and sells through Pix; the site doesn't say whether another bank account is needed. |
+| S05 | My card machine won't connect to the internet, what should I do? | knowledge | answered | From the terminal manuals: the steps for error ADQ 1-18 (weak signal) and for ADQ 1-87 (chip not seated); no general reconnect steps without an error code. |
+| S06 | How does receivables advance (antecipação) work with Getnet? | knowledge | answered | Receive credit sales before their term for a fee; the Getnet Brasil app shows eligible receivables, simulates the cost and shows the net amount before confirming. |
+| S07 | What's the euro exchange rate today? | knowledge (web) | degraded | At midnight no page had the day's rate: "No momento não consigo consultar essa informação na internet com segurança." |
+| S08 | My card machine is showing a transaction decline error. | support | answered | "A transação foi negada porque, segundo o banco emissor, havia saldo ou limite insuficiente no cartão." |
+| S09 | How many installments can I split a sale into with the crediário? | knowledge | answered | Up to 48 installments; the limit depends on the card issuer's credit policy. |
+| S10 | Can I sell through WhatsApp using the Payment Link? | knowledge | answered | "Sim. Você pode vender pelo WhatsApp usando o Link de Pagamento: crie o link e compartilhe por onde quiser." |
+| Follow-up | "Quando cai o dinheiro das vendas de ontem?" → "E o de amanhã?" | support, support | answered | R$ 231,26 today; then R$ 60,18 crediting 25/10/2026. |
+| Compound | "Quando cai o dinheiro de ontem e como funciona a antecipação?" | support, knowledge | answered | Both parts in one reply, account and website sources. |
+| Human review | refund case → operator reply → "E em que dia foi feita essa venda?" | support | paused → answered | The operator's reply delivered with the next message; then "A venda foi feita em 23/10/2026." |
+| Write action | a terminal still offline → "Pode abrir, confirmo." → "Confirmo." | support | pending confirmation → answered | The ticket operation rendered by code, run once on confirmation: TKT-92808675; the repeated confirmation returns the same receipt. |
+
 ## 1. Before any container: `make verify`
 
 No key in any check's environment: 361 passed, 3 skipped, the guardrail eval 28/28, and the eval

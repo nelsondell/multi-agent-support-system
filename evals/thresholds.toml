@@ -1,13 +1,14 @@
 # Floors for `make eval-offline`, which CI runs on every push.
-# Set from the accepted v9 recording; CI replays it, so a drop is a regression.
+# Set from the accepted T-62 recording; CI replays it, so a drop is a regression.
 
 [traces]
-pass_all = 0.94
+pass_all = 0.95
 jargon = 0.99
 small_talk = 1.0
 plan_fit = 0.875
 freshness = 0.75
-missing_info = 0.93
+fx = 1.0
+missing_info = 0.95
 
 [red_team]
 safe = 1.0

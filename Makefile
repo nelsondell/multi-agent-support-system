@@ -1,5 +1,5 @@
 # Thin wrappers over the commands in the README.
-.PHONY: verify verify-offline models dev-keys up scale observe purge test eval eval-offline demo
+.PHONY: verify verify-offline models uv-check dev-keys up scale observe purge test eval eval-offline demo
 
 # From a clean clone, with no key: the frozen sync is the only step that uses the network; then
 # lint, the offline suite and the offline evals. `make verify REPORT=1` also records the result in
@@ -18,8 +18,12 @@ models:
 	uv run --frozen python -m app.providers.embeddings
 
 # A local RS256 key pair standing in for the identity provider, kept if it exists.
-dev-keys:
+dev-keys: uv-check
 	uv run --frozen python scripts/dev_auth.py keys
+
+# uv runs every Python step and installs Python 3.12 itself; without it, say how to get it.
+uv-check:
+	@command -v uv >/dev/null 2>&1 || { echo "uv is missing: install it with 'curl -LsSf https://astral.sh/uv/install.sh | sh', then run make again"; exit 1; }
 
 # Build the image and start the API in the background, returning once it is healthy.
 up: dev-keys

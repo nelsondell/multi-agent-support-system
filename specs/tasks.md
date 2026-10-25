@@ -644,6 +644,79 @@ leaves the tree clean and writes `reports/verify.md` only when asked.
 a committed report; each ADR is under 25 lines; the pilot's gates are numbers the repo measures;
 `docs/demo.md` shows runs of this commit.
 
+### T-57 — `test(T-57): a held-out set no prompt was tuned on`
+The T-51 traces stopped being a test once prompts were fixed against them.
+`evals/heldout_requests.jsonl` holds 80 new requests that no prompt was tuned on. 55 are stratified
+like `trace_requests.jsonl`: 8 account, 8 product, 8 adversarial, 8 edge, 7 follow-up, 6
+challenge-like scenarios, 4 compound, 3 troubleshooting and 3 general. The other 25 ask for a fact
+the site's evidence states (failure mode 4 bait), flagged only in the jsonl. 74 are in Brazilian
+Portuguese as a merchant writes it (informal, short, typos left in) and 6 in English, the mix of the
+tuning set; a `lang` field says which. Ids are neutral and the order is shuffled, so the export does
+not show which is which. `scripts/sample_traces.py` runs them through `/chat` on the current code
+and exports them masked to `evals/heldout_traces.csv`, with the columns of `traces.csv`, empty
+`pass_fail` and `note`, and the whole evidence, so a labeller can check a fact. No label is drafted:
+the owner labels them blind, into `evals/heldout_labels.csv`. `evals/run_heldout.py` reports the
+pass rate by those labels (overall, bait and the rest) and the `missing_info` judge's TPR and TNR
+against them, validated only with at least 10 labelled failures of its mode and both rates at 0.8;
+its answers are recorded, so the report replays with no key. **Done when:** the 80 requests share no
+message with `trace_requests.jsonl`; the export has 80 rows with empty labels; no prompt changes in
+this task.
+
+### T-59 — `docs(T-59): a shorter readme, merged ADRs and a one-page review`
+Docs only. The README keeps its header, Since V4, the quick start with the curl, the architecture,
+the evaluation summary and the known limitations, at most 250 lines. Everything else moves behind
+links:
+- the message flow and the design decisions to `docs/architecture.md` and the ADRs;
+- the human-review loop to `docs/human-in-the-loop.md`;
+- the demo table to `docs/demo.md`;
+- the guardrail and the financial hard rules to `docs/security.md`;
+- what changed since v1 and the process to `docs/history.md`.
+
+The hybrid-retrieval ADR (0004) and the reranker ADR (0002) become one, under 0002's path, which
+the code cites. `REVIEW.md` fits one page. The quick start names its prerequisites (Docker, make
+and uv, which installs Python 3.12 itself), and `make up` prints how to install uv when it is
+missing. Code, tests and v2 docstrings are unchanged.
+**Done when:** the README is at most 250 lines; every relative link and anchor resolves; no ADR
+repeats another; the diff touches only Markdown and the Makefile's uv check.
+
+### T-58 — `docs(T-58): record two replanning prompt rules, tried and reverted`
+The two main causes of replanning misses (`evals/planning_report.md`):
+- knowledge answering from the site without the account fact that decides;
+- escalations one account lookup would avoid.
+
+They get prompt or router rules only, no new node. A rule stays only if planning completion rises
+in all three runs and no gate drops. The planning eval runs three times before and after, and the
+held-out requests' code checks run live before and after. Completion rose in one run of three, so
+the rules were reverted and the measurement recorded.
+**Done when:** the before and after runs, the gates and the held-out checks are in
+`evals/planning_report.md`, and no prompt differs from `main`.
+
+### T-60 — `fix(T-60): speak as the acquirer and fail answers that credit the site`
+The owner's held-out labels found 11 jargon failures the check passed: answers that credit the
+site ("o site informa", "o site não informa") instead of stating the fact. The knowledge and web
+prompts now speak as the acquirer ("A Get Smart custa...") and never credit the site, a page or
+the sources; a missing fact is said plainly. The jargon check also fails an answer that credits
+the site, a page or the sources, in the phrasings the tuning traces show, and no fixed system text
+(the source-date notices) trips it. The held-out requests run live before and after the prompt
+change, counting the answers that credit the site; the evals are re-recorded.
+The floors in `evals/thresholds.toml` move to the accepted recording's rates, as their rule says.
+**Done when:** the count before and after is in `evals/failure_modes.md`; the floors are the v11
+recording's rates (pass-all 0.96, jargon 1.0, missing info 0.95), and its replay meets them.
+
+### T-62 — `fix(T-62): keep each compared item's pages and quote exchange rates in reais`
+Two challenge scenarios answered wrong in the live demo on #12's dependencies. S01 left out the
+Get Smart price: the merge of per-query rankings gave the last item's search one slot, so the Get
+Smart page, its second hit, was cut. The merge now runs in rounds, every query adding its best hit
+not yet taken, with the same number of rounds for every query, so a comparison can return a few
+more than top-k hits. S07 quoted the euro as 1,1203 with no currency: the web prompt now quotes a
+rate as "1 EUR = R$ X", copied from a result in reais, or says none was found, and a code check
+fails an exchange-rate answer with no "R$" that is not a not-found. A forecast gives the maximum
+and minimum copied from an hourly table, and the jargon check also fails "os resultados/os dados
+não informam". Tuned on the tuning traces only; the held-out requests run once at the end.
+**Done when:** S01 and S07 run live three times each, with the Get Smart price and a rate in reais
+or a not-found; recall@5 on the 82 in-domain questions does not drop; the floors are the accepted
+re-recording's rates and its replay meets them.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |

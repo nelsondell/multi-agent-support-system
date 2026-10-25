@@ -7,7 +7,7 @@ production metrics in [operations](operations.md).
 | Stage | The merchant gets | A person |
 | --- | --- | --- |
 | **Shadow** | today's human answer; the assistant runs on a copy of the traffic and nothing it writes leaves | answers every contact; samples are labelled against the assistant's answer |
-| **Assisted** | the assistant's answer, after an operator approves it, edits it or cancels it (the human-review flow, [§4 of the README](../README.md#4-human-in-the-loop)) | approves every answer |
+| **Assisted** | the assistant's answer, after an operator approves it, edits it or cancels it (the human-review flow, [human in the loop](human-in-the-loop.md)) | approves every answer |
 | **Autonomous** | the assistant's answer, or a protocol when it escalates | answers escalations only |
 
 **Order of intents.** The order follows what each intent touches (Meta's Rule of Two,
@@ -20,7 +20,7 @@ autonomous: hard rule 3 sends it to a person.
 
 | Move | Gate, all must hold | Source |
 | --- | --- | --- |
-| into shadow | The release passes its eval gates: pass-all ≥ 0.94, missing info ≥ 0.93, jargon ≥ 0.99, red team 40/40. The routing golden set scores ≥ 54/56 over two runs. | `evals/thresholds.toml`, `evals/eval_report.md`, `evals/router_benchmark.md` |
+| into shadow | The release passes its eval gates: pass-all ≥ 0.95, missing info ≥ 0.95, jargon ≥ 0.99, exchange rates in reais, red team 40/40. The routing golden set scores ≥ 54/56 over two runs. | `evals/thresholds.toml`, `evals/eval_report.md`, `evals/router_benchmark.md` |
 | shadow → assisted | ≥ 300 shadow turns of the intent. On a sample of 100 labelled with the T-51 criteria, pass-all ≥ 0.94. No answer reads another merchant's data. | `evals/failure_modes.md` (the labelling criteria), audit log |
 | assisted → autonomous | Over 2 weeks, operators approve ≥ 90% of answers unedited, and the escalation rate is no higher than in shadow. Node p95 < 8 s; cost per resolution < US$ 0.01. No hard-rule violation in a 100-answer audit sample. | audit log (approve, reply, cancel); `support_turns_total{intent,outcome}`; the `NodeLatencyP95High` and `CostPerResolutionHigh` thresholds |
 
