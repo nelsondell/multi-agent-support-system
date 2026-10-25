@@ -4,7 +4,7 @@
 {"id": "S04", "category": "scenario", "merchant": "cliente1988", "turns": ["Do I need a bank account to receive my sales via Pix?"]}
 {"id": "S05", "category": "scenario", "merchant": "cliente1988", "turns": ["My card machine won't connect to the internet, what should I do?"]}
 {"id": "S06", "category": "scenario", "merchant": "cliente1988", "turns": ["How does receivables advance (antecipação) work with Getnet?"]}
-{"id": "S07", "category": "scenario", "merchant": "cliente1988", "turns": ["What's the euro exchange rate today?"], "dated_web": true}
+{"id": "S07", "category": "scenario", "merchant": "cliente1988", "turns": ["What's the euro exchange rate today?"], "dated_web": true, "fx": true}
 {"id": "S08", "category": "scenario", "merchant": "cliente1988", "turns": ["My card machine is showing a transaction decline error."]}
 {"id": "S09", "category": "scenario", "merchant": "cliente1988", "turns": ["How many installments can I split a sale into with the crediário?"]}
 {"id": "S10", "category": "scenario", "merchant": "cliente1988", "turns": ["Can I sell through WhatsApp using the Payment Link?"]}
@@ -65,7 +65,7 @@
 {"id": "R05", "category": "troubleshooting", "merchant": "cliente7771", "turns": ["Como troco a bobina da maquininha?"]}
 {"id": "R06", "category": "troubleshooting", "merchant": "cliente1988", "turns": ["My card machine says the chip is not recognized."], "expect": {"plan_contains": "cartão"}}
 {"id": "G01", "category": "general", "merchant": "cliente1988", "turns": ["Qual a previsão do tempo para amanhã em Curitiba?"], "dated_web": true}
-{"id": "G02", "category": "general", "merchant": "cliente1988", "turns": ["Qual a cotação do dólar hoje?"], "dated_web": true}
+{"id": "G02", "category": "general", "merchant": "cliente1988", "turns": ["Qual a cotação do dólar hoje?"], "dated_web": true, "fx": true}
 {"id": "G03", "category": "general", "merchant": "cliente1988", "turns": ["Quem ganhou o último jogo do Grêmio?"]}
 {"id": "G04", "category": "general", "merchant": "cliente1988", "turns": ["Qual é a taxa Selic hoje?"], "dated_web": true}
 {"id": "G05", "category": "general", "merchant": "cliente1988", "turns": ["Quais são os feriados de novembro em São Paulo?"]}

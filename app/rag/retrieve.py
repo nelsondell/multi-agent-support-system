@@ -10,16 +10,17 @@ always runs in Portuguese even when the merchant wrote in English.
 An optional reranker (`app/rag/rerank.py`) then reorders each query's fused candidates.
 
 A comparison also carries one short search per item compared. Each query's two rankings are fused
-with RRF on their own, and the per-query rankings are then interleaved, best hit of each query
-first. Fusing every list at once was measured and rejected: RRF rewards consensus, so generic pages
-that rank fairly well for every query crowd out the one page each item is actually about.
+with RRF on their own, and the per-query rankings are then interleaved in rounds: in each round,
+every query adds its best hit not yet taken. Every query gets the same number of rounds, so a
+comparison may return a few more than top-k hits rather than cut the last item's search short.
+Fusing every list at once was measured and rejected: RRF rewards consensus, so generic pages that
+rank fairly well for every query crowd out the one page each item is actually about.
 """
 
 import json
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from itertools import zip_longest
 from pathlib import Path
 
 from rank_bm25 import BM25Okapi
@@ -183,7 +184,8 @@ class HybridRetriever:
         return [head[index] for index in order] + hits[_CANDIDATES:]
 
     def search(self, query_pt: str, also: Sequence[str] = ()) -> RetrievalResult:
-        """Retrieve for the whole question and any per-item searches, and cut to the top-k.
+        """Retrieve for the whole question and any per-item searches: top-k hits, or a few more
+        for a comparison, so that every query gets the same number of rounds.
 
         The question is always one of the queries; confidence is the best dense similarity any
         of them reached.
@@ -191,7 +193,7 @@ class HybridRetriever:
         Raises `RetrievalUnavailable` when the dense side cannot be queried.
         """
         rankings = [self._ranking(query) for query in dict.fromkeys([query_pt, *also])]
-        hits = interleave(rankings)[: self._top_k]
+        hits = interleave(rankings, rounds=-(-self._top_k // len(rankings)))
         # The best match any query found, not only among the hits kept: a per-item search can
         # be the one that finds the page, and the question as a whole must not veto it.
         confidence = max(
@@ -200,16 +202,19 @@ class HybridRetriever:
         return RetrievalResult(hits=hits, confidence=confidence)
 
 
-def interleave(rankings: list[list[Hit]]) -> list[Hit]:
-    """Every ranking's first hit, then every ranking's second, skipping chunks already taken.
+def interleave(rankings: list[list[Hit]], rounds: int) -> list[Hit]:
+    """`rounds` rounds in which every ranking, in turn, adds its best hit not yet taken.
 
-    With a single ranking this is that ranking unchanged.
+    A hit another query already took does not cost a ranking its turn, so each per-item search
+    keeps its own top results. With a single ranking this is that ranking's first `rounds` hits.
     """
     merged: list[Hit] = []
     taken: set[str] = set()
-    for tier in zip_longest(*rankings):
-        for hit in tier:
-            if hit is not None and hit.chunk.id not in taken:
+    remaining = [iter(ranking) for ranking in rankings]
+    for _ in range(rounds):
+        for hits in remaining:
+            hit = next((hit for hit in hits if hit.chunk.id not in taken), None)
+            if hit is not None:
                 taken.add(hit.chunk.id)
                 merged.append(hit)
     return merged

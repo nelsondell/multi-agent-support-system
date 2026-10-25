@@ -2,7 +2,15 @@
 
 import pytest
 
-from app.rag.retrieve import RRF_K, HybridRetriever, RetrievalUnavailable, reciprocal_rank_fusion
+from app.rag.chunk import Chunk
+from app.rag.retrieve import (
+    RRF_K,
+    Hit,
+    HybridRetriever,
+    RetrievalUnavailable,
+    interleave,
+    reciprocal_rank_fusion,
+)
 from tests.conftest import UnreachableCollection
 
 COMPARISON = "qual a diferença entre o crediário e o get tap?"
@@ -66,6 +74,23 @@ def test_a_comparison_retrieves_the_page_of_each_item(sample_chunks, fake_collec
     assert GET_TAP not in pages(alone)
     assert {CREDIARIO, GET_TAP} <= pages(per_item)
     assert per_item.hits[0] == alone.hits[0], "the question's own best hit still comes first"
+
+
+def ranked(*ids: str) -> list[Hit]:
+    return [
+        Hit(Chunk(id, id, f"https://site.getnet.com.br/{id}/", id, "", ""), 0.0, 0.0, None, None)
+        for id in ids
+    ]
+
+
+def test_each_item_search_keeps_its_own_top_results() -> None:
+    """S01: the question takes the hit the Get Smart search ranks first; that search still adds
+    its next two, and the cut no longer falls before the last item's second page."""
+    question, classica, smart = ranked("q1", "q2"), ranked("c1", "c2"), ranked("q1", "s1", "s2")
+
+    merged = [hit.chunk.id for hit in interleave([question, classica, smart], rounds=2)]
+
+    assert merged == ["q1", "c1", "s1", "q2", "c2", "s2"]
 
 
 def test_an_unreachable_embedder_raises_its_own_error(sample_chunks) -> None:

@@ -53,12 +53,12 @@ Notes on passes that matter for the next steps:
 
 ## After the fixes
 
-`evals/eval_report.md` reports the recording of knowledge prompt v11 and web prompt v8, with RRF
-(T-60).
+`evals/eval_report.md` reports the recording of knowledge prompt v11 and web prompt v9, with RRF
+and the per-query rounds of T-62.
 
 | Mode | What changed | Check | Rate now |
 | --- | --- | --- | --- |
-| 1. Jargon | The answer prompts forbid "trecho", "resultados", "consulta" and field names; since T-60 the knowledge prompts speak as the acquirer and never credit the site (below) | code: no jargon in the answer, and no answer that credits the site, a page or the sources | 100/100 |
+| 1. Jargon | The answer prompts forbid "trecho", "resultados", "consulta" and field names; since T-60 the knowledge prompts speak as the acquirer and never credit the site (below) | code: no jargon in the answer, and no answer that credits the site, a page, the sources or the results (T-62) | 99/100 (G01) |
 | 2. Plan | Router and support planner rules: a terminal still offline after the basic steps proposes the ticket (D12 passes); a request for a person or for an account action escalates as an individual case | code: expected status, escalation, plan or source | 7/8 (C08: a compound plan's weather step still reads the corpus, by design one intent per plan) |
 | 3. Small talk | `other` now means small talk, answered with what the assistant can help with | code: answered, not escalated, no web search | 5/5 |
 | 4. Missing when present | T-53's pages fixed S04 and K04; knowledge prompt v9 then states a fact whenever an excerpt has it and names every difference in a comparison (below) | binary judge, `claude-opus-5-5`, not validated (5 labelled failures) | 41/43 (F11, R02) |
@@ -72,12 +72,13 @@ Notes on passes that matter for the next steps:
 | v8: "the site does not state" only when no excerpt has the fact asked | 95/100 | 39/42 (S01, S04, S07) | 99/100 (S01) |
 | v9, accepted: v8 plus every difference in a comparison | 94/100 | 41/44 (S07, R06, E08) | 99/100 (X08) |
 
-**Open failures in the v11 recording (T-60):**
+**Open failures in the accepted T-62 recording:**
 - C08: plan;
 - S02: freshness;
-- F11 and R02: missing info.
+- F11 and R02: missing info;
+- G01: jargon ("Os resultados não informam as temperaturas"), flipped by resampling (T-62 below).
 
-S07, E08, X08 and R06, open in v9, pass in v11.
+S07, E08, X08 and R06, open in v9, pass since v11.
 
 The prompt fixes were made against these same 100 traces, so they are no longer a held-out test;
 the red team and the routing golden set are untouched.
@@ -131,3 +132,52 @@ The jargon failure left (H24) is the older pattern, not the site. The labelled e
 earlier on v9, has 13 answers that credit the site: the count varies between runs. T-60 was
 prompted by the held-out's labels, so for this mode the held-out is no longer untouched; its 63/80
 stays the measure of the version it labelled.
+
+## Comparisons and exchange rates (T-62)
+
+The live demo on #12's dependencies answered two challenge scenarios wrong:
+- **S01 left out the Get Smart price.** With the router's searches ("maquininha Get Clássica",
+  "maquininha Get Smart"), the merge interleaved three rankings and cut at five, so the last
+  item's search kept one slot (the Get Smart manual), and its second hit, the Get Smart page with
+  R$ 129,90 and the exemption tiers, was cut. The merge now runs in rounds: every query adds its
+  best hit not yet taken, for the same number of rounds (six hits for three queries). recall@5 on
+  the 82 in-domain questions is 0.939 (77/82) before and after, with MRR 0.851; they search with
+  one query, a path the change keeps. I01 with the router's searches now brings both gold pages.
+- **S07 quoted the euro as 1,1203, with no currency** (EUR/USD). Web prompt v9 quotes "1 EUR =
+  R$ X" from a result in reais, or says none was found, and the `fx` check fails an exchange-rate
+  answer with no "R$" that is not a not-found (S07 and G02 are tagged). "em reais" in the router's
+  query was tried and reverted: a router change re-records every route.
+- A forecast gives the maximum and minimum from an hourly table, and the jargon check also fails
+  "os resultados/os dados não informam".
+
+Every change to the web prompt resamples every web answer. Each row re-recorded from the v11
+recording:
+
+| Recording | pass-all | missing info | jargon | Failing |
+| --- | --- | --- | --- | --- |
+| v11 (`main`) | 96/100 | 41/43 | 100/100 | F11, R02 |
+| web v9 and router v12 ("em reais") | 93/100 | 39/44 | 100/100 | S07 (the judge read the system's date notice), F11, K04, R02, R06 (a connection error was recorded) |
+| web v9, router reverted | 95/100 | 40/43 | 100/100 | F11, R02, G01 |
+| plus "look in every result" | 95/100 | 40/43 | 100/100 | F11, R02, G01 |
+| **plus maximum and minimum from the hourly table, accepted** | **95/100** | **41/43** | **99/100** | F11, R02, G01 (jargon) |
+
+The jargon of the first four rows is counted without "os resultados". The trade: S01 and S07 are
+fixed, and G01, a weather question, flipped by resampling ("Os resultados não informam as
+temperaturas"). The floors are set from the accepted recording: pass-all 0.95, jargon 0.99,
+missing info 0.95, `fx` 1.0.
+
+Live, three runs each, on 2026-10-25, a Sunday:
+- **S01:** the Get Smart price, R$ 129,90, in 3 of 3.
+- **S07:**
+  - run 1: "1 EUR = R$ 5,6422, no fechamento de 23/10/2026", saying today's rate is not given;
+  - run 2: not found;
+  - run 3: "Hoje, 1 EUR = R$ 5,6422", Friday's close called today.
+
+  The freshness check fails runs 1 and 3: the notice says the date could not be confirmed while
+  the page names it. No run quoted a rate without the real.
+
+The held-out requests ran once, at the end, through the code checks:
+- jargon 80/80 with the extended pattern, and no answer credits the site;
+- freshness 1/1, small talk 4/4, safe 80/80;
+- 7 sent to a person;
+- no held-out request asks for an exchange rate, so `fx` did not apply.

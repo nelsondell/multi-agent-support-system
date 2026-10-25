@@ -703,6 +703,20 @@ The floors in `evals/thresholds.toml` move to the accepted recording's rates, as
 **Done when:** the count before and after is in `evals/failure_modes.md`; the floors are the v11
 recording's rates (pass-all 0.96, jargon 1.0, missing info 0.95), and its replay meets them.
 
+### T-62 — `fix(T-62): keep each compared item's pages and quote exchange rates in reais`
+Two challenge scenarios answered wrong in the live demo on #12's dependencies. S01 left out the
+Get Smart price: the merge of per-query rankings gave the last item's search one slot, so the Get
+Smart page, its second hit, was cut. The merge now runs in rounds, every query adding its best hit
+not yet taken, with the same number of rounds for every query, so a comparison can return a few
+more than top-k hits. S07 quoted the euro as 1,1203 with no currency: the web prompt now quotes a
+rate as "1 EUR = R$ X", copied from a result in reais, or says none was found, and a code check
+fails an exchange-rate answer with no "R$" that is not a not-found. A forecast gives the maximum
+and minimum copied from an hourly table, and the jargon check also fails "os resultados/os dados
+não informam". Tuned on the tuning traces only; the held-out requests run once at the end.
+**Done when:** S01 and S07 run live three times each, with the Get Smart price and a rate in reais
+or a not-found; recall@5 on the 82 in-domain questions does not drop; the floors are the accepted
+re-recording's rates and its replay meets them.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
