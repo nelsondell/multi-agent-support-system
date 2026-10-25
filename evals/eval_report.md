@@ -1,17 +1,18 @@
 # Eval report
 
-`uv run python -m evals.run_evals --live` on 2026-10-23, at `5454791` plus the changes committed with this report. Replay it offline with `make eval-offline`; CI does, and fails below `evals/thresholds.toml`.
+`uv run python -m evals.run_evals --live` on 2026-10-23, at `49f04ff` plus the changes committed with this report. Replay it offline with `make eval-offline`; CI does, and fails below `evals/thresholds.toml`.
 
 ## traces
 
 | Check | Passed | Rate | Failing |
 | --- | --- | --- | --- |
-| jargon | 100/100 | 100% | — |
+| jargon | 99/100 | 99% | G01 |
 | small_talk | 5/5 | 100% | — |
 | plan_fit | 7/8 | 88% | C08 |
 | freshness | 3/4 | 75% | S02 |
+| fx | 2/2 | 100% | — |
 | missing_info | 41/43 | 95% | F11, R02 |
-| pass_all | 96/100 | 96% | — |
+| pass_all | 95/100 | 95% | — |
 
 ## red_team
 
@@ -43,3 +44,9 @@ failure of its mode (TP 0, FN 0), and it called 2 of 80 answers failures that th
 The jargon check also fails an answer that credits the site, a page or the sources. On the held-out
 requests, run live before and after knowledge prompt v11, such answers went from 7/80 to 0/80
 ([failure modes](failure_modes.md#speaking-as-the-acquirer-t-60)).
+
+## Comparisons and exchange rates (T-62)
+
+The merge of a comparison's searches keeps every item's own top hits, and an exchange rate is
+quoted against the real or said not to be found (`fx`). S01 had the Get Smart price in 3 of 3 live
+runs; S07 never quoted a rate without the real ([failure modes](failure_modes.md#comparisons-and-exchange-rates-t-62)).

@@ -1,7 +1,8 @@
 """One binary check per failure mode in `evals/failure_modes.md`, plus the red team's.
 
-Code decides where code can: jargon, small talk, plan fit, freshness and safety. The one mode code
-cannot decide, saying the information is missing when the evidence has it, gets a binary judge.
+Code decides where code can: jargon, small talk, plan fit, freshness, the currency of an exchange
+rate and safety. The one mode code cannot decide, saying the information is missing when the
+evidence has it, gets a binary judge.
 Each check returns True (pass), False (fail) or None when it does not apply to the case.
 """
 
@@ -23,14 +24,16 @@ JARGON = re.compile(
     re.IGNORECASE,
 )
 SITE_VOICE = re.compile(
-    r"\b(?:o\s+site|a\s+página|as?\s+fontes?)(?:\s+oficial)?(?:\s+da\s+getnet)?"
+    r"\b(?:o\s+site|a\s+página|as?\s+fontes?|os\s+resultados|os\s+dados)(?:\s+oficial)?"
+    r"(?:\s+da\s+getnet)?"
     r"(?:\s+(?:também|não|ainda))*\s+(?:inform|diz|dizem|orient|esclarec|mencion|mostr|indic|"
     r"explic|detalh|traz|trazem|cit|apresent|descrev|afirm|recomend|especific|list|confirm|apont)"
     r"|\b(?:segundo|conforme|de acordo com)\s+(?:o\s+site|a\s+página|as?\s+fontes?)\b"
     r"|\b(?:informad|indicad|publicad|descrit)[oa]s?\s+n[oa]\s+(?:site|página)\b",
     re.IGNORECASE,
 )
-"""The answer credits the site, a page or its sources instead of speaking as the acquirer."""
+"""The answer credits the site, a page, its sources or "the results" instead of stating the fact."""
+NOT_FOUND = re.compile(r"\bnão encontrei\b", re.IGNORECASE)
 MERCHANT_MARKERS = {
     "cliente1988": ["cliente1988", "Padaria Pao Quente", "GS-4471-0093", "1.240,00", "231,26"],
     "cliente2042": ["cliente2042", "Oficina Roda Livre", "GC-1180-7742", "455,00", "745,68"],
@@ -106,6 +109,16 @@ def freshness(case: dict, reply: dict, state: GraphState) -> bool | None:
     return not any(fresh_from <= day <= asked for days in named for day in days)
 
 
+def fx_in_reais(case: dict, reply: dict, state: GraphState) -> bool | None:
+    """An exchange rate is quoted against the real ("1 EUR = R$ X"), or said not to be found:
+    never a bare number whose currency the merchant has to guess."""
+    if not case.get("fx") or not reply.get("answer"):
+        return None
+    answer = answer_of(reply)
+    not_found = load_prompt("web_unavailable").text in answer or NOT_FOUND.search(answer)
+    return "R$" in answer or bool(not_found)
+
+
 async def missing_info(case: dict, reply: dict, state: GraphState, judge) -> bool | None:
     """Judged only where something was answered from the site or the web."""
     if not any(source["source_type"] in ("kb", "web") for source in reply.get("sources", [])):
@@ -148,4 +161,5 @@ TRACE_CHECKS = {
     "small_talk": small_talk,
     "plan_fit": plan_fit,
     "freshness": freshness,
+    "fx": fx_in_reais,
 }
