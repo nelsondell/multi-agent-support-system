@@ -644,6 +644,23 @@ leaves the tree clean and writes `reports/verify.md` only when asked.
 a committed report; each ADR is under 25 lines; the pilot's gates are numbers the repo measures;
 `docs/demo.md` shows runs of this commit.
 
+### T-59 — `docs(T-59): a shorter readme, merged ADRs and a one-page review`
+Docs only. The README keeps its header, Since V4, the quick start with the curl, the architecture,
+the evaluation summary and the known limitations, at most 250 lines. Everything else moves behind
+links:
+- the message flow and the design decisions to `docs/architecture.md` and the ADRs;
+- the human-review loop to `docs/human-in-the-loop.md`;
+- the demo table to `docs/demo.md`;
+- the guardrail and the financial hard rules to `docs/security.md`;
+- what changed since v1 and the process to `docs/history.md`.
+
+The hybrid-retrieval ADR (0004) and the reranker ADR (0002) become one, under 0002's path, which
+the code cites. `REVIEW.md` fits one page. The quick start names its prerequisites (Docker, make
+and uv, which installs Python 3.12 itself), and `make up` prints how to install uv when it is
+missing. Code, tests and v2 docstrings are unchanged.
+**Done when:** the README is at most 250 lines; every relative link and anchor resolves; no ADR
+repeats another; the diff touches only Markdown and the Makefile's uv check.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |

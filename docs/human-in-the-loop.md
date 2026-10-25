@@ -34,6 +34,13 @@ curl -s localhost:8000/conversations/c2 -H "$MERCHANT"
 the operator didn't write, the operator's literal text goes out instead (hard rule 4). It cites the
 operator and lands in the history, so step 4 resolves "essa venda" to the sale the operator named.
 
+**Follow-ups after the reply.** After an operator named a sale, "E qual foi o valor dessa venda?"
+once lost its referent; more reasoning effort didn't help. A router rule (prompt v7) that resolves
+demonstratives to the entity of the last reply took the 8 follow-up rows of the time from 28/40 to
+40/40, 5 runs each (`evals/router_benchmark.md` at commit 5d36b03). With today's router (v11) the 9
+follow-up rows score 45/45 at low effort and at medium
+([benchmark](../evals/router_benchmark.md)).
+
 **Delivery.** The reply is held for the merchant: their next `/chat` delivers it in `delivered`,
 exactly once, before that message's own answer.
 
