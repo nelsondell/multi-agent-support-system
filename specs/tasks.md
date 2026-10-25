@@ -679,6 +679,18 @@ missing. Code, tests and v2 docstrings are unchanged.
 **Done when:** the README is at most 250 lines; every relative link and anchor resolves; no ADR
 repeats another; the diff touches only Markdown and the Makefile's uv check.
 
+### T-58 — `docs(T-58): record two replanning prompt rules, tried and reverted`
+The two main causes of replanning misses (`evals/planning_report.md`):
+- knowledge answering from the site without the account fact that decides;
+- escalations one account lookup would avoid.
+
+They get prompt or router rules only, no new node. A rule stays only if planning completion rises
+in all three runs and no gate drops. The planning eval runs three times before and after, and the
+held-out requests' code checks run live before and after. Completion rose in one run of three, so
+the rules were reverted and the measurement recorded.
+**Done when:** the before and after runs, the gates and the held-out checks are in
+`evals/planning_report.md`, and no prompt differs from `main`.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
