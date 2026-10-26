@@ -7,11 +7,21 @@ can be built and tested with no account at all. Its model is fetched by the imag
 `make models`, never at runtime.
 """
 
+import logging
+import time
+from collections.abc import Callable
 from pathlib import Path
 
+import httpx
 from chromadb.api.types import EmbeddingFunction
 
 from app.settings import Settings
+
+logger = logging.getLogger(__name__)
+
+DOWNLOAD_RETRIES = 3
+"""A slow network times the model download out now and then; one timeout must not fail the
+image build."""
 
 
 class LocalModelMissing(ValueError):
@@ -50,11 +60,28 @@ def local_model_path() -> Path:
     return folder / "model.onnx"
 
 
-def fetch_local_model() -> None:
-    """Download the local model, the one step allowed to: the image build and `make models`."""
+def fetch_local_model(
+    retries: int = DOWNLOAD_RETRIES,
+    backoff_s: float = 5.0,
+    sleep: Callable[[float], None] = time.sleep,
+) -> None:
+    """Download the local model, the one step allowed to: the image build and `make models`.
+
+    A failed download is retried `retries` times, waiting `backoff_s` and then twice as long each
+    time. A partial archive fails Chroma's checksum on the next try and is fetched again.
+    """
     from chromadb.utils.embedding_functions import DefaultEmbeddingFunction
 
-    DefaultEmbeddingFunction()(["warm-up"])
+    for attempt in range(retries + 1):
+        try:
+            DefaultEmbeddingFunction()(["warm-up"])
+            return
+        except (httpx.HTTPError, ValueError) as exc:  # a timeout, or Chroma's checksum mismatch
+            if attempt == retries:
+                raise
+            wait = backoff_s * 2**attempt
+            logger.warning("model download failed (%s); retry in %.0f s", type(exc).__name__, wait)
+            sleep(wait)
 
 
 if __name__ == "__main__":

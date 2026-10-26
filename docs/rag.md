@@ -56,13 +56,13 @@ container has; Qwen loaded as bfloat16 was twenty times slower until forced to f
 Web search answers only steps the router labels `general_info` (weather, exchange rates), never a
 product question the corpus can't answer. The query that leaves the process is masked and keeps no
 number the merchant didn't type in that message, so account data can't leak into it. Pages are
-untrusted data: the answer may carry no number they lack and no link of its own. A question about
-a day asks for pages from the last day first, and its answer closes with the source's publication
-date: the search provider's structured field when there is one, never a date the model reads, in
-the merchant's calendar and without a time of day. A source older than the day in question gets a
-notice with its date. Without a structured date, code reads the days the cited page names, and the
-latest one on the day asked, or between today and it when that day is ahead, closes the answer as
-"Data informada pela própria fonte", labelled as the page's own claim. With none, the answer
-closes with "Não consegui confirmar a data de publicação desta informação", never a claim that
-the source has no date. No key, a timeout or a failed check degrade to a pt-BR message, never an
-exception.
+untrusted data: the answer may carry no number they lack, no amount in reais they do not write next
+to the real, and no link of its own. A question about a day asks for pages from the last day first,
+and its answer closes with the source's publication date: the search provider's structured field
+when there is one, never a date the model reads, in the merchant's calendar and without a time of
+day. A source older than the day in question gets a notice with its date. Without a structured date,
+code reads the days the cited page names, and the latest one on the day asked, or between today and
+it when that day is ahead, closes the answer as "Data informada pela própria fonte", labelled as the
+page's own claim. With none, the answer closes with "Não consegui confirmar a data de publicação
+desta informação", never a claim that the source has no date. No key, a timeout or a failed check
+degrade to a pt-BR message, never an exception.

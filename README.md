@@ -13,7 +13,7 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Agents** | router (plans 1–2 steps, replanned within budgets when a step's finding needs another) · knowledge (website RAG, or web search for general questions) · support (3 read tools, and 1 write action behind the merchant's confirmation) · human review (pauses for an operator, then finishes the plan) |
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
-| **Verify** | `make verify`: 363 tests and the offline evals, the eval gate included, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
+| **Verify** | `make verify`: 379 tests and the offline evals, the eval gate included, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
 | **Evals** | error analysis on 100 sampled requests: pass-all 95/100 · red team 40/40 (OWASP ASI01–ASI10) · both replayed in CI ([evals](evals/README.md)) · routing golden set 54/56 over two runs |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
@@ -41,7 +41,7 @@ evidence, a command and a known limit.
 | Gap V4 named | Change | Evidence |
 | --- | --- | --- |
 | Horizontal scale and HA depend on how storage evolves | Postgres holds checkpoints, the handoff queue and turn locks; `make scale` runs two replicas behind a balancer; LangGraph's own retry and timeout replace the hand-written ones (T-48) | `tests/test_replicas.py` in CI over Postgres: a case escalated on one replica answered on the other, a replica killed mid-turn, turns serialized ([ADR 0006](docs/adr/0006-postgres-for-replicas.md)) |
-| The suite did not start locally without `tiktoken`'s download | `tiktoken` declared and its encoding committed; `make verify` from a clean clone with no key, and no network after the sync; CI on ubuntu with the network cut, and on macOS (T-47) | [`reports/verify.md`](reports/verify.md): 363 passed, all checks in 17.3 s |
+| The suite did not start locally without `tiktoken`'s download | `tiktoken` declared and its encoding committed; `make verify` from a clean clone with no key, and no network after the sync; CI on ubuntu with the network cut, and on macOS (T-47) | [`reports/verify.md`](reports/verify.md): 379 passed, all checks in 18.3 s |
 | Factual evaluation needs a bigger set and human validation | Error analysis on 100 real traces, labels drafted by a reasoning model; every row reviewed by the owner, 0 edits; one binary check per failure mode, replayed on every PR; a 40-case OWASP red team; a retrieval set of 82 questions with reviewed gold chunks (T-51, T-53) | [`evals/eval_report.md`](evals/eval_report.md): pass-all 95/100, red team 40/40; [`evals/rerank_benchmark.md`](evals/rerank_benchmark.md): recall@5 0.939 |
 
 ## 1. Quick start
@@ -150,7 +150,7 @@ in [docs/security.md](docs/security.md#guardrail-and-financial-hard-rules); the 
 
 | What | Result | Where |
 | --- | --- | --- |
-| Offline suite | 363 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
+| Offline suite | 379 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite, the guardrail eval and the eval replay, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
 | Error analysis | 100 sampled requests on the real model, labelled pass or fail, grouped into five failure modes; one check per mode (four in code, one binary judge from another model family): **pass-all 95/100**; the judge is not validated: the labels hold 5 failures of its mode, 1 held out | [`evals/README.md`](evals/README.md), [`failure_modes.md`](evals/failure_modes.md) |
