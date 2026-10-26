@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The ten challenge scenarios, a follow-up, a compound request and the human-review loop, sent to
-# a running service with curl. docs/demo.md is this script's output; the README's table sums it up.
+# a running service with curl. docs/demo.md holds a run of it, with a table that sums it up.
 #
 #   ./scripts/demo.sh [base_url]
 #
