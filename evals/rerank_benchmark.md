@@ -13,6 +13,21 @@ recall@5 counts a question when any of its gold chunks is in the top 5. MRR is t
 
 **Rule:** the rule in T-53 picks `cohere`: on only if it raises recall@5 or MRR within the latency budget. The default is decided in `docs/adr/0002-reranker-off-by-default.md`.
 
+## By question origin
+
+Counted from the ranks in the table below, not a new run. Page-derived questions were written from
+one page or manual (origins `page` and `manual`); the others are the original set, with the
+challenge's questions, and questions from real traces (origins `set` and `trace`).
+
+| Origin | Questions | none | bge | qwen | cohere |
+| --- | --- | --- | --- | --- | --- |
+| page-derived | 41 | 41/41 (1.000) | 41/41 (1.000) | 40/41 (0.976) | 41/41 (1.000) |
+| traces and challenge | 41 | 36/41 (0.878) | 38/41 (0.927) | 38/41 (0.927) | 38/41 (0.927) |
+
+The page-derived half is saturated: RRF alone puts a gold chunk in the top 5 for every one of its
+questions, so recall@5 there cannot tell the retrievers apart. Every difference in the first table
+comes from the traces and challenge half, where RRF alone misses I01, I02, N04, N06 and N09.
+
 ## Rank of the first gold chunk
 
 | Question | Origin | none | bge | qwen | cohere |

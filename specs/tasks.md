@@ -736,6 +736,17 @@ the image build is retried three times with backoff, since it timed out twice on
 **Done when:** a test sends "1 EUR = R$ 1,1205" over a dollar-only table and gets the not-found
 message; the download retry has a test; the replay meets the floors.
 
+### T-66 — `docs(T-66): fix stale numbers and split recall by question origin`
+Docs only. `reports/verify.md` is regenerated from a clean clone of `main`, and every count and
+timing that cites it follows: 379 tests, in README, REVIEW.md, `docs/demo.md` §1 and
+`docs/history.md`. The eval report's header gives the T-62 re-record's day. The v2 judge scores
+carry their run's date. recall@5 is split by question origin from the existing ranks, and the
+page-derived half is called saturated, in the benchmark and REVIEW.md. README and REVIEW.md name
+work in plain words instead of task ids, which stay here. Both say that ADR 0004 was merged into
+0002. The README calls the error analysis five code checks plus one judge.
+**Done when:** no README or REVIEW.md number lacks a matching report; no task id remains in their
+prose; every relative link resolves.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
