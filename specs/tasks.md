@@ -717,6 +717,16 @@ não informam". Tuned on the tuning traces only; the held-out requests run once 
 or a not-found; recall@5 on the 82 in-domain questions does not drop; the floors are the accepted
 re-recording's rates and its replay meets them.
 
+### T-61 — `docs(T-61): regenerate the demo from a weekday run on main`
+`docs/demo.md` showed the T-55 tree, before T-57 to T-62 and #12's dependencies. On a weekday, a
+clean copy of `main` runs `make verify`, `make up` and `./scripts/demo.sh` once, with the Tavily key
+passed from the shell through a compose override, never `.env`. The page is regenerated from that
+run and says which run each section comes from; `make scale` and `make observe` stay from the T-55
+run. It lists what changed since the old demo and any scenario that answers wrong. No prompt
+changes.
+**Done when:** the summary, §1 and §4 come from the new run; each section names its run; the
+changes since the old demo are listed.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |
