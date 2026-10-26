@@ -4,7 +4,8 @@ Two runs, each on a clean copy of the tree (no git history) on macOS, Darwin arm
 
 | Sections | Run | Tree |
 | --- | --- | --- |
-| Summary, §1 and §4 | 2026-10-26, a Monday, 09:23 to 09:32 in Brazil | `main` at `73337dd`: T-62 and #12's dependencies |
+| Summary and §4 | 2026-10-26, a Monday, 09:23 to 09:32 in Brazil | `main` at `73337dd`: T-62 and #12's dependencies |
+| §1 | 2026-10-26, a clean clone | `main` at `4f8fe15`: T-65 too |
 | §2 and §3 | 2026-10-24, 00:00 to 00:20 in Brazil | the T-55 tree, before T-57 to T-62 |
 
 The service ran `gpt-6-luna` at low effort, `text-embedding-3-large`, live Tavily and RRF without
@@ -34,9 +35,9 @@ From the 2026-10-26 run.
 
 ## 1. Before any container: `make verify`
 
-From the 2026-10-26 run. No key in any check's environment: 363 passed, 3 skipped, the guardrail
-eval 28/28, and the eval replay at pass-all 95/100 with the red team at 40/40. All checks passed in
-24.9 s after the sync.
+From a clean clone of `4f8fe15` on 2026-10-26, as in [`reports/verify.md`](../reports/verify.md).
+No key in any check's environment: 379 passed, 3 skipped, the guardrail eval 28/28, and the eval
+replay at pass-all 95/100 with the red team at 40/40. All checks passed in 24.7 s after the sync.
 
 ## 2. Replicas: `make scale`
 

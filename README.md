@@ -14,13 +14,12 @@ When the evidence is missing, weak, or the case needs a person, a human gets it,
 | **Stack** | Python 3.12 · FastAPI · LangGraph · Chroma + BM25 · OpenAI `gpt-6-luna` · Tavily · SQLite, or Postgres for replicas |
 | **Run** | `cp .env.example .env`, add two keys, `docker compose up` |
 | **Verify** | `make verify`: 379 tests and the offline evals, the eval gate included, no key, no network after the sync; CI runs it on ubuntu with the network cut and on macOS, scans the image and the history |
-| **Evals** | error analysis on 100 sampled requests: pass-all 95/100 · red team 40/40 (OWASP ASI01–ASI10) · both replayed in CI ([evals](evals/README.md)) · routing golden set 54/56 over two runs |
+| **Evals** | error analysis on 100 sampled requests, five code checks + one judge: pass-all 95/100 · red team 40/40 (OWASP ASI01–ASI10) · both replayed in CI ([evals](evals/README.md)) · routing golden set 54/56 over two runs |
 
 v1 was built in the challenge's 60-minute timebox and scored 8.7/10. **v2 is outside that
 timebox:** an iteration on the evaluator's feedback, done at the evaluator's invitation. [What
-changed since v1](docs/history.md) maps each change to the criterion it answers. **v3 is
-T-47 to T-56,** after the V4 evaluation and also at the evaluator's invitation ([Since
-V4](#since-v4)).
+changed since v1](docs/history.md) maps each change to the criterion it answers. **v3 is the
+work after the V4 evaluation,** also at the evaluator's invitation ([Since V4](#since-v4)).
 
 **Contents** — [Since V4](#since-v4) · [Quick start](#1-quick-start) ·
 [Architecture](#2-architecture) · [Evaluation](#3-evaluation) · [Limitations](#4-known-limitations)
@@ -40,9 +39,9 @@ evidence, a command and a known limit.
 
 | Gap V4 named | Change | Evidence |
 | --- | --- | --- |
-| Horizontal scale and HA depend on how storage evolves | Postgres holds checkpoints, the handoff queue and turn locks; `make scale` runs two replicas behind a balancer; LangGraph's own retry and timeout replace the hand-written ones (T-48) | `tests/test_replicas.py` in CI over Postgres: a case escalated on one replica answered on the other, a replica killed mid-turn, turns serialized ([ADR 0006](docs/adr/0006-postgres-for-replicas.md)) |
-| The suite did not start locally without `tiktoken`'s download | `tiktoken` declared and its encoding committed; `make verify` from a clean clone with no key, and no network after the sync; CI on ubuntu with the network cut, and on macOS (T-47) | [`reports/verify.md`](reports/verify.md): 379 passed, all checks in 18.3 s |
-| Factual evaluation needs a bigger set and human validation | Error analysis on 100 real traces, labels drafted by a reasoning model; every row reviewed by the owner, 0 edits; one binary check per failure mode, replayed on every PR; a 40-case OWASP red team; a retrieval set of 82 questions with reviewed gold chunks (T-51, T-53) | [`evals/eval_report.md`](evals/eval_report.md): pass-all 95/100, red team 40/40; [`evals/rerank_benchmark.md`](evals/rerank_benchmark.md): recall@5 0.939 |
+| Horizontal scale and HA depend on how storage evolves | Postgres holds checkpoints, the handoff queue and turn locks; `make scale` runs two replicas behind a balancer; LangGraph's own retry and timeout replace the hand-written ones | `tests/test_replicas.py` in CI over Postgres: a case escalated on one replica answered on the other, a replica killed mid-turn, turns serialized ([ADR 0006](docs/adr/0006-postgres-for-replicas.md)) |
+| The suite did not start locally without `tiktoken`'s download | `tiktoken` declared and its encoding committed; `make verify` from a clean clone with no key, and no network after the sync; CI on ubuntu with the network cut, and on macOS | [`reports/verify.md`](reports/verify.md): 379 passed, all checks in 24.7 s after the sync |
+| Factual evaluation needs a bigger set and human validation | Error analysis on 100 real traces, labels drafted by a reasoning model; every row reviewed by the owner, 0 edits; one binary check per failure mode, replayed on every PR; a 40-case OWASP red team; a retrieval set of 82 questions with reviewed gold chunks | [`evals/eval_report.md`](evals/eval_report.md): pass-all 95/100, red team 40/40; [`evals/rerank_benchmark.md`](evals/rerank_benchmark.md): recall@5 0.939 |
 
 ## 1. Quick start
 
@@ -55,8 +54,8 @@ make verify                     # frozen sync, then lint, tests and offline eval
 Only `uv` and `make` are needed. After `uv sync --frozen` nothing touches the network: the tokenizer
 ships in the repository, and the tests run with sockets blocked. The result is printed and the tree
 is left as it was; `make verify REPORT=1` also records it in
-[`reports/verify.md`](reports/verify.md). From a clean copy with an empty uv cache it took 42 s of
-sync (468 MB, so mostly the network) and 27.4 s of checks.
+[`reports/verify.md`](reports/verify.md): from a clean clone, 24.7 s of checks after the sync. With
+an empty uv cache the sync downloads the dependencies first, so the network sets its time.
 
 ```bash
 cp .env.example .env            # set OPENAI_API_KEY and TAVILY_API_KEY
@@ -144,7 +143,8 @@ The full path of a message, the code layout, memory, failure handling and the de
 in [docs/architecture.md](docs/architecture.md); the human-review loop in
 [docs/human-in-the-loop.md](docs/human-in-the-loop.md); the guardrail and the financial hard rules
 in [docs/security.md](docs/security.md#guardrail-and-financial-hard-rules); the decisions in
-[docs/adr/](docs/adr/).
+[docs/adr/](docs/adr/). ADR 0004 (hybrid retrieval) was merged into [ADR
+0002](docs/adr/0002-reranker-off-by-default.md), so the numbers skip 0004.
 
 ## 3. Evaluation
 
@@ -153,7 +153,7 @@ in [docs/security.md](docs/security.md#guardrail-and-financial-hard-rules); the 
 | Offline suite | 379 tests, under 40 s, sockets blocked, plus 3 that run two replicas over Postgres in CI: every node, every tool, bounded replanning, masking, retrieval, memory, web search, concurrency, three adversarial paths, and the flows over HTTP through the real app and SQLite stores | `tests/` |
 | Reproducibility | `make verify` from a clean clone: frozen sync, lint, format, the suite, the guardrail eval and the eval replay, with no key; CI runs it on ubuntu with the network cut and on macOS | [`reports/verify.md`](reports/verify.md) |
 | Invariants | every invariant of the spec mapped to the test that pins it | [`specs/plan.md` §11](specs/plan.md) |
-| Error analysis | 100 sampled requests on the real model, labelled pass or fail, grouped into five failure modes; one check per mode (four in code, one binary judge from another model family): **pass-all 95/100**; the judge is not validated: the labels hold 5 failures of its mode, 1 held out | [`evals/README.md`](evals/README.md), [`failure_modes.md`](evals/failure_modes.md) |
+| Error analysis | 100 sampled requests on the real model, labelled pass or fail, grouped into five failure modes; five code checks + one judge, a binary judge from another model family: **pass-all 95/100**; the judge is not validated: the labels hold 5 failures of its mode, 1 held out | [`evals/README.md`](evals/README.md), [`failure_modes.md`](evals/failure_modes.md) |
 | Red team | 40 cases tagged OWASP ASI01–ASI10, 10 adaptive, with planted web pages and corpus passages: **40/40 safe** | [`evals/red_team.jsonl`](evals/red_team.jsonl), [`eval_report.md`](evals/eval_report.md) |
 | Routing golden set | 28 labelled rows (10 scenarios, compound, follow-ups, turns after an operator's reply): **54/56** over two runs on router prompt v11; both misses are A01, ambiguous by design | [`evals/routing_golden_set.jsonl`](evals/routing_golden_set.jsonl), [`router_benchmark.md`](evals/router_benchmark.md) |
 | Planning eval | 20 requests whose next step depends on a finding, three runs: bounded replanning completes **32/60** against 19/60 with it off; the simple requests' p95 moved +5.3, +2.1 and −0.7 s | [`evals/planning_report.md`](evals/planning_report.md) |

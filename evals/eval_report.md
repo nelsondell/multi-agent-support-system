@@ -1,6 +1,6 @@
 # Eval report
 
-`uv run python -m evals.run_evals --live` on 2026-10-23, at `49f04ff` plus the changes committed with this report. Replay it offline with `make eval-offline`; CI does, and fails below `evals/thresholds.toml`.
+Recorded with `uv run python -m evals.run_evals --update` on 2026-10-25 (T-62), at `49f04ff` plus the changes committed with this report; the recording's answers are pinned to 2026-10-23, the day it began. Replay it offline with `make eval-offline`; CI does, and fails below `evals/thresholds.toml`.
 
 ## traces
 
