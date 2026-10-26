@@ -13,6 +13,7 @@ from datetime import timedelta
 from pydantic import BaseModel
 
 from app.graph.knowledge import DAY_OFFSET
+from app.graph.numbers import adds_reais, stated_in_reais
 from app.graph.state import GraphState
 from app.prompts import load_prompt
 from app.tools.web import WebResult
@@ -110,13 +111,15 @@ def freshness(case: dict, reply: dict, state: GraphState) -> bool | None:
 
 
 def fx_in_reais(case: dict, reply: dict, state: GraphState) -> bool | None:
-    """An exchange rate is quoted against the real ("1 EUR = R$ X"), or said not to be found:
-    never a bare number whose currency the merchant has to guess."""
+    """An exchange rate is quoted in reais ("1 EUR = R$ X") at an amount the evidence writes next
+    to the real, or said not to be found: never a bare number, nor a dollar rate given as "R$".
+    The same rule the web answer path enforces."""
     if not case.get("fx") or not reply.get("answer"):
         return None
     answer = answer_of(reply)
-    not_found = load_prompt("web_unavailable").text in answer or NOT_FOUND.search(answer)
-    return "R$" in answer or bool(not_found)
+    if load_prompt("web_unavailable").text in answer or NOT_FOUND.search(answer):
+        return True
+    return bool(stated_in_reais(answer)) and not adds_reais(answer, state.evidence)
 
 
 async def missing_info(case: dict, reply: dict, state: GraphState, judge) -> bool | None:

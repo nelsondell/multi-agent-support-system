@@ -727,6 +727,15 @@ changes.
 **Done when:** the summary, §1 and §4 come from the new run; each section names its run; the
 changes since the old demo are listed.
 
+### T-65 — `fix(T-65): accept an amount in reais only where a result gives it in reais`
+A probe after the T-61 demo answered "1 EUR = R$ 1,1205" from a table of dollar rates, which the
+number guard and the `fx` check both passed. No prompt changes. Code rejects a general_info answer
+that states an R$ amount no cited result writes next to "R$", "real" or "BRL", and returns the
+existing not-found message; the `fx` check applies the same rule. The local model's download in
+the image build is retried three times with backoff, since it timed out twice on a slow network.
+**Done when:** a test sends "1 EUR = R$ 1,1205" over a dollar-only table and gets the not-found
+message; the download retry has a test; the replay meets the floors.
+
 ### Traceability
 
 | Criterion (v1 score) | Tasks |

@@ -181,3 +181,11 @@ The held-out requests ran once, at the end, through the code checks:
 - freshness 1/1, small talk 4/4, safe 80/80;
 - 7 sent to a person;
 - no held-out request asks for an exchange rate, so `fx` did not apply.
+
+## Amounts in reais (T-65)
+
+A probe after the T-61 demo answered "1 EUR = R$ 1,1205" from a table of dollar rates. Every
+digit was on the page, so neither the number guard nor the `fx` check, which only looked for "R$",
+stopped it. Code now rejects a web answer that gives an amount in reais no cited result writes next
+to "R$", "real", "reais" or "BRL", and returns the not-found message; `fx` applies the same rule.
+The recorded answers already met it, so the replay is unchanged: pass-all 95/100, `fx` 2/2.

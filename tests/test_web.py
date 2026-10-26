@@ -171,6 +171,52 @@ async def test_an_answer_with_a_number_the_results_lack_degrades(run, web_search
     assert final["sources"] == []
 
 
+USD_RATES = {
+    "url": "https://valor.example/moedas",
+    "title": "Moedas",
+    "content": "Valor de 1 unidade, em dólar: | Euro | 1,1205 | -0,10% | | Libra | 1,3353 |",
+}
+BRL_RATES = {
+    "url": "https://valor.example/moedas-real",
+    "title": "Moedas",
+    "content": "Valor de 1 unidade: | Euro (BC) - (R$/€) | 5,6483 | 5,6494 | 0,15% |",
+}
+
+
+async def test_a_dollar_rate_given_in_reais_becomes_not_found(run, web_search):
+    """S07: every digit of "1 EUR = R$ 1,1205" is on the page, in a table of dollar rates, so only
+    the currency guard stops it."""
+    web, _ = web_search([USD_RATES])
+    reply = "Hoje, 1 EUR = R$ 1,1205."
+    model = Model(
+        {
+            RouterDecision: general("cotação do euro hoje"),
+            KnowledgeAnswer: web_answer(reply, USD_RATES["url"]),
+        }
+    )
+
+    final = await run(model, web, "What's the euro exchange rate today?")
+
+    assert not adds_numbers(reply, [USD_RATES["content"]]), "the number guard alone lets it pass"
+    assert final["answer"] == UNAVAILABLE
+    assert final["sources"] == []
+
+
+async def test_a_rate_the_page_labels_in_reais_is_answered(run, web_search):
+    web, _ = web_search([BRL_RATES])
+    reply = "Hoje, 1 EUR = R$ 5,6483."
+    model = Model(
+        {
+            RouterDecision: general("cotação do euro hoje"),
+            KnowledgeAnswer: web_answer(reply, BRL_RATES["url"]),
+        }
+    )
+
+    final = await run(model, web, "What's the euro exchange rate today?")
+
+    assert final["answer"] == reply
+
+
 def timeout(request: httpx.Request) -> httpx.Response:
     raise httpx.ReadTimeout("timed out", request=request)
 

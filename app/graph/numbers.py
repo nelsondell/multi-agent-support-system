@@ -6,6 +6,9 @@ readings whose digit groups are well formed, so "R$ 1.234,56" and "1234.56" are 
 token with one ambiguous separator ("1.234") keeps both readings. A generated number passes when
 any of its readings matches any reading of a number in the source: that leniency only accepts a
 value the source already contains under some reading, never one it lacks.
+
+An amount given in reais must also be one a source writes next to the real ("R$", "real", "reais"
+or "BRL"): the same digits in a column of dollar rates do not back it.
 """
 
 import re
@@ -53,3 +56,37 @@ def adds_numbers(generated: str, sources: list[str], quoting: Iterable[str] = ()
         generated = generated.replace(identifier, " ")
     known = set().union(*(values for source in sources for values in numbers_in(source)))
     return any(not (values & known) for values in numbers_in(generated))
+
+
+_STATED_IN_REAIS = re.compile(r"R\$\s*(\d[\d.,]*\d|\d)|(\d[\d.,]*\d|\d)\s*(?:reais|real)\b")
+_REAIS = re.compile(r"R\$|\bBRL\b|\breais\b|\breal\b", re.IGNORECASE)
+_NEAR = 24
+"""How far, in characters with no digit in between, a currency marker may sit from its number:
+enough for a table row's label, as in "| Euro (BC) - (R$/€) | 5,6483"."""
+
+
+def stated_in_reais(text: str) -> list[set[Decimal]]:
+    """The amounts `text` gives in reais: "R$ 5,64" or "5,64 reais"."""
+    return [readings(match.group(1) or match.group(2)) for match in _STATED_IN_REAIS.finditer(text)]
+
+
+def next_to_reais(text: str) -> list[set[Decimal]]:
+    """The numbers `text` writes next to "R$", "real", "reais" or "BRL": the marker within a few
+    characters before or after, with no other number in between."""
+    amounts = []
+    for match in _NUMBER.finditer(text):
+        before = re.split(r"\d", text[max(0, match.start() - _NEAR) : match.start()])[-1]
+        after = re.split(r"\d", text[match.end() : match.end() + _NEAR])[0]
+        if _REAIS.search(before) or _REAIS.search(after):
+            amounts.append(readings(match.group()))
+    return amounts
+
+
+def adds_reais(generated: str, sources: list[str]) -> bool:
+    """Whether `generated` gives an amount in reais that no source writes next to the real.
+
+    A number the source does carry is not enough: "Euro | 1,1205" in a table of dollar rates must
+    not come out as "1 EUR = R$ 1,1205".
+    """
+    known = set().union(*(values for source in sources for values in next_to_reais(source)))
+    return any(not (values & known) for values in stated_in_reais(generated))

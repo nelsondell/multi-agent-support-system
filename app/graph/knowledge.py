@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import BaseModel, Field
 
 from app.contracts import EscalationReason, Need, Source, SourceType
-from app.graph.numbers import adds_numbers
+from app.graph.numbers import adds_numbers, adds_reais
 from app.prompts import load_prompt
 from app.providers.llm import LLMProvider, LLMProviderError
 from app.rag.retrieve import Hit, HybridRetriever, RetrievalResult, RetrievalUnavailable
@@ -157,6 +157,13 @@ def trustworthy(answer: str, results: list[WebResult], state: GraphState) -> boo
     return bool(answer.strip()) and not adds_numbers(answer, allowed) and not _LINK.search(answer)
 
 
+def backed(generated: KnowledgeAnswer, results: list[WebResult], state: GraphState) -> bool:
+    """`trustworthy`, and an amount in reais only where a cited result writes it next to the real:
+    a rate read off a table in dollars must not reach the merchant as "R$"."""
+    texts = [f"{result.title} {result.content}" for result in cited(results, generated.used_urls)]
+    return trustworthy(generated.answer, results, state) and not adds_reais(generated.answer, texts)
+
+
 def cited(results: list[WebResult], used_urls: list[str]) -> list[WebResult]:
     """The results the answer drew on, or all of them when it named none it was given."""
     used = [result for result in results if result.url in used_urls]
@@ -268,8 +275,8 @@ async def answer_from_web(
     if generated.coverage == "none":
         logger.info("web answer withheld: the results do not answer the question")
         return _web_unavailable(looked_at)
-    if not trustworthy(generated.answer, results, state):
-        logger.warning("web answer rejected: a number or a link not found in the results")
+    if not backed(generated, results, state):
+        logger.warning("web answer rejected: a number, an amount in reais or a link unbacked")
         return _web_unavailable(looked_at)
     sources = _web_sources(results, generated.used_urls)
     fresh_from = min(target, state.today) if target and state.today else target
