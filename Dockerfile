@@ -2,7 +2,7 @@
 # Dependabot proposes a newer digest.
 
 # Build stage: resolve dependencies with uv against the lockfile, nothing else.
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS builder
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.10.11@sha256:3472e43b4e738cf911c99d41bb34331280efad54c73b1def654a6227bb59b2b4 /uv /usr/local/bin/uv
 
@@ -28,7 +28,7 @@ RUN uv sync --frozen --no-dev $(case "$RERANKER" in (bge|qwen) echo --group rera
 
 
 # Runtime stage: the virtualenv, the application and the corpus snapshot, no build tooling.
-FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1 AS runtime
+FROM python:3.15-slim@sha256:65a65fc7b30b06cb6df4930fd4650697cb23f4c2698ab81fc87e4b031bc36928 AS runtime
 
 # No API key at build time: the index is built on first boot, from the committed snapshot.
 RUN groupadd --system --gid 1001 appuser \
